@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter>
+  <Sentence verse="EZR 4:8">
+    <Trees>
+      <Tree>
+        <Node nodeId="clause-ezr-1" Cat="CL" Rule="S-V">
+          <Node nodeId="subject-ezr-1" Cat="S">
+            <m xml:id="o150040080011" word="EZR 4:8!1" lang="A" pos="noun" morph="ANcmsa" lemma="מַלְכָּא" after=" ">מַלְכָּא</m>
+          </Node>
+          <Node nodeId="verb-ezr-1" Cat="V">
+            <m n="o150040080021" word="EZR 4:8!2" lang="A" pos="verb" morph="AVqp3ms">כְּתַב</m>
+          </Node>
+        </Node>
+      </Tree>
+    </Trees>
+  </Sentence>
+</chapter>

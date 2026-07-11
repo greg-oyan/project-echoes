@@ -12,6 +12,8 @@ REQUIRED_DOCUMENTS = [
     "docs/corpus-scope.md",
     "docs/data-sources.md",
     "docs/data-licensing.md",
+    "docs/canonical-token-schema.md",
+    "docs/normalization.md",
     "docs/novelty-review.md",
     "docs/prior-projects.md",
     "docs/decisions/README.md",
@@ -19,6 +21,10 @@ REQUIRED_DOCUMENTS = [
     "docs/decisions/0002-layered-corpus-strategy.md",
     "docs/decisions/0003-no-llm-primary-discovery.md",
     "docs/decisions/0004-local-first-architecture.md",
+    "docs/decisions/0005-macula-hebrew-source-selection.md",
+    "docs/decisions/0006-canonical-token-identifiers.md",
+    "docs/decisions/0007-hebrew-normalization-policy.md",
+    "outputs/reports/milestone-2-hebrew-ingestion-report.md",
     "data/review/literature_matrix.csv",
 ]
 

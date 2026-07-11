@@ -6,6 +6,15 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 ### Added
 
+- Milestone 2 governed MACULA Hebrew acquisition pinned to release `25.08.11` and commit `7ab368fcb14e4ad2e0f784138241a098fb516ec4`, with sparse checkout, non-overwrite behavior, a 932-file receipt, and SHA-256 verification.
+- A typed MACULA `WLC/nodes` adapter that maps 475,911 Hebrew/Aramaic source records one-to-one into stable canonical tokens across 39 books and 929 chapters while retaining native identifiers and source provenance.
+- Documented Hebrew normalization with immutable source forms, NFD-derived forms, explicit cantillation/vowel handling, combining-grapheme-joiner removal in derived values, and explicit zero-width morphemes.
+- Versioned Parquet corpus tables, transactional DuckDB loading, logical and physical table hashes, stable run identities, duplicate prevention, and corpus summary queries.
+- `acquire-source`, `verify-acquisition`, `ingest-hebrew`, `validate-corpus`, and `corpus-summary` CLI workflows with safe defaults and machine-readable output modes.
+- Full-corpus validation for source/token identity, canonical references and order, coverage, language, normalization, provenance, annotation completeness, hashes, and Parquet/DuckDB agreement.
+- Synthetic-fixture unit and integration tests for acquisition safety, adapter edge cases, normalization, deterministic storage, transactional reruns, CLI behavior, and clear failure paths without committing biblical source data.
+- MACULA Hebrew licensing and source-selection decisions, canonical-token and normalization documentation, manual spot checks, reproducibility evidence, and a Milestone 2 ingestion report.
+
 - Milestone 1 substantive research charter, layered corpus scope, source/provenance policy, and licensing procedure.
 - Strict source-manifest schemas with lifecycle, license, edition, version, hash, duplicate-ID, and raw-data Git-policy validation.
 - Preliminary metadata-only governance records for ten planned primary, bridge, supplementary, benchmark, validation, and reception sources.
@@ -23,5 +32,7 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 ### Known limitations
 
-- No corpus has been downloaded or ingested; source versions, expected files, and hashes remain empty until governed acquisition.
-- Most source licensing reviews remain incomplete, as recorded explicitly in `data/manifests/sources.yaml`.
+- MACULA Hebrew normally supplies its preferred Qere reading rather than complete parallel Ketiv material, so the pinned representation cannot support exhaustive Ketiv/Qere comparison.
+- Raw MACULA files and full processed token tables remain local and Git-ignored; public redistribution requires a separate field-level rights and attribution review.
+- MACULA Greek and every downstream source remain inactive, and no segmentation, embedding, semantic-analysis, candidate-generation, or review-console milestone has begun.
+- Most registered sources still have incomplete licensing or acquisition reviews, as recorded explicitly in `data/manifests/sources.yaml`.

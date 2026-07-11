@@ -1,0 +1,55 @@
+schema_version: 1
+source_id: macula-hebrew
+status: ready
+expected_books: 39
+expected_chapters: 929
+expected_tokens: 475911
+spot_checks:
+  - reference: GEN 1:1
+    category: Genesis narrative and complex prefix segmentation
+    expected_language: hebrew
+    check: [token_order, surface_forms, lemmas, morphology, language, canonical_reference, source_provenance, normalized_forms, segmentation]
+  - reference: LEV 19:18
+    category: Torah legal material
+    expected_language: hebrew
+    check: [token_order, surface_forms, lemmas, morphology, language, canonical_reference, source_provenance, normalized_forms]
+  - reference: 1SA 17:4
+    category: Samuel historical narrative
+    expected_language: hebrew
+    check: [token_order, surface_forms, lemmas, morphology, language, canonical_reference, source_provenance, normalized_forms]
+  - reference: PSA 23:1
+    category: Psalms poetry
+    expected_language: hebrew
+    check: [token_order, surface_forms, lemmas, morphology, language, canonical_reference, source_provenance, normalized_forms]
+  - reference: JOB 1:1
+    category: Wisdom literature
+    expected_language: hebrew
+    check: [token_order, surface_forms, lemmas, morphology, language, canonical_reference, source_provenance, normalized_forms]
+  - reference: ISA 6:1
+    category: Major prophets
+    expected_language: hebrew
+    check: [token_order, surface_forms, lemmas, morphology, language, canonical_reference, source_provenance, normalized_forms]
+  - reference: MIC 6:8
+    category: Minor prophets
+    expected_language: hebrew
+    check: [token_order, surface_forms, lemmas, morphology, language, canonical_reference, source_provenance, normalized_forms]
+  - reference: EZR 4:8
+    category: Ezra Aramaic boundary
+    expected_language: aramaic
+    check: [token_order, surface_forms, lemmas, morphology, language, canonical_reference, source_provenance, normalized_forms]
+  - reference: DAN 2:4
+    category: Daniel Hebrew-Aramaic transition
+    expected_language: aramaic
+    check: [token_order, surface_forms, lemmas, morphology, language, canonical_reference, source_provenance, normalized_forms]
+  - reference: 2KI 8:10
+    category: Ketiv/Qere candidate
+    expected_language: hebrew
+    check: [token_order, surface_forms, lemmas, morphology, language, canonical_reference, source_provenance, normalized_forms, ketiv_qere]
+  - reference: EXO 20:13
+    category: Maqqef and short legal clauses
+    expected_language: hebrew
+    check: [token_order, surface_forms, lemmas, morphology, language, canonical_reference, source_provenance, normalized_forms, segmentation]
+  - reference: JER 10:11
+    category: Jeremiah Aramaic verse
+    expected_language: aramaic
+    check: [token_order, surface_forms, lemmas, morphology, language, canonical_reference, source_provenance, normalized_forms]

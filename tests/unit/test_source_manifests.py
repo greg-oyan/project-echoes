@@ -85,9 +85,17 @@ def test_production_catalog_contains_the_governed_source_set() -> None:
         "targum-corpus",
         "ubs-parallel-passages",
     }
+    macula = catalog.find("macula-hebrew")
+    assert macula is not None
+    assert macula.status is SourceStatus.VALIDATED
+    assert macula.version_or_commit == "7ab368fcb14e4ad2e0f784138241a098fb516ec4"
+    assert macula.acquisition is not None
+    assert macula.acquisition.version_label == "25.08.11"
+    assert set(macula.file_hashes) == {
+        "README.md",
+        "LICENSE.md",
+        "WLC/nodes/macula-hebrew.xml",
+    }
     assert all(
-        source.status not in {SourceStatus.ACQUIRED, SourceStatus.VALIDATED}
-        for source in catalog.sources
+        not source.file_hashes for source in catalog.sources if source.source_id != "macula-hebrew"
     )
-    assert all(source.version_or_commit is None for source in catalog.sources)
-    assert all(not source.file_hashes for source in catalog.sources)

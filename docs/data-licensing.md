@@ -1,7 +1,7 @@
 # Data licensing and publication governance
 
-Status: **Preliminary Milestone 1 review**
-Review date: 2026-07-10
+Status: **Milestone 2 MACULA Hebrew determination; other sources preliminary**
+Review date: 2026-07-11
 
 This document records operational governance, not legal advice. Technical accessibility, a public Git repository, or an online reading interface does not by itself grant permission to copy, process in bulk, redistribute, or publish derived data. Uncertainty blocks source approval.
 
@@ -49,7 +49,7 @@ Before a release, generate an inventory of included files and their input source
 
 ## Proprietary critical editions
 
-BHQ/BHS, Nestle-Aland, UBS, ECM, and other modern apparatuses are treated as proprietary research sources unless the rights holder grants explicit relevant permission. A subscription or browser interface does not authorize scraping. No apparatus is acquired in Milestone 1. Later use requires exact edition/coverage, written machine-processing terms, local-storage rules, citation requirements, extraction limits, and a derived-output agreement.
+BHQ/BHS, Nestle-Aland, UBS, ECM, and other modern apparatuses are treated as proprietary research sources unless the rights holder grants explicit relevant permission. A subscription or browser interface does not authorize scraping. No apparatus is acquired through Milestone 2. Later use requires exact edition/coverage, written machine-processing terms, local-storage rules, citation requirements, extraction limits, and a derived-output agreement.
 
 ## Citation and provenance
 
@@ -59,11 +59,28 @@ Citation and license are separate obligations. Every processed record retains st
 
 A change requires new official evidence, a manifest update, reviewer and date, an explanatory decision record when publication behavior changes, revalidation, and assessment of existing raw/derived artifacts. Rights are never broadened by inference from a repository's visibility. A more restrictive determination triggers quarantine and release review; a less restrictive determination does not retroactively alter prior source versions without documentation.
 
+## MACULA Hebrew 25.08.11 determination
+
+The Milestone 2 review applies only to MACULA Hebrew release `25.08.11`, immutable commit `7ab368fcb14e4ad2e0f784138241a098fb516ec4`, and the acquired `WLC/nodes` representation. The official notice identifies the relevant components as follows:
+
+- Westminster Leningrad Codex text: unrestricted/public-domain use as stated upstream.
+- Open Scriptures Hebrew Bible morphology: CC BY 4.0.
+- Groves Center/Westminster syntax: CC BY 4.0.
+- Cherith Analytics English glosses: CC BY 4.0.
+- Clear Bible/Biblica integrated annotations: the MACULA aggregate is offered under CC BY 4.0.
+- Enumerated SDBH-derived attributes: included in that aggregate with permission from United Bible Societies; this project does not infer broader independent rights in the underlying SDBH resource.
+
+This evidence supports reproducible local machine processing with all component notices and attribution retained. Project policy is deliberately narrower than the broadest possible reading of the aggregate license: redistribution is classified as `acquisition_instructions_only`, raw files are `ignored_local_only`, and complete processed token/annotation tables are not approved for public release. The repository may track acquisition instructions, source and transformation metadata, hashes, schemas, aggregate statistics, non-textual validation findings, and limited reports that do not reconstruct the corpus.
+
+The required attribution names the MACULA Hebrew Linguistic Datasets and links the official repository, while preserving the WLC, Open Scriptures Hebrew Bible Project, Groves Center, Cherith Analytics, and UBS/SDBH notices applicable to the fields used. Any public derived artifact requires a fresh field-level review of its included columns, reconstructability, notices, and modification statement.
+
+The selected release intentionally predates the SILHA gloss integration found in later 2026 releases. SILHA terms therefore are not imported into this snapshot, but a future upgrade must repeat the component and publication review rather than silently inherit this determination.
+
 ## Preliminary status table
 
 | Source ID | License review | License/terms recorded | Redistribution | Machine processing | Raw Git policy | Lifecycle |
 |---|---|---|---|---|---|---|
-| `macula-hebrew` | In progress | CC BY 4.0 aggregate; component notices require audit | Acquisition instructions only pending component audit | Permitted | Ignored local only | Under review |
+| `macula-hebrew` | Complete for 25.08.11 | Composite notices reviewed; CC BY 4.0 aggregate, public-domain/unrestricted WLC, and named component terms | Acquisition instructions only by project policy | Permitted | Ignored local only | Validated |
 | `macula-greek` | In progress | CC BY 4.0 aggregate; component notices require audit | Acquisition instructions only pending component audit | Permitted | Ignored local only | Under review |
 | `stepbible-data` | In progress | CC BY 4.0 repository statement; selected-file audit pending | Acquisition instructions only pending subset audit | Permitted | Ignored local only | Under review |
 | `septuagint-catss` | In progress | CCAT/CATSS user agreement | Acquisition instructions only | Restricted | Ignored local only | Blocked |
@@ -74,4 +91,4 @@ A change requires new official evidence, a manifest update, reviewer and date, a
 | `greek-critical-apparatus` | Not started | Proprietary; publisher rights page recorded | Prohibited absent permission | Unknown | Prohibited | Planned |
 | `targum-corpus` | Not started | No general bulk-reuse license found | Unknown | Unknown | Prohibited | Planned |
 
-These are preliminary operational classifications as of the review date. Only the UBS record has a completed licensing review, and it is still not acquired or active. Source-specific unresolved questions are preserved in the machine-readable manifest.
+These are operational classifications as of the review date. MACULA Hebrew and UBS Parallel Passages have completed licensing reviews; only the pinned MACULA Hebrew snapshot is acquired and validated. Source-specific unresolved questions and publication boundaries are preserved in the machine-readable manifest.
