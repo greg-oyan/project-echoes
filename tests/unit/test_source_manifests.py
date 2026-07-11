@@ -80,6 +80,7 @@ def test_production_catalog_contains_the_governed_source_set() -> None:
         "macula-greek",
         "macula-hebrew",
         "openbible-cross-references",
+        "oshb-morphhb",
         "project-echoes-tier1-quotations",
         "septuagint-catss",
         "stepbible-data",

@@ -29,6 +29,7 @@ REQUIRED_DOCUMENTS = [
     "docs/decisions/0006-canonical-token-identifiers.md",
     "docs/decisions/0007-hebrew-normalization-policy.md",
     "docs/decisions/0008-methodology-amendments.md",
+    "docs/decisions/0009-oshb-ketiv-qere-supplementation.md",
     "outputs/reports/milestone-2-hebrew-ingestion-report.md",
     "data/review/literature_matrix.csv",
     "data/benchmarks/tier1_quotations.csv",

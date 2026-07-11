@@ -137,6 +137,52 @@ sources:
       - Which upstream text-edition restrictions apply to fields derived from commercial editions?
     status: under_review
 
+  - source_id: oshb-morphhb
+    source_name: Open Scriptures Hebrew Bible (morphhb)
+    corpus: Hebrew and Aramaic Old Testament with lemma and morphology markup
+    role: supplementary_annotation
+    language: [hebrew, aramaic]
+    edition: Westminster Leningrad Codex as represented by the OSHB OSIS XML in the wlc directory
+    provider: Open Scriptures Hebrew Bible Project
+    repository_or_location: https://github.com/openscriptures/morphhb
+    version_or_commit: 3d15126fb1ef74867fc1434be1942e837932691f
+    download_date: null
+    license: >-
+      Lemma and morphology data under CC BY 4.0; the WLC text itself is public
+      domain (Creative Commons Public Domain Mark 1.0)
+    license_url: https://github.com/openscriptures/morphhb/blob/3d15126fb1ef74867fc1434be1942e837932691f/LICENSE.md
+    license_review_status: complete
+    required_attribution: >-
+      Attribute as "Original work of the Open Scriptures Hebrew Bible available at
+      https://github.com/openscriptures/morphhb" per the repository LICENSE.md
+    redistribution_status: permitted
+    machine_processing_status: permitted
+    raw_data_git_policy: ignored_local_only
+    expected_files: []
+    file_hashes: {}
+    ingest_adapter: null
+    research_purpose: >-
+      Paired Ketiv/Qere layer for Milestone 4: supply the Ketiv records that the
+      MACULA preferred-Qere representation omits, keyed into MACULA's preserved
+      word-number gaps, without mutating primary annotations.
+    known_limitations:
+      - The default branch is named master, not main; the pin above is the master head observed on 2026-07-11.
+      - OSHB tokenization and word segmentation differ from MACULA morpheme segmentation, so Ketiv alignment requires an explicit method and confidence field.
+      - The OSHB repository is a live project without formal releases for every change; activation requires acquiring exactly the pinned commit.
+      - OSHB README guidance warns against NFC normalization of its Hebrew text; derived-form handling must follow the project normalization policy.
+    notes:
+      - Governance-only record; no acquisition, ingestion, or adapter exists yet. Acquisition is deferred to Milestone 4 and requires an acquisition specification and canonical-byte hashes at that point.
+      - ADR 0009 (Proposed) records the Ketiv/Qere supplementation strategy, including the verified MACULA word-number gap at 2KI 8:10 slot 6.
+      - Ketiv records from this layer must be produced as variant_type=ketiv tokens per canonical schema v2, leaving the existing Qere stream unchanged; annotation conflicts are preserved per master plan section 10.4.
+    confirmed_information:
+      - The pinned commit resolves the repository's default master branch head as of 2026-07-11.
+      - LICENSE.md at the pinned commit states CC BY 4.0 for lemma and morphology data, public domain for the WLC text, and the exact attribution sentence recorded above; its canonical-byte SHA-256 from the raw download stream is 9bf4a2890c25372e4c1dc750d550bfb4eacfbfcb63c53123b0628159370d1878.
+      - The README at the pinned commit documents OSIS XML markup, lemma, morph, and unique immutable per-word id attributes in the wlc directory.
+    unresolved_questions:
+      - Which exact wlc files and attributes carry the Ketiv records, and how completely do they cover the roughly 1,500 K/Q loci of the Leningrad tradition?
+      - What alignment-confidence policy applies where OSHB word boundaries and MACULA word-number gaps disagree?
+    status: planned
+
   - source_id: septuagint-catss
     source_name: CATSS Morphologically Analyzed Septuagint and Parallel Hebrew-Greek Module
     corpus: Septuagint

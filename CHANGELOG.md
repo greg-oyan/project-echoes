@@ -18,6 +18,16 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 ### Added
 
+- OSHB Ketiv/Qere governance: a pinned, license-verified `oshb-morphhb`
+  manifest entry (supplementary role, planned lifecycle, CC BY 4.0 with public
+  domain WLC text, no acquisition) and proposed ADR 0009 describing how OSHB
+  ketiv records key into the word-number gaps MACULA preserves (verified at
+  2KI 8:10 slot 6), producing `variant_type=ketiv` tokens per canonical schema
+  v2 with the Qere stream unchanged, an alignment-confidence field, and
+  preserved annotation conflicts. Limitations and review documentation now
+  record the interim qere-only exposure and the rubric question 14
+  textual-variant obligation.
+
 - Approved pre-Milestone-3 methodology amendments: source-edition-only token
   identity, non-destructive Ketiv/Qere analysis streams, tiered benchmark
   governance, version 1 Septuagint rescoping, empirical null requirements,

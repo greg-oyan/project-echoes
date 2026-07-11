@@ -39,6 +39,10 @@ Later candidate review proceeds through three levels:
 
 Every search records exact sources, versions or access dates, queries, filters, citations reviewed, relevant results, reviewer, and limitations. Knownness labels K0–K4 are defined in the [research charter](research-charter.md). Search incompleteness defaults to K4 rather than K3.
 
+### Textual-variant exposure at Ketiv/Qere loci
+
+Rubric question 14 asks whether a relationship survives alternate textual witnesses. Until the OSHB Ketiv/Qere supplementary layer (ADR 0009, Proposed) is ingested, the corpus is qere-only and Ketiv readings are silently absent, so evidence drawn from a known Ketiv/Qere locus rests on one reading of a variant word without the alternate reading being inspectable in the corpus. Reviewers must therefore treat any candidate whose evidence tokens intersect a known K/Q locus as having textual-variant exposure under question 14: the locus is flagged, the answer cannot default to "survives," and the candidate's `data_quality_status` must record the exposure (automated flagging is Milestone 7 scope).
+
 ## Calibrating novelty claims
 
 Project-level novelty may concern an integration, scale, evaluation design, or review workflow even when every component algorithm is established. Conversely, combining familiar methods does not automatically create a meaningful scholarly contribution. The integration must demonstrate reproducibility, complementary detector value, controlled false positives, and useful evidence that previous workflows did not provide.
