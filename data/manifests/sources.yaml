@@ -29,9 +29,9 @@ sources:
       - LICENSE.md
       - WLC/nodes/macula-hebrew.xml
     file_hashes:
-      README.md: 0da32645421164b46dfc098417604994d3ba2a70b7152e6bdca39a98d79247af
-      LICENSE.md: 08c8c36e37f245de517e3d536877aeffed86d5941e05510e5d45785b71c0590d
-      WLC/nodes/macula-hebrew.xml: 13ad64d524cfed9366bef0cf0b47b617e67e3fc6bcb77db38e51c19918a4166a
+      README.md: eab7e8334723e2819904049f040db5ea6fc939fa9093810b3636107fc693426f
+      LICENSE.md: df45ba3224e7d6f9dba3ec8fd2d0b3f1d2febb2620147c889667886fccd4d8e1
+      WLC/nodes/macula-hebrew.xml: 050c0616f7235ff86c69c31d77758442f2109e71178b2797f779dd087f7c5c65
     ingest_adapter: echoes.ingest.macula_hebrew
     acquisition:
       method: git_sparse
@@ -55,6 +55,8 @@ sources:
       - Release 25.08.11 is deliberately selected because it predates the separately licensed SILHA gloss injection in 2026 releases.
       - Limited metadata, checksums, aggregate statistics, validation findings, and non-textual schema information may be published with attribution.
       - The Git-ignored acquisition receipt records SHA-256 hashes and sizes for all 932 acquired files; the tracked manifest retains hashes for the three required inventory anchors.
+      - All recorded hashes are canonical-byte SHA-256 values over the pinned commit's exact blob bytes, externally verified against raw.githubusercontent.com at commit 7ab368fcb14e4ad2e0f784138241a098fb516ec4 on 2026-07-11; acquisitions disable Git text conversion (core.autocrlf=false with a "* -text" attributes rule).
+      - The earlier 2026-07-11 inventory hashed a Windows text-mode (CRLF) checkout and is superseded; those values are retained in the Milestone 2 ingestion report's superseded appendix and must never be used for verification.
     confirmed_information:
       - The official repository describes WLC text, OpenScriptures morphology, Westminster syntax, semantic, gloss, and participant layers and identifies each major component in its license.
       - Release 25.08.11 resolves to commit 7ab368fcb14e4ad2e0f784138241a098fb516ec4 and predates the SILHA integration.

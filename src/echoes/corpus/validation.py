@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Self
@@ -31,6 +32,24 @@ from echoes.settings import HebrewNormalization
 
 class CorpusValidationError(RuntimeError):
     """Raised when validation cannot inspect the requested corpus artifacts."""
+
+
+def corpus_identity_digest(tokens: pl.DataFrame) -> str:
+    """Hash every preserved token identity in corpus order.
+
+    The digest is the SHA-256 of the corpus-position-ordered
+    ``token_id\\0source_record_id\\0source_word_id\\n`` triples encoded as
+    UTF-8.  It is the recorded corpus identity fingerprint from the
+    pre-Milestone-3 amendment log and must remain byte-for-byte stable across
+    reruns of the same pinned source, normalization, and schema.
+    """
+    ordered = tokens.sort("position_in_corpus").select(
+        "token_id", "source_record_id", "source_word_id"
+    )
+    digest = hashlib.sha256()
+    for token_id, source_record_id, source_word_id in ordered.iter_rows():
+        digest.update(f"{token_id}\0{source_record_id}\0{source_word_id}\n".encode())
+    return digest.hexdigest()
 
 
 class CorpusValidationReport(BaseModel):

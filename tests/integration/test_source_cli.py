@@ -84,6 +84,48 @@ def test_show_source_prints_normalized_record() -> None:
     assert "license_review_status: in_progress" in result.stdout
 
 
+def _write_audit_file(data_root: Path, payload: bytes) -> None:
+    target = data_root / "raw" / "fixture-hash-audit" / "audit-v1" / "docs" / "sample.txt"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(payload)
+
+
+def test_validate_sources_recomputes_local_canonical_hashes(tmp_path: Path) -> None:
+    _write_audit_file(tmp_path, b"canonical\nbytes\n")
+
+    result = runner.invoke(
+        app,
+        [
+            "validate-sources",
+            "--manifest-path",
+            str(FIXTURES / "hash-audit.yaml"),
+            "--data-root",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Canonical-hash audit: 1 locally present source(s) recomputed." in result.stdout
+
+
+def test_validate_sources_fails_on_text_mode_rewritten_bytes(tmp_path: Path) -> None:
+    _write_audit_file(tmp_path, b"canonical\r\nbytes\r\n")
+
+    result = runner.invoke(
+        app,
+        [
+            "validate-sources",
+            "--manifest-path",
+            str(FIXTURES / "hash-audit.yaml"),
+            "--data-root",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "canonical SHA-256 mismatch" in result.output
+
+
 def test_show_source_handles_missing_id_cleanly() -> None:
     result = runner.invoke(
         app,

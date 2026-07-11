@@ -81,6 +81,33 @@ Git sources use an immutable commit and, when available, a release tag. Mutable 
 
 MACULA Hebrew is pinned to the immutable commit above and may be marked validated because its acquisition receipt, inventory, hashes, adapter, and corpus checks exist. `null` version and date fields for every other unacquired source remain deliberate and prevent those records from being marked acquired. A future MACULA Hebrew upgrade is a new source version and must not silently replace 25.08.11; in particular, 2026 releases require a fresh review of the later SILHA integration and licensing terms.
 
+## Canonical-byte hashing policy
+
+All recorded source hashes are canonical-byte SHA-256 values: they are computed over the
+exact bytes of the pinned upstream revision, byte-for-byte as published. Windows
+text-mode Git checkouts (`core.autocrlf=true`) rewrite LF line endings to CRLF in files
+Git classifies as text, silently altering the bytes on disk; such mutated working-tree
+files must never feed the hasher. The governance mechanisms are:
+
+- Git-based acquisitions disable every text conversion: the acquisition checkout sets
+  `core.autocrlf=false` and declares `* -text` in `.git/info/attributes` (the
+  highest-precedence gitattributes source), so working-tree files carry the pinned
+  commit's exact blob bytes.
+- Direct HTTP fetches hash the download stream itself as it is received, before any
+  local filesystem interpretation.
+- `echoes validate-sources` recomputes canonical hashes for every manifest-hashed file
+  whose raw acquisition directory is present locally and fails on any divergence.
+- When an acquisition clone retains its `.git` object store, `git cat-file blob` at the
+  pinned commit provides canonical bytes without re-downloading; a working tree checked
+  out under text-mode settings is never a trustworthy hashing input.
+
+The original Milestone 2 inventory was computed on a text-mode checkout and is
+superseded; it is retained, marked superseded, inside the regenerated Milestone 2
+ingestion report. The corpus identity digest
+`91e923e6f4234e3d1946ad6fb1487f5894ec4e28f2fd3c919bf6ebd1680693b6` and the 475,911
+token count were identical before and after remediation, confirming the line-ending
+rewrite never reached parsed XML content or token identity.
+
 ## Raw-data storage policy
 
 Raw biblical and external data live under Git-ignored local paths. Restricted files are never committed, attached to issues, placed in releases, copied into fixtures, or embedded in logs. Manifests, checksums, source URLs, licenses, acquisition instructions, schemas, and synthetic fixtures are trackable. A permissive license does not require raw files to be committed; local-only storage is the conservative default until publication value and component rights are reviewed.

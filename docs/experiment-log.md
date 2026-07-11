@@ -47,4 +47,15 @@
 - Local Ketiv/Qere spot check: 2 Kings 8:10 contains 18 preserved source-edition records and no variant group in release 25.08.11. No source text was recorded. This confirms that the selected MACULA representation supplies only its preferred analysis there; it does not justify reconstructing a missing Ketiv record or claiming that the tradition has no variant.
 - Boundary: no source was reacquired, no raw or processed corpus artifact was tracked, and no Greek, Septuagint, benchmark population, scoring, semantic, or review engine was started.
 
+## 2026-07-11 - Canonical-byte checksum remediation
+
+- Purpose: replace the Milestone 2 SHA-256 inventory, which was computed on a Windows text-mode (CRLF) checkout, with hashes over the pinned commit's canonical bytes, without changing any token identity.
+- Root cause: the acquisition sparse checkout inherited `core.autocrlf=true`, so Git rewrote LF to CRLF in text-classified files before hashing. External verification showed `README.md` and `LICENSE.md` manifest hashes matched the pinned commit's raw bytes only after LF-to-CRLF conversion.
+- Remediation: acquisition checkouts now set `core.autocrlf=false` and declare `* -text` in `.git/info/attributes`; HTTP acquisitions already hashed the download stream. The source was re-fetched at pinned commit `7ab368fcb14e4ad2e0f784138241a098fb516ec4` and the full 932-file inventory recomputed from canonical bytes (381,774,487 total bytes). The three manifest anchors were externally verified against `raw.githubusercontent.com` at the pinned commit.
+- Validator: `echoes validate-sources` now recomputes canonical hashes for manifest-hashed files whose raw data is present locally; synthetic-fixture tests cover matching bytes, CRLF-rewritten bytes, missing files, and absent local data.
+- Result: re-ingestion from canonical-byte raw data produced 475,911 source records and 475,911 tokens across 39 books and 929 chapters with zero validation errors or warnings; run ID `hebrew-9e089f330652392a0dff` (run IDs incorporate raw-file hashes and therefore changed).
+- Identity gate: the corpus identity digest (SHA-256 over corpus-position-ordered `token_id\0source_record_id\0source_word_id\n` triples, now implemented as `echoes.corpus.validation.corpus_identity_digest`) was `91e923e6f4234e3d1946ad6fb1487f5894ec4e28f2fd3c919bf6ebd1680693b6`, identical to the pre-remediation value, and the opt-in full-corpus regression now asserts it permanently.
+- Superseded artifacts: the text-mode inventory is retained, marked superseded, as an appendix inside the regenerated Milestone 2 ingestion report; the superseded values must never be used for verification.
+- Boundary: no normalization, schema, or token-identity semantics changed; only acquisition byte handling, hash records, validation, and documentation.
+
 Substantive experiments are prohibited until their prerequisite milestones and data-governance gates pass.

@@ -4,6 +4,18 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 ## [Unreleased]
 
+### Fixed
+
+- Canonical-byte checksum remediation: the Milestone 2 SHA-256 inventory had been
+  computed on a Windows text-mode (CRLF) checkout. Acquisition checkouts now disable
+  Git text conversion (`core.autocrlf=false` plus a `* -text` attributes rule), the
+  932-file MACULA Hebrew inventory and manifest anchor hashes were recomputed from the
+  pinned commit's canonical bytes and externally verified, `validate-sources`
+  recomputes canonical hashes when raw data is present locally, and the regenerated
+  Milestone 2 report retains the superseded text-mode inventory. The corpus identity
+  digest `91e923e6…` and the 475,911 token count were unchanged, and the opt-in
+  full-corpus regression now asserts both.
+
 ### Added
 
 - Approved pre-Milestone-3 methodology amendments: source-edition-only token

@@ -6,10 +6,12 @@ import ast
 import inspect
 from pathlib import Path
 
+import polars as pl
 import pytest
 
 import echoes.corpus.token_ids as token_ids
 from echoes.corpus.token_ids import TokenIdentityError, generate_source_edition_token_id
+from echoes.corpus.validation import corpus_identity_digest
 
 
 def _identity() -> str:
@@ -62,3 +64,21 @@ def test_source_identity_is_stable_and_requires_explicit_variant_disambiguation(
             source_token_position=3,
             disambiguate_with_source_record=True,
         )
+
+
+def test_corpus_identity_digest_orders_by_corpus_position_and_detects_changes() -> None:
+    frame = pl.DataFrame(
+        {
+            "position_in_corpus": [2, 1],
+            "token_id": ["HB_GEN_001_001_0002", "HB_GEN_001_001_0001"],
+            "source_record_id": ["o2", "o1"],
+            "source_word_id": ["GEN 1:1!2", "GEN 1:1!1"],
+        }
+    )
+    reordered = frame.sort("token_id")
+
+    digest = corpus_identity_digest(frame)
+    assert digest == corpus_identity_digest(reordered)
+
+    changed = frame.with_columns(pl.col("source_record_id").str.replace("o2", "different"))
+    assert corpus_identity_digest(changed) != digest

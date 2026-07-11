@@ -11,7 +11,12 @@ import typer
 from pydantic import BaseModel
 
 from echoes import __version__
-from echoes.acquire import AcquisitionError, acquire_source, verify_acquisition
+from echoes.acquire import (
+    AcquisitionError,
+    acquire_source,
+    audit_manifest_hashes,
+    verify_acquisition,
+)
 from echoes.corpus.hebrew import (
     HebrewPipelineError,
     ingest_hebrew_corpus,
@@ -113,8 +118,9 @@ def validate_config_command(config_dir: ConfigDir = Path("config")) -> None:
 @app.command("validate-sources")
 def validate_sources_command(
     manifest_path: SourceManifestPath = Path("data/manifests/sources.yaml"),
+    data_root: DataRoot = Path("data"),
 ) -> None:
-    """Validate source records and report governance-state counts."""
+    """Validate source records, governance state, and locally present canonical hashes."""
     try:
         catalog = load_source_catalog(manifest_path)
     except SourceManifestError as exc:
@@ -129,6 +135,19 @@ def validate_sources_command(
         "Licensing: "
         f"complete={summary.licensing_complete}, incomplete={summary.licensing_incomplete}"
     )
+    audited = 0
+    hash_findings: list[str] = []
+    for source in catalog.sources:
+        findings = audit_manifest_hashes(source, data_root=data_root)
+        if findings is None:
+            continue
+        audited += 1
+        hash_findings.extend(findings)
+    typer.echo(f"Canonical-hash audit: {audited} locally present source(s) recomputed.")
+    if hash_findings:
+        for finding in hash_findings:
+            typer.echo(f"Canonical-hash mismatch: {finding}", err=True)
+        raise typer.Exit(code=1)
 
 
 @app.command("list-sources")
