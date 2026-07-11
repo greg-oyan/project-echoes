@@ -17,6 +17,7 @@ Decision records preserve durable methodological, data, licensing, architecture,
 
 - Status: Proposed
 - Date: YYYY-MM-DD
+- executing_agent: Codex | Claude | ChatGPT | Human | Mixed
 
 ## Context
 
@@ -35,3 +36,7 @@ Decision records preserve durable methodological, data, licensing, architecture,
 - [0002 — Layered corpus strategy](0002-layered-corpus-strategy.md)
 - [0003 — No LLM primary discovery](0003-no-llm-primary-discovery.md)
 - [0004 — Local-first architecture](0004-local-first-architecture.md)
+- [0005 — Select pinned MACULA Hebrew node data](0005-macula-hebrew-source-selection.md)
+- [0006 — Derive canonical Hebrew token identifiers](0006-canonical-token-identifiers.md)
+- [0007 — Preserve source forms and derive conservative Hebrew analytical forms](0007-hebrew-normalization-policy.md)
+- [0008 — Apply approved methodological amendments](0008-methodology-amendments.md)

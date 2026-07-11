@@ -179,29 +179,87 @@ sources:
     repository_or_location: https://www.openbible.info/labs/cross-references/
     version_or_commit: null
     download_date: null
-    license: Creative Commons Attribution license stated on the source page; archive audit pending
-    license_url: https://creativecommons.org/licenses/by/4.0/
-    license_review_status: in_progress
-    required_attribution: Attribute OpenBible.info and preserve source notices
-    redistribution_status: acquisition_instructions_only
+    license: >-
+      Creative Commons Attribution 4.0 (CC BY 4.0) for the page and downloadable
+      cross-reference data unless otherwise indicated; separately copyrighted ESV
+      quotations are excluded from this determination
+    license_url: https://www.openbible.info/labs/cross-references/
+    license_review_status: complete
+    required_attribution: >-
+      Attribute "Bible Cross References" to OpenBible.info, link the official source and
+      CC BY 4.0 license, indicate modifications, preserve source notices, and do not
+      reproduce separately copyrighted ESV quotations without permission
+    redistribution_status: permitted
     machine_processing_status: permitted
     raw_data_git_policy: ignored_local_only
     expected_files: []
     file_hashes: {}
     ingest_adapter: null
-    research_purpose: Broad known-link benchmark and exclusion layer, not original-language textual evidence.
+    research_purpose: >-
+      Benchmark Tier 3 weak supervision and broad knownness filtering; not scholarly
+      ground truth, original-language textual evidence, or a sole positive benchmark.
     known_limitations:
       - Links mix themes, words, events, and people and are primarily verse-to-verse rather than passage ranges.
       - The page includes ESV quotations whose copyright is separate from the downloadable link graph.
+      - The broad TSK-related graph is heterogeneous weak supervision and does not establish quotation or allusion classes.
+      - The live archive is not an immutable scholarly edition and still requires a pinned snapshot and schema inspection before activation.
     notes:
-      - The data derives primarily from the Treasury of Scripture Knowledge with additional ranking signals.
+      - Tier 3 only; do not use this graph to populate Tier 1 or as the sole positive ground truth.
+      - The official page links a roughly 2 MB downloadable archive; Project Echoes has not acquired it in this amendment.
+      - License evidence was verified on the official page on 2026-07-10; the linked Creative Commons deed identifies CC BY 4.0.
     confirmed_information:
       - The official page describes approximately 340,000 cross references and provides a downloadable archive.
-      - The page states a Creative Commons Attribution license unless otherwise indicated.
+      - The official page says the data draws primarily from public-domain sources, especially the Treasury of Scripture Knowledge, with additional data used to seed initial votes.
+      - The official page states that its content is CC BY 4.0 unless otherwise indicated and separately identifies ESV quotations and their copyright.
     unresolved_questions:
-      - Does the downloadable archive contain any content beyond reference identifiers and vote counts?
+      - What exact fields, reference conventions, and vote or ranking values occur in the downloadable archive?
       - What stable snapshot mechanism will pin a reproducible version?
-    status: under_review
+    status: planned
+
+  - source_id: project-echoes-tier1-quotations
+    source_name: Project Echoes Curated Tier 1 Explicit Quotation Benchmark
+    corpus: Explicit New Testament quotations of Old Testament passages
+    role: benchmark
+    language: [multilingual]
+    edition: Future initial release; header-only schema placeholder as of 2026-07-10
+    provider: Project Echoes
+    repository_or_location: data/benchmarks/tier1_quotations.csv
+    version_or_commit: null
+    download_date: null
+    license: >-
+      CC BY 4.0 for Project Echoes-authored selection, relationship classifications,
+      and curation metadata; no third-party biblical text or appendix content is relicensed
+    license_url: https://creativecommons.org/licenses/by/4.0/
+    license_review_status: complete
+    required_attribution: >-
+      Attribute the Project Echoes Tier 1 Explicit Quotation Benchmark, link the
+      repository and CC BY 4.0 license, and indicate modifications; preserve row-level
+      citations and all independently applicable third-party notices
+    redistribution_status: permitted
+    machine_processing_status: permitted
+    raw_data_git_policy: trackable
+    expected_files: []
+    file_hashes: {}
+    ingest_adapter: null
+    research_purpose: >-
+      Future Benchmark Tier 1 held-out evaluation set of approximately 300 explicit New
+      Testament quotations, curated and independently verified by humans.
+    known_limitations:
+      - The tracked CSV currently contains only its governed header and no benchmark rows.
+      - Public-domain or permissively licensed indexes provide curation leads, not automatically accepted labels.
+      - Reference-only project metadata does not transfer rights in biblical editions, source indexes, or scholarly appendices.
+    notes:
+      - Population is deferred to Milestone 6 and must follow docs/tier1-quotation-curation.md.
+      - Copyrighted UBS, Nestle-Aland, and comparable appendices may not be copied or systematically reconstructed without explicit permission.
+      - Only independently verified rows may enter the released Tier 1 positive set.
+    confirmed_information:
+      - The header-only CSV has the eleven approved curation and provenance fields.
+      - Project-authored curation metadata is licensed for CC BY 4.0 release without copied biblical text.
+    unresolved_questions:
+      - Which exact public-domain source-index editions will be approved for the first curation pass?
+      - Who will serve as curators, independent reviewers, and adjudicators?
+      - What version identifier and evaluation split will define the first populated release?
+    status: planned
 
   - source_id: ubs-parallel-passages
     source_name: Paratext Parallel Passages Database

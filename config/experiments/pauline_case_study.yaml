@@ -8,13 +8,24 @@ methods: [candidate_ensemble, anomaly_analysis]
 parameters:
   configuration_status: governance_only
   external_review_required: true
+  chronology_guardrail: pauline_letters_predate_written_canonical_gospels
+  allowed_initial_mediation_frames:
+    - jesus_sayings_traditions
+    - shared_early_christian_traditions
+    - common_scriptural_sources
+    - septuagint_wording
+    - hebrew_scriptural_wording
+    - other_demonstrated_mediation
+  direct_written_gospel_dependence_requires_separate_historical_evidence: true
 evaluation_dataset: blind-review-set
 random_seed: 1729
 expected_outputs: [candidate_dossiers, pauline_source_map, limitations_report]
 acceptance_criteria:
   - Findings meet the minimum publishability standard
   - Strong candidates receive qualified external linguistic review
+  - Direction of dependence is chronologically possible and the evidence distinguishes written-text, oral-sayings, shared-scriptural-source, and other mediation frames
 prohibited_claims:
   - Computational similarity proves Pauline dependence
+  - A Paul–Jesus relationship automatically means Paul drew from a written canonical Gospel
   - No match in checked sources means no scholar has identified the relationship
 status: planned

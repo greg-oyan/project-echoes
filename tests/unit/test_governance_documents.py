@@ -8,10 +8,14 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 REQUIRED_DOCUMENTS = [
+    "AGENTS.md",
+    "CLAUDE.md",
     "docs/research-charter.md",
     "docs/corpus-scope.md",
     "docs/data-sources.md",
     "docs/data-licensing.md",
+    "docs/benchmark-design.md",
+    "docs/tier1-quotation-curation.md",
     "docs/canonical-token-schema.md",
     "docs/normalization.md",
     "docs/novelty-review.md",
@@ -24,8 +28,10 @@ REQUIRED_DOCUMENTS = [
     "docs/decisions/0005-macula-hebrew-source-selection.md",
     "docs/decisions/0006-canonical-token-identifiers.md",
     "docs/decisions/0007-hebrew-normalization-policy.md",
+    "docs/decisions/0008-methodology-amendments.md",
     "outputs/reports/milestone-2-hebrew-ingestion-report.md",
     "data/review/literature_matrix.csv",
+    "data/benchmarks/tier1_quotations.csv",
 ]
 
 LITERATURE_COLUMNS = {

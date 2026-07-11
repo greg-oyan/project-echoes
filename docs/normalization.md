@@ -2,7 +2,7 @@
 
 Status: active for Milestone 2
 
-Configuration: `config/normalization.yaml`, schema version `2`
+Configuration: `config/normalization.yaml`, schema version `3`
 
 Implementation: `src/echoes/normalize/hebrew.py`
 
@@ -91,11 +91,35 @@ token-level label remains necessary for precision.
 
 ## Ketiv/Qere and segmentation
 
-Normalization never collapses Ketiv and Qere. When the source marks a record's
-`type` as Ketiv/Kethiv or Qere, the canonical variant fields retain that source
-form. The selected node representation commonly exposes the preferred Qere
-without a complete parallel Ketiv layer, so absence of a variant row is not
-evidence that the textual tradition has no variant.
+Normalization never collapses Ketiv and Qere. When the source supplies both
+readings, each remains a separate canonical record with its own stable token ID,
+exact `surface_form`, independently derived `normalized_form` and
+`unpointed_form`, source provenance, `variant_type`, and a shared
+`variant_group_id`. Within a complete source pair, Qere is marked as the source
+default and Ketiv is not; this base metadata does not change when an analytical
+preference changes.
+
+The preference is a derived-stream policy at the root of the configuration:
+
+```yaml
+ketiv_qere:
+  analysis_reading: qere
+```
+
+The supported values are `qere` and `ketiv`, with Qere as the default. Only the
+selected member of a complete pair enters `analysis_tokens.parquet` and the
+DuckDB `hebrew_analysis_stream` view. The view assigns deterministic
+`analysis_position_in_verse`, `analysis_position_in_clause`, and
+`analysis_position_in_corpus` values after selection. A lone supplied reading
+remains in either stream because no alternate source record exists. Switching the
+setting changes the derived stream and its positions, never the base token count,
+token IDs, source forms, normalized forms, or provenance.
+
+The pinned MACULA node representation commonly exposes the preferred Qere without
+a complete parallel Ketiv layer, so absence of a paired variant is not evidence
+that the textual tradition has no variant. Legally safe synthetic fixtures prove
+both-record preservation and stream switching; they do not manufacture a missing
+reading in the full corpus.
 
 Likewise, normalization neither splits nor joins morphemes. Prefixes, suffixes,
 and zero-width annotations retain the boundaries supplied by MACULA. Word and
@@ -113,7 +137,10 @@ The ingestion run records a SHA-256 hash of the complete normalization
 configuration in corpus metadata. Full validation recomputes every non-zero-width
 `normalized_form`, `unpointed_form`, and punctuation flag and reports any mismatch
 as an error. Reprocessing the same source receipt, schema, and normalization
-configuration must reproduce the same run ID and logical tables.
+configuration must reproduce the same run ID and logical tables. Changing only
+`ketiv_qere.analysis_reading` legitimately changes the configuration hash,
+derived analysis table, and run metadata while leaving the base token table
+unchanged.
 
 To change normalization safely:
 
@@ -125,4 +152,6 @@ To change normalization safely:
    documented corpus-version changes.
 
 Greek normalization remains `planned` and is outside Milestone 2. See
-[ADR 0007](decisions/0007-hebrew-normalization-policy.md) for the governing decision.
+[ADR 0007](decisions/0007-hebrew-normalization-policy.md) for the original
+normalization decision and [ADR 0008](decisions/0008-methodology-amendments.md) for
+the non-destructive reading-stream policy.

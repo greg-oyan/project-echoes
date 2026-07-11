@@ -80,6 +80,12 @@ class HebrewNormalization(EchoesModel):
     transformations: HebrewTransformations
 
 
+class KetivQerePolicy(EchoesModel):
+    """Selects the derived reading stream without mutating preserved records."""
+
+    analysis_reading: Literal["qere", "ketiv"] = "qere"
+
+
 class GreekNormalization(EchoesModel):
     """Deferred Greek normalization policy."""
 
@@ -91,7 +97,8 @@ class GreekNormalization(EchoesModel):
 class NormalizationConfig(EchoesModel):
     """Normalization configuration for the primary source languages."""
 
-    schema_version: Literal[2]
+    schema_version: Literal[3]
+    ketiv_qere: KetivQerePolicy
     hebrew: HebrewNormalization
     greek: GreekNormalization
 
@@ -158,13 +165,127 @@ class ScoreComponent(EchoesModel):
     weight: float = Field(ge=0)
 
 
-class ScoringConfig(EchoesModel):
-    """Seed and placeholder score components."""
+NullPreservation = Literal[
+    "book_level_token_or_lemma_frequencies",
+    "passage_counts",
+    "passage_lengths",
+    "book_or_genre_conditioned_lemma_frequencies",
+]
 
-    schema_version: Literal[1]
+
+class NullModelFamily(EchoesModel):
+    """One disabled, declarative null family for future lexical experiments."""
+
+    name: Literal["within_book_reassignment", "frequency_preserving_synthetic_passages"]
+    enabled: Literal[False]
+    required_preservation: list[NullPreservation] = Field(min_length=2)
+    optional_preservation: list[
+        Literal[
+            "part_of_speech_distributions",
+            "morphological_distributions",
+            "local_ngram_characteristics",
+        ]
+    ] = Field(default_factory=list)
+    invalid_surrogates: list[Literal["passage_order_only", "passage_label_only"]] = Field(
+        default_factory=list
+    )
+
+    @model_validator(mode="after")
+    def family_preserves_its_required_marginals(self) -> Self:
+        required = set(self.required_preservation)
+        if self.name == "within_book_reassignment":
+            if required != {
+                "book_level_token_or_lemma_frequencies",
+                "passage_counts",
+                "passage_lengths",
+            }:
+                raise ValueError("within-book reassignment must preserve all governed marginals")
+            if set(self.invalid_surrogates) != {"passage_order_only", "passage_label_only"}:
+                raise ValueError("within-book reassignment must reject both invalid surrogates")
+        elif required != {
+            "passage_lengths",
+            "book_or_genre_conditioned_lemma_frequencies",
+        }:
+            raise ValueError("synthetic passages must preserve length and conditioned frequencies")
+        return self
+
+
+class NullModelsConfig(EchoesModel):
+    """Governance-only requirements for later repeated empirical null simulations."""
+
+    status: Literal["planned"]
+    enabled: Literal[False]
+    repetitions: None = None
+    families: list[NullModelFamily] = Field(min_length=2, max_length=2)
+    required_threshold_metrics: list[
+        Literal[
+            "observed_candidate_count",
+            "mean_null_candidate_count",
+            "empirical_null_interval_95",
+            "observed_to_null_enrichment",
+            "empirical_tail_probability",
+            "estimated_empirical_false_discovery_rate",
+        ]
+    ] = Field(min_length=6, max_length=6)
+
+    @model_validator(mode="after")
+    def required_families_and_metrics_are_unique(self) -> Self:
+        families = [family.name for family in self.families]
+        if set(families) != {
+            "within_book_reassignment",
+            "frequency_preserving_synthetic_passages",
+        }:
+            raise ValueError("both required lexical null-model families must be declared")
+        if len(self.required_threshold_metrics) != len(set(self.required_threshold_metrics)):
+            raise ValueError("required null-model threshold metrics must be unique")
+        return self
+
+
+class RareEvidenceConfig(EchoesModel):
+    """Planned conjunctive evidence rule; no scoring engine is activated here."""
+
+    status: Literal["planned"]
+    enabled: Literal[False]
+    total_corpus_frequency_max: int = Field(ge=1)
+    require_independent_co_signal: Literal[True]
+    allowed_co_signals: list[
+        Literal[
+            "ordered_sequence_similarity",
+            "shared_rare_phrase",
+            "syntactic_match",
+            "second_rare_lexical_item",
+            "independent_detector_family",
+        ]
+    ] = Field(min_length=1)
+    planned_evidence_fields: list[
+        Literal[
+            "expected_cooccurrence_independence",
+            "hypergeometric_p_value",
+            "null_model_empirical_rate",
+            "multiple_testing_adjustment",
+        ]
+    ] = Field(min_length=4, max_length=4)
+    hypergeometric_role: Literal["baseline_only"]
+    empirical_calibration_priority: Literal["book_or_genre_conditioned_permutation"]
+
+    @model_validator(mode="after")
+    def evidence_lists_are_unique(self) -> Self:
+        if len(self.allowed_co_signals) != len(set(self.allowed_co_signals)):
+            raise ValueError("rare-evidence co-signals must be unique")
+        if len(self.planned_evidence_fields) != len(set(self.planned_evidence_fields)):
+            raise ValueError("planned rare-evidence fields must be unique")
+        return self
+
+
+class ScoringConfig(EchoesModel):
+    """Typed future-scoring governance without activating an analysis engine."""
+
+    schema_version: Literal[2]
     status: Literal["planned"]
     random_seed: int = Field(ge=0)
     components: list[ScoreComponent]
+    null_models: NullModelsConfig
+    rare_evidence: RareEvidenceConfig
 
 
 class ModelSpec(EchoesModel):

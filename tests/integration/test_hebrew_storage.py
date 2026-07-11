@@ -15,7 +15,7 @@ from echoes.corpus.storage import (
     write_processed_corpus,
 )
 from echoes.corpus.validation import compare_processed_corpora, validate_hebrew_corpus
-from echoes.ingest.macula_hebrew import AdapterResult
+from echoes.ingest.macula_hebrew import AdapterResult, parse_macula_hebrew_nodes
 from echoes.manifest import sha256_file
 from echoes.manifests.sources import SourceManifest
 from echoes.settings import NormalizationConfig
@@ -37,29 +37,49 @@ def test_parquet_schema_and_duckdb_tables_are_complete(stored_fixture_corpus: ob
     tokens = pl.read_parquet(output_dir / PARQUET_FILES["tokens"])
 
     assert tuple(tokens.columns) == CANONICAL_TOKEN_COLUMNS
-    assert tokens.height == 8
+    analysis_tokens = pl.read_parquet(output_dir / PARQUET_FILES["analysis_tokens"])
+
+    assert tokens.height == 9
+    assert analysis_tokens.height == 8
     with duckdb.connect(str(database), read_only=True) as connection:
         tables = {row[0] for row in connection.execute("SHOW TABLES").fetchall()}
         assert {
             "hebrew_tokens",
+            "hebrew_analysis_tokens",
+            "hebrew_analysis_stream",
             "hebrew_books",
             "hebrew_source_records",
             "hebrew_ingestion_issues",
             "hebrew_corpus_metadata",
             "corpus_schema_versions",
         } <= tables
+        preserved_readings = connection.execute(
+            "SELECT variant_type FROM hebrew_tokens "
+            "WHERE variant_group_id IS NOT NULL ORDER BY variant_type"
+        ).fetchall()
+        analysis_readings = connection.execute(
+            "SELECT variant_type FROM hebrew_analysis_stream WHERE variant_group_id IS NOT NULL"
+        ).fetchall()
+        analysis_positions = connection.execute(
+            "SELECT min(analysis_position_in_corpus), "
+            "max(analysis_position_in_corpus), count(*) "
+            "FROM hebrew_analysis_stream"
+        ).fetchone()
+    assert preserved_readings == [("ketiv",), ("qere",)]
+    assert analysis_readings == [("qere",)]
+    assert analysis_positions == (1, 8, 8)
 
 
 def test_fixture_corpus_summary_reports_required_counts(stored_fixture_corpus: object) -> None:
     summary = corpus_summary(stored_fixture_corpus.database)  # type: ignore[attr-defined]
 
-    assert summary.total_tokens == 8
+    assert summary.total_tokens == 9
     assert summary.total_books == 2
-    assert summary.hebrew_tokens == 6
+    assert summary.hebrew_tokens == 7
     assert summary.aramaic_tokens == 2
-    assert summary.tokens_by_book == {"GEN": 6, "EZR": 2}
-    assert summary.variant_count == 1
-    assert summary.ketiv_qere_count == 1
+    assert summary.tokens_by_book == {"GEN": 7, "EZR": 2}
+    assert summary.variant_count == 2
+    assert summary.ketiv_qere_count == 2
     assert summary.punctuation_count == 1
 
 
@@ -73,13 +93,13 @@ def test_fixture_validation_passes_and_reports_measured_absence(
         normalization=normalization_config.hebrew,
         expected_books=2,
         expected_chapters=2,
-        expected_tokens=8,
+        expected_tokens=9,
         require_full_coverage=False,
     )
 
     assert report.passed
     assert report.error_count == 0
-    assert report.completeness["missing_lemma"] == 5
+    assert report.completeness["missing_lemma"] == 6
     assert report.completeness["missing_morphology"] == 1
     assert report.coverage["aramaic_tokens"] == 2
 
@@ -94,7 +114,7 @@ def test_validation_severity_fails_only_for_errors(
         normalization=normalization_config.hebrew,
         expected_books=2,
         expected_chapters=2,
-        expected_tokens=9,
+        expected_tokens=10,
         require_full_coverage=False,
     )
 
@@ -150,6 +170,47 @@ def test_configuration_hash_changes_run_identity(
     assert "ingestion run IDs differ" in compare_processed_corpora(first, second)
 
 
+def test_analysis_selection_leaves_persisted_base_token_artifact_unchanged(
+    tmp_path: Path,
+    macula_source: SourceManifest,
+    normalization_config: NormalizationConfig,
+) -> None:
+    qere = parse_macula_hebrew_nodes(
+        FIXTURE_ROOT,
+        source=macula_source,
+        normalization=normalization_config.hebrew,
+        analysis_reading="qere",
+    )
+    ketiv = parse_macula_hebrew_nodes(
+        FIXTURE_ROOT,
+        source=macula_source,
+        normalization=normalization_config.hebrew,
+        analysis_reading="ketiv",
+    )
+    qere_processed = write_processed_corpus(
+        qere,
+        source=macula_source,
+        normalization_config_hash="a" * 64,
+        raw_file_hashes=_raw_hashes(),
+        output_dir=tmp_path / "qere",
+    )
+    ketiv_processed = write_processed_corpus(
+        ketiv,
+        source=macula_source,
+        normalization_config_hash="b" * 64,
+        raw_file_hashes=_raw_hashes(),
+        output_dir=tmp_path / "ketiv",
+    )
+
+    token_filename = PARQUET_FILES["tokens"]
+    assert qere_processed.file_hashes[token_filename] == ketiv_processed.file_hashes[token_filename]
+    assert qere_processed.logical_hashes["tokens"] == ketiv_processed.logical_hashes["tokens"]
+    assert (
+        qere_processed.logical_hashes["analysis_tokens"]
+        != ketiv_processed.logical_hashes["analysis_tokens"]
+    )
+
+
 def test_duckdb_transactional_rerun_prevents_duplicates(stored_fixture_corpus: object) -> None:
     processed = stored_fixture_corpus.processed  # type: ignore[attr-defined]
     database = stored_fixture_corpus.database  # type: ignore[attr-defined]
@@ -162,8 +223,8 @@ def test_duckdb_transactional_rerun_prevents_duplicates(stored_fixture_corpus: o
         distinct_count = connection.execute(
             "SELECT count(DISTINCT token_id) FROM hebrew_tokens"
         ).fetchone()
-    assert token_count == (8,)
-    assert distinct_count == (8,)
+    assert token_count == (9,)
+    assert distinct_count == (9,)
 
 
 def test_hash_validation_detects_modified_parquet(
@@ -186,7 +247,7 @@ def test_hash_validation_detects_modified_parquet(
         normalization=normalization_config.hebrew,
         expected_books=2,
         expected_chapters=2,
-        expected_tokens=8,
+        expected_tokens=9,
         require_full_coverage=False,
     )
 

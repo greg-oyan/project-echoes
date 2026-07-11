@@ -8,6 +8,7 @@ from echoes.corpus.models import (
     Language,
     ValidationSeverity,
 )
+from echoes.corpus.token_ids import TokenIdentityError, generate_source_edition_token_id
 
 __all__ = [
     "BOOKS",
@@ -16,7 +17,9 @@ __all__ = [
     "CanonicalToken",
     "IngestionIssue",
     "Language",
+    "TokenIdentityError",
     "ValidationSeverity",
     "book_by_code",
     "book_by_source_number",
+    "generate_source_edition_token_id",
 ]

@@ -2,7 +2,7 @@
 
 Status: active for Milestone 2
 
-Schema version: `1`
+Schema version: `2`
 
 Normative implementation: `src/echoes/corpus/models.py`
 
@@ -18,12 +18,12 @@ same module is the storage contract for `tokens.parquet` and the DuckDB
 
 ## Fields
 
-`null` below means that a field is nullable in schema version 1. Required strings
+`null` below means that a field is nullable in schema version 2. Required strings
 must be nonempty unless the row is an explicitly marked zero-width morpheme.
 
 | Field | Type | Null | Meaning and derivation |
 | --- | --- | --- | --- |
-| `schema_version` | integer | no | Literal `1`; identifies this canonical schema contract. |
+| `schema_version` | integer | no | Literal `2`; identifies this canonical schema contract. |
 | `token_id` | string | no | Stable Project Echoes identifier described under "Identity." |
 | `corpus` | string | no | Literal `hebrew` for this Milestone 2 table; it includes Hebrew and Aramaic language rows. |
 | `source_id` | string | no | Source-manifest key, currently `macula-hebrew`. |
@@ -31,6 +31,7 @@ must be nonempty unless the row is an explicitly marked zero-width morpheme.
 | `source_file` | string | no | POSIX-style path relative to the acquired source root, such as a chapter node file. |
 | `source_record_id` | string | no | Native `<m>` `xml:id`, or the native `n` value when `xml:id` is absent. A fallback emits a warning. |
 | `source_word_id` | string | no | Native `word` reference in `BOOK chapter:verse!word` form. |
+| `source_edition_reference` | string | no | Source edition's own `BOOK chapter:verse` identifier, retained independently of every later crosswalk. |
 | `source_row_reference` | string | no | Direct locator formed as `source_file#source_record_id`. |
 | `book` | string | no | Three-character canonical book code from the 39-book WLC registry. |
 | `book_order` | integer | no | One-based WLC canonical order, constrained to 1 through 39. |
@@ -63,7 +64,9 @@ must be nonempty unless the row is an explicitly marked zero-width morpheme.
 | `language` | enum | no | `hebrew` or `aramaic`; native language metadata is preferred, with a warning-producing passage fallback only when absent or unknown. |
 | `is_punctuation` | boolean | no | True only if every surface character has a Unicode punctuation, separator, or symbol category. |
 | `is_variant` | boolean | no | True only when the native `type` contains a recognized Ketiv/Kethiv/Qere marker. |
-| `variant_type` | string | yes | Unmodified native variant type when recognized. |
+| `variant_type` | enum | yes | Exactly `ketiv`, `qere`, or null after recognizing the native marker. |
+| `variant_group_id` | string | yes | Stable source-edition group shared by the supplied Ketiv and Qere records at one source word; null for ordinary records. |
+| `is_default_reading` | boolean | no | Source-level default-stream membership. Ordinary and unpaired records are true; within a complete pair Qere is true and Ketiv false. This does not change with analysis configuration. |
 | `ketiv_form` | string | yes | Source surface form for a recognized Ketiv/Kethiv record. |
 | `qere_form` | string | yes | Source surface form for a recognized Qere record. |
 | `source_extras_json` | JSON-object string | no | Canonical JSON containing all native morpheme attributes, retained syntax ancestry, and the number of alternate syntax trees. |
@@ -73,25 +76,58 @@ must be nonempty unless the row is an explicitly marked zero-width morpheme.
 The identifier format is:
 
 ```text
-HB_<BOOK>_<CHAPTER:3>_<VERSE:3>_<WORD:4>[.<SUBTOKEN:2>]
+HB_<BOOK>_<CHAPTER:3>_<VERSE:3>_<SOURCE_TOKEN:4>[.<SUBTOKEN:2>][~<SOURCE_RECORD_DIGEST:12>]
 ```
 
 For example, the first source word location in Genesis 1:1 has the base identity
 `HB_GEN_001_001_0001`. When more than one morpheme shares that word location,
 each row receives a `.01`, `.02`, and subsequent suffix in deterministic native-ID
-order. A word represented by one morpheme has no suffix.
+order. A word represented by one morpheme has no suffix. A supplied Ketiv or Qere
+record also receives a 12-hex-character digest of its native source-record ID so
+that alternate readings at one source position remain distinct without using an
+external coordinate system.
 
-The identity is derived from canonical reference, native word position, and
-within-word morpheme position. It does not depend on XML traversal order, a
-generated dataframe row number, or `position_in_corpus`. Native identity remains
-available independently in `source_record_id` and `source_word_id`.
+The identity is derived only from the source edition's book identifier, chapter,
+verse, source token position, source subtoken position where present, and native
+source-record identity only when variant disambiguation requires it. It does not
+depend on XML traversal order, a generated dataframe row number,
+`position_in_corpus`, English versification, a versification crosswalk,
+Septuagint alignment, external canonical mappings, or supplementary data. Adding,
+removing, or correcting a later crosswalk therefore cannot rename a token. Native
+identity and the source edition's verse identifier remain independently available
+in `source_record_id`, `source_word_id`, and `source_edition_reference`.
 
 An upstream edition may change references, word segmentation, or morpheme IDs.
 Such a source change can therefore change project token IDs and must be treated as
 an explicit corpus-version migration, not silently reconciled.
 
-See [ADR 0006](decisions/0006-canonical-token-identifiers.md) for the durable
-identity decision.
+See [ADR 0006](decisions/0006-canonical-token-identifiers.md) for the original
+identity decision and [ADR 0008](decisions/0008-methodology-amendments.md) for the
+source-edition and variant clarification.
+
+## Derived analysis stream
+
+The base canonical table always retains every source record, including both
+members of a supplied Ketiv/Qere pair. Reading preference is applied only by the
+separate `analysis_tokens.parquet` table and the DuckDB
+`hebrew_analysis_stream` view. The derived table contains:
+
+| Field | Meaning |
+| --- | --- |
+| `schema_version` | Derived-stream schema version. |
+| `analysis_reading` | Configured `qere` or `ketiv` selection. |
+| `token_id` | Stable base-token identity selected into this stream. |
+| `source_edition_reference` | Preserved source-edition verse reference. |
+| `variant_group_id` / `variant_type` | Reading relationship when the row is a variant. |
+| `analysis_position_in_verse` | Continuous selected-stream position within the source verse. |
+| `analysis_position_in_clause` | Continuous selected-stream position within a source clause, or null. |
+| `analysis_position_in_corpus` | Continuous selected-stream position across the corpus. |
+
+For a complete pair, only the configured reading enters the derived stream. A
+single supplied reading remains analyzable because no alternate record exists to
+select. Changing `analysis_reading` changes only this derived artifact and its run
+metadata; base token IDs, counts, forms, provenance, and logical/physical token
+table hashes remain unchanged.
 
 ## Provenance chain
 
@@ -127,18 +163,21 @@ Ingestion and validation reject rather than silently repair:
 - zero-width rows with any nonempty source or derived form;
 - variant details when `is_variant` is false, or a variant row that loses both
   Ketiv and Qere forms;
+- variant records without a stable group, groups with duplicate readings or no
+  single default, and a derived analysis stream inconsistent with configuration;
 - disagreement between stored derived forms and recomputation from the pinned
   normalization configuration.
 
 For the approved full corpus, validation also requires 39 books, 929 chapters,
 and 475,911 source-record-to-token mappings. Those counts are corpus expectations,
-not generic constraints of schema version 1.
+not generic constraints of schema version 2.
 
 ## Source-specific limitations
 
 - The selected MACULA node representation normally prefers Qere. The variant
-  fields preserve variant annotations that are actually present, but the adapter
-  cannot reconstruct an absent parallel Ketiv record.
+  fields and derived-stream machinery preserve alternate records that a source
+  supplies, but this pinned full corpus exposes no complete parallel Ketiv layer
+  and the adapter cannot reconstruct an absent reading.
 - Alternate syntax trees are counted and retained in `source_extras_json`; the
   adapter maps the first upstream tree to canonical syntax fields.
 - `lexical_root`, `subverse`, and `syntactic_head_source_id` remain null rather

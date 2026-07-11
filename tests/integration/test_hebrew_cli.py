@@ -98,7 +98,7 @@ def test_corpus_summary_cli_succeeds_with_fixture_database(
     )
 
     assert result.exit_code == 0
-    assert '"total_tokens": 8' in result.stdout
+    assert '"total_tokens": 9' in result.stdout
     assert '"aramaic_tokens": 2' in result.stdout
 
 

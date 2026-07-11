@@ -49,6 +49,7 @@ def adapter_result(
         MACULA_FIXTURE_ROOT,
         source=macula_source,
         normalization=normalization_config.hebrew,
+        analysis_reading=normalization_config.ketiv_qere.analysis_reading,
     )
 
 

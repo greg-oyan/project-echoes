@@ -14,6 +14,7 @@
             <m xml:id="o010010010021" word="GEN 1:1!2" lang="H" pos="verb" morph="HVqp3ms" stem="qal" english="speak" after=" ">דָּבָר־</m>
           </Node>
           <Node nodeId="variant-gen-1" Cat="O">
+            <m xml:id="o010010010030" word="GEN 1:1!3" lang="H" pos="verb" morph="HVqp3ms" type="ketiv" after="">כתב</m>
             <m xml:id="o010010010031" word="GEN 1:1!3" lang="H" pos="verb" morph="HVqp3ms" type="qere" after="">קָרֵא</m>
           </Node>
           <Node nodeId="punct-gen-1" Cat="P">

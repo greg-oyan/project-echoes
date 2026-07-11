@@ -6,6 +6,17 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 ### Added
 
+- Approved pre-Milestone-3 methodology amendments: source-edition-only token
+  identity, non-destructive Ketiv/Qere analysis streams, tiered benchmark
+  governance, version 1 Septuagint rescoping, empirical null requirements,
+  conjunctive rare-evidence rules, English-feature ablation, Pauline chronology,
+  Output J, blank milestone time budgets, and thin multi-agent handoff files.
+- ADR 0008 records the amendment, its corrections, affected milestones,
+  consequences, rejected alternatives, date, and executing agent.
+- Full local schema-v2 validation preserved all 475,911 token identities exactly,
+  produced a continuous Qere analysis stream, and passed with zero errors or
+  warnings; the synthetic paired-reading suite exercises both configured streams.
+
 - Milestone 2 governed MACULA Hebrew acquisition pinned to release `25.08.11` and commit `7ab368fcb14e4ad2e0f784138241a098fb516ec4`, with sparse checkout, non-overwrite behavior, a 932-file receipt, and SHA-256 verification.
 - A typed MACULA `WLC/nodes` adapter that maps 475,911 Hebrew/Aramaic source records one-to-one into stable canonical tokens across 39 books and 929 chapters while retaining native identifiers and source provenance.
 - Documented Hebrew normalization with immutable source forms, NFD-derived forms, explicit cantillation/vowel handling, combining-grapheme-joiner removal in derived values, and explicit zero-width morphemes.
