@@ -19,6 +19,11 @@ def test_cli_help_runs() -> None:
     assert "validate-sources" in result.stdout
     assert "list-sources" in result.stdout
     assert "show-source" in result.stdout
+    assert "acquire-source" in result.stdout
+    assert "verify-acquisition" in result.stdout
+    assert "ingest-hebrew" in result.stdout
+    assert "validate-corpus" in result.stdout
+    assert "corpus-summary" in result.stdout
     assert "create-run-manifest" in result.stdout
 
 
@@ -36,7 +41,7 @@ def test_cli_validates_project_configuration() -> None:
     )
 
     assert result.exit_code == 0
-    assert "Validated 12 configuration files" in result.stdout
+    assert "Validated 13 configuration files" in result.stdout
 
 
 def test_cli_reports_invalid_configuration(tmp_path: Path) -> None:

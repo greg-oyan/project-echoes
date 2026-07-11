@@ -1,19 +1,23 @@
 # Limitations and unresolved issues
 
-## Current Milestone 1 state
+## Current Milestone 2 state
 
-- No biblical text, annotation corpus, cross-reference archive, apparatus, or reception corpus has been downloaded or ingested.
-- All source `version_or_commit`, `download_date`, `expected_files`, and `file_hashes` values remain unset until a later governed acquisition step.
-- Only the UBS Parallel Passages record has a completed preliminary licensing review. Every other source is under review, blocked, or not started.
-- MACULA aggregate licenses are explicit, but permission-only and upstream components still require field-level downstream-rights review.
-- The provisional SBLGNT v1.2 MACULA Greek selection requires branch and annotation-completeness verification.
+- MACULA Hebrew release `25.08.11`, commit `7ab368fcb14e4ad2e0f784138241a098fb516ec4`, is the only acquired and validated corpus source. MACULA Greek, supplementary annotations, bridge corpora, benchmarks, textual witnesses, apparatuses, and reception sources remain inactive.
+- The selected MACULA `WLC/nodes` representation has no formal XSD. The adapter validates the observed pinned structure and rejects malformed required fields, but upstream structural change requires an explicit adapter and schema review.
+- MACULA normally presents its preferred Qere reading and this snapshot has no complete parallel Ketiv representation. Zero Ketiv/Qere-marked output rows therefore cannot support exhaustive variant analysis and must not be interpreted as absence of variants.
+- Release 25.08.11 predates later upstream NFC and combining-grapheme-joiner fixes. Project Echoes preserves the original source values and applies its documented NFD/CGJ rules only to derived forms; a future source upgrade may legitimately change forms and hashes.
+- Later 2026 MACULA Hebrew releases incorporate SILHA material under additional terms. They are outside this determination and must not silently replace the pinned pre-SILHA release.
+- Some source records omit `xml:id`, contain explicit zero-width morphemes, or occur alongside alternate source trees. The pipeline records deterministic fallbacks and informational findings rather than hiding them; downstream methods must respect those distinctions.
+- Stable project IDs depend on canonical reference and source segmentation. They are deterministic for this governed snapshot, but a reviewed source version or segmentation change can produce intentionally different identities and must be handled as a corpus migration.
+- Validation proves structural consistency, configured completeness, deterministic transformations, and storage agreement; it does not prove that every upstream lemma, morphology, syntax, semantic label, participant annotation, gloss, or canonical reference is philologically correct.
+- The twelve manual spot checks sample genre, language, and structural edge cases but are not an exhaustive scholarly audit of 475,911 records.
+- Raw MACULA data, acquisition receipts, complete processed Parquet tables, and the DuckDB database are local and Git-ignored. Another run depends on the pinned upstream commit remaining retrievable or on an independently authorized archive.
+- Local machine processing is approved, but public release of full processed token tables is not. A field-level compatibility, attribution, modification, and reconstructability review is still required, especially for SDBH-derived attributes included in the MACULA aggregate by permission.
+- The provisional SBLGNT v1.2 MACULA Greek selection still requires branch, edition, component-license, and annotation-completeness verification before Milestone 3 acquisition.
 - CATSS requires exact module, agreement, downstream-control, version, encoding, and versification review and remains blocked by later primary-corpus gates.
-- OpenBible archive contents and reproducible snapshot mechanics have not been inspected because Milestone 1 forbids dataset download.
-- ETCBC DSS repository licensing has not yet been confirmed to cover all upstream transcription content.
-- No machine-processing permission has been established for proprietary Hebrew or Greek critical apparatuses or a Targum corpus.
-- The literature matrix has five verified seed projects, not comprehensive coverage of every field named in the master plan. The closest-project conclusion is provisional.
+- OpenBible archive contents and reproducible snapshot mechanics remain uninspected; ETCBC DSS upstream transcription rights remain unresolved; and no machine-processing permission has been established for proprietary Hebrew/Greek apparatuses or a Targum corpus.
+- The literature matrix has five verified seed projects, not comprehensive coverage of every field named in the master plan. The closest-project conclusion remains provisional.
 - Repository software and original documentation licensing remains pending owner selection.
-- The full Phase 1 acquisition-script and raw-checksum gate in the master plan is intentionally not claimed: the explicit Milestone 1 task requires governance without downloading. Acquisition instructions, non-overwrite behavior, version pinning, and actual raw checksums belong to the next authorized source-acquisition step before ingestion.
-- Run manifests now hash the source manifest, but no data-bearing experiment is reproducible until approved sources exist.
+- No downstream segmentation, embedding, semantic analysis, knownness search, candidate generation, evaluation, review console, or substantive research experiment has begun. Corpus similarity or annotation proximity must not be inferred from this infrastructure milestone.
 
 These limitations are acceptance boundaries. They must not be rewritten as evidence that a source, method, or scholarly relationship is absent.

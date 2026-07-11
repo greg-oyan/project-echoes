@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 SHA256_PATTERN = re.compile(r"^[0-9a-fA-F]{64}$")
 SOURCE_ID_PATTERN = r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+COMMIT_PATTERN = r"^[0-9a-f]{40}$"
 
 
 class SourceManifestError(ValueError):
@@ -90,6 +91,71 @@ class SourceLanguage(StrEnum):
     MULTILINGUAL = "multilingual"
 
 
+class AcquisitionFileSpec(BaseModel):
+    """One pinned upstream file required to activate a source."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    path: str = Field(min_length=1)
+    url: str = Field(min_length=1)
+    size_bytes: int | None = Field(default=None, gt=0)
+
+    @model_validator(mode="after")
+    def path_and_url_are_safe(self) -> Self:
+        path = Path(self.path)
+        if path.is_absolute() or ".." in path.parts or self.path.endswith(("/", "\\")):
+            msg = "acquisition file paths must be relative file paths without '..'"
+            raise ValueError(msg)
+        if not self.url.startswith("https://"):
+            msg = "acquisition file URLs must use HTTPS"
+            raise ValueError(msg)
+        return self
+
+
+class SourceAcquisitionSpec(BaseModel):
+    """Reproducible, non-overwriting acquisition instructions for one source."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    method: Literal["http_files", "git_sparse"]
+    version_label: str = Field(min_length=1)
+    upstream_commit: str = Field(pattern=COMMIT_PATTERN)
+    files: list[AcquisitionFileSpec] = Field(default_factory=list)
+    repository_url: str | None = None
+    include_paths: list[str] = Field(default_factory=list)
+    expected_file_count: int | None = Field(default=None, gt=0)
+
+    @model_validator(mode="after")
+    def file_paths_are_unique(self) -> Self:
+        paths = [item.path for item in self.files]
+        if len(paths) != len(set(paths)):
+            msg = "acquisition file paths must be unique"
+            raise ValueError(msg)
+        if len(self.include_paths) != len(set(self.include_paths)):
+            msg = "acquisition include_paths must be unique"
+            raise ValueError(msg)
+        for include_path in self.include_paths:
+            path = Path(include_path)
+            if path.is_absolute() or ".." in path.parts:
+                msg = "acquisition include_paths must be relative and may not contain '..'"
+                raise ValueError(msg)
+        if self.method == "http_files":
+            if not self.files:
+                raise ValueError("http_files acquisition requires at least one file")
+            if self.repository_url is not None or self.include_paths:
+                raise ValueError("http_files acquisition may not define Git sparse-checkout fields")
+        if self.method == "git_sparse":
+            if self.files:
+                raise ValueError("git_sparse acquisition may not define HTTP file entries")
+            if not self.repository_url or not self.repository_url.startswith("https://"):
+                raise ValueError("git_sparse acquisition requires an HTTPS repository_url")
+            if not self.include_paths:
+                raise ValueError("git_sparse acquisition requires include_paths")
+            if self.expected_file_count is None:
+                raise ValueError("git_sparse acquisition requires expected_file_count")
+        return self
+
+
 class SourceManifest(BaseModel):
     """One proposed or activated external source with explicit governance state."""
 
@@ -115,6 +181,7 @@ class SourceManifest(BaseModel):
     expected_files: list[str]
     file_hashes: dict[str, str]
     ingest_adapter: str | None
+    acquisition: SourceAcquisitionSpec | None = None
     research_purpose: str = Field(min_length=1)
     known_limitations: list[str]
     notes: list[str]
@@ -184,13 +251,35 @@ class SourceManifest(BaseModel):
             msg = f"status '{self.status}' requires a complete licensing review"
             raise ValueError(msg)
 
-        if self.status in {SourceStatus.ACQUIRED, SourceStatus.VALIDATED}:
+        if self.status in {
+            SourceStatus.APPROVED,
+            SourceStatus.ACQUIRED,
+            SourceStatus.VALIDATED,
+        }:
             if not _known_value(self.version_or_commit):
                 msg = f"status '{self.status}' requires version_or_commit"
                 raise ValueError(msg)
-            if self.download_date is None:
-                msg = f"status '{self.status}' requires download_date"
+            if self.acquisition is None:
+                msg = f"status '{self.status}' requires acquisition instructions"
                 raise ValueError(msg)
+            if not self.expected_files:
+                msg = f"status '{self.status}' requires expected_files"
+                raise ValueError(msg)
+            if self.acquisition.method == "http_files":
+                acquisition_paths = {item.path for item in self.acquisition.files}
+                if acquisition_paths != set(self.expected_files):
+                    msg = "expected_files must exactly match acquisition file paths"
+                    raise ValueError(msg)
+            if self.version_or_commit != self.acquisition.upstream_commit:
+                msg = "version_or_commit must match acquisition.upstream_commit"
+                raise ValueError(msg)
+
+        if (
+            self.status in {SourceStatus.ACQUIRED, SourceStatus.VALIDATED}
+            and self.download_date is None
+        ):
+            msg = f"status '{self.status}' requires download_date"
+            raise ValueError(msg)
 
         if self.raw_data_git_policy is RawDataGitPolicy.TRACKABLE and (
             self.redistribution_status is not RedistributionStatus.PERMITTED

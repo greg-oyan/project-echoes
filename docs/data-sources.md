@@ -1,9 +1,9 @@
 # Data sources and provenance
 
-Status: **Milestone 1 preliminary source register**
-Review date: 2026-07-10
+Status: **Milestone 2 MACULA Hebrew validation; other sources preliminary**
+Review date: 2026-07-11
 
-No biblical corpus data has been downloaded or ingested. The authoritative machine-readable preliminary register is [`data/manifests/sources.yaml`](../data/manifests/sources.yaml). A record documents intent and review state; it does not activate a source.
+The authoritative machine-readable register is [`data/manifests/sources.yaml`](../data/manifests/sources.yaml). MACULA Hebrew is the first validated source: its pinned snapshot has been acquired, ingested, and checked locally. All other records still document intent and review state rather than activation. Raw biblical data and full processed token tables remain Git-ignored.
 
 ## Layered corpus strategy
 
@@ -18,11 +18,11 @@ Project Echoes treats datasets as governed layers with distinct research functio
 
 The detailed boundary is fixed in [corpus-scope.md](corpus-scope.md).
 
-## Preliminary source register
+## Source register
 
-| Source | Purpose | Confirmed at this review | Unresolved before activation |
+| Source | Purpose | Confirmed at this review | Outstanding boundary |
 |---|---|---|---|
-| MACULA Hebrew | Primary Hebrew/Aramaic tokens and linguistic annotations | Official repository identifies WLC, OpenScriptures morphology, syntax, semantic, gloss, and participant layers and a CC BY 4.0 aggregate notice | Pin release/commit and files; audit permission-only components; validate Aramaic, Ketiv/Qere, segmentation, and completeness |
+| MACULA Hebrew | Primary Hebrew/Aramaic tokens and linguistic annotations | Validated `WLC/nodes` snapshot from release `25.08.11`, commit `7ab368fcb14e4ad2e0f784138241a098fb516ec4`; 475,911 records across 39 books and 929 chapters | Full processed-table publication remains unapproved; preferred-Qere representation has no complete parallel Ketiv layer; any source upgrade requires renewed review |
 | MACULA Greek | Primary Greek NT tokens and linguistic annotations | Official repository identifies syntax, morphology, semantic and participant layers, N1904/SBLGNT representations, and a CC BY 4.0 aggregate notice | Confirm provisional SBLGNT v1.2 representation and branch; audit mappings and permission-only components |
 | STEPBible Data | Supplementary glosses, lexical/semantic mappings, names, morphology, versification | Repository states CC BY 4.0, attribution, modifiability, and UTF-8 tabular resources | Select files and fields; audit each upstream derivation; exclude AI-authored descriptions from primary evidence |
 | CATSS Septuagint | Later bridge morphology and Hebrew–Greek alignment | Official CATSS materials describe Rahlfs-based Greek morphology, Stuttgart Hebrew parallel data, and a source-specific user agreement | Confirm current acquisition agreement, exact modules and revisions, redistribution limits, Beta Code handling, variants, and versification |
@@ -33,7 +33,24 @@ The detailed boundary is fixed in [corpus-scope.md](corpus-scope.md).
 | Greek critical apparatus | Deferred Greek NT variant validation | German Bible Society publishes NA/UBS/ECM critical editions | Select source and coverage; obtain written machine-processing and publication terms; pin edition |
 | CAL Targum category | Deferred reception-history checking | CAL is an institutional live Aramaic text base and requires access dates in citations | Select exact Targum editions; obtain versioned lawful bulk access and reuse terms; keep out of primary discovery |
 
-Links, exact preliminary license fields, attribution text, and recorded uncertainties are in the source manifest. “Confirmed” means verified on an official provider page during this review, not that every legal or scholarly question is resolved.
+Links, exact license fields, attribution text, and recorded uncertainties are in the source manifest. “Confirmed” means verified on an official provider page during this review, not that every legal or scholarly question is resolved.
+
+## Validated MACULA Hebrew snapshot
+
+Milestone 2 selects the official [Clear Bible MACULA Hebrew repository](https://github.com/Clear-Bible/macula-hebrew), release `25.08.11`, resolved to immutable commit `7ab368fcb14e4ad2e0f784138241a098fb516ec4`. The adapter consumes `WLC/nodes`, not `WLC/lowfat` or the reduced tabular exports, because the node representation retains the required token, morphology, syntax, semantic, participant, and provenance attributes. The selected snapshot represents Westminster Leningrad Codex 4.20.
+
+The acquisition is a sparse Git checkout of `README.md`, `LICENSE.md`, and `WLC/nodes`. Its expected inventory is 932 files: the two notices plus 929 chapter node files and the node XInclude index. The tracked manifest records the immutable revision and three anchor SHA-256 hashes; the Git-ignored receipt records the hash and size of every acquired file. The acquisition command rejects unapproved or unpinned records, validates the inventory, and does not overwrite an existing destination unless `--force` is explicit.
+
+```bash
+uv run echoes acquire-source macula-hebrew
+uv run echoes verify-acquisition macula-hebrew
+```
+
+Ingestion maps the 475,911 upstream morpheme records one-to-one to 475,911 canonical records: 468,362 Hebrew and 7,549 Aramaic tokens across all 39 expected books and 929 chapters. Each output row retains the source ID and commit, source file and row, native identifier or documented fallback, source word identifier, canonical reference and position, original surface form, language, morphology, syntax ancestry, semantic and participant annotations, gloss, source attributes, normalization version, and ingestion run identity as applicable. Stable project IDs derive from canonical book/chapter/verse/word/subtoken positions rather than processing order.
+
+Versioned Parquet tables and the corresponding DuckDB tables are written under Git-ignored `data/processed/`. The corpus validator checks source-to-token identity, ID collisions, duplicate canonical positions, position continuity, book/chapter/verse coverage, language, normalization, annotation completeness, stored hashes, and Parquet/DuckDB row and logical agreement. Independent full builds from the same acquisition receipt and configuration produced run ID `hebrew-7db8035c6ae1c3268074` and identical logical table hashes.
+
+MACULA represents its preferred Qere reading where available and does not provide a complete parallel Ketiv layer in this snapshot. Consequently, zero Ketiv/Qere-marked tokens is a source-representation limitation, not evidence that the underlying text has no variants. Zero-width morphemes supplied by the source are retained explicitly rather than discarded or converted to visible text.
 
 ## Dataset activation requirements
 
@@ -62,7 +79,7 @@ When sources conflict, selection is not resolved by silently choosing the most c
 
 Git sources use an immutable commit and, when available, a release tag. Mutable web archives use acquisition timestamp, final URL, HTTP metadata when available, archive hash, internal file list, and individual file hashes. Live databases require an authorized snapshot or export; an access date alone is not reproducible enough for activation. Updating a source creates a new manifest version and corpus-processing run. Earlier raw and processed hashes remain in history.
 
-No version has been pinned in Milestone 1 because no acquisition has occurred. `null` version and date fields are deliberate and prevent the records from being marked acquired.
+MACULA Hebrew is pinned to the immutable commit above and may be marked validated because its acquisition receipt, inventory, hashes, adapter, and corpus checks exist. `null` version and date fields for every other unacquired source remain deliberate and prevent those records from being marked acquired. A future MACULA Hebrew upgrade is a new source version and must not silently replace 25.08.11; in particular, 2026 releases require a fresh review of the later SILHA integration and licensing terms.
 
 ## Raw-data storage policy
 

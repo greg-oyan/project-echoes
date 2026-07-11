@@ -2,13 +2,24 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated
 
 import typer
+from pydantic import BaseModel
 
 from echoes import __version__
+from echoes.acquire import AcquisitionError, acquire_source, verify_acquisition
+from echoes.corpus.hebrew import (
+    HebrewPipelineError,
+    ingest_hebrew_corpus,
+    validate_existing_hebrew_corpus,
+)
+from echoes.corpus.storage import CorpusStorageError, corpus_summary
+from echoes.corpus.validation import CorpusValidationError
+from echoes.ingest.macula_hebrew import HebrewIngestionError
 from echoes.manifest import build_run_manifest, write_run_manifest
 from echoes.manifests.sources import (
     SourceManifestError,
@@ -27,6 +38,12 @@ app = typer.Typer(
     add_completion=False,
 )
 
+
+def _echo_json(value: BaseModel) -> None:
+    """Emit portable JSON even when the Windows console uses a legacy code page."""
+    typer.echo(json.dumps(value.model_dump(mode="json"), indent=2, ensure_ascii=True))
+
+
 ConfigDir = Annotated[
     Path,
     typer.Option(
@@ -43,6 +60,16 @@ SourceManifestPath = Annotated[
         "--manifest-path",
         help="Source-manifest YAML file or directory.",
         file_okay=True,
+        dir_okay=True,
+        resolve_path=True,
+    ),
+]
+DataRoot = Annotated[
+    Path,
+    typer.Option(
+        "--data-root",
+        help="Project data root containing Git-ignored raw and processed directories.",
+        file_okay=False,
         dir_okay=True,
         resolve_path=True,
     ),
@@ -169,6 +196,206 @@ def show_source_command(
         typer.echo(f"Source not found: {source_id}", err=True)
         raise typer.Exit(code=1)
     typer.echo(serialize_source(source), nl=False)
+
+
+@app.command("acquire-source")
+def acquire_source_command(
+    source_id: Annotated[str, typer.Argument(help="Approved source identifier.")],
+    manifest_path: SourceManifestPath = Path("data/manifests/sources.yaml"),
+    data_root: DataRoot = Path("data"),
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            help="Explicitly replace an existing acquisition after validation.",
+        ),
+    ] = False,
+) -> None:
+    """Acquire only manifest-declared files after the source-approval gate passes."""
+    try:
+        source = load_source_catalog(manifest_path).find(source_id)
+        if source is None:
+            raise AcquisitionError(f"source not found: {source_id}")
+        directory, receipt = acquire_source(
+            source,
+            data_root=data_root,
+            force=force,
+            command=f"echoes acquire-source {source_id}",
+        )
+    except (SourceManifestError, AcquisitionError) as exc:
+        typer.echo(f"Source acquisition failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(
+        f"Acquired {source_id} {receipt.version_label} at {directory} "
+        f"({len(receipt.files)} verified files)."
+    )
+
+
+@app.command("verify-acquisition")
+def verify_acquisition_command(
+    source_id: Annotated[str, typer.Argument(help="Approved source identifier.")],
+    manifest_path: SourceManifestPath = Path("data/manifests/sources.yaml"),
+    data_root: DataRoot = Path("data"),
+) -> None:
+    """Verify local acquisition files and hashes without network access."""
+    try:
+        source = load_source_catalog(manifest_path).find(source_id)
+        if source is None:
+            raise AcquisitionError(f"source not found: {source_id}")
+        directory, receipt = verify_acquisition(source, data_root=data_root)
+    except (SourceManifestError, AcquisitionError) as exc:
+        typer.echo(f"Acquisition verification failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(
+        f"Verified {source_id} {receipt.version_label} at {directory}: "
+        f"{len(receipt.files)} files match their SHA-256 receipts."
+    )
+
+
+@app.command("ingest-hebrew")
+def ingest_hebrew_command(
+    manifest_path: SourceManifestPath = Path("data/manifests/sources.yaml"),
+    config_dir: ConfigDir = Path("config"),
+    data_root: DataRoot = Path("data"),
+    output_dir: Annotated[
+        Path | None,
+        typer.Option("--output-dir", help="Optional versioned processed output directory."),
+    ] = None,
+    database: Annotated[
+        Path | None,
+        typer.Option("--database", help="Optional local DuckDB database path."),
+    ] = None,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Explicitly replace this source version's processed outputs."),
+    ] = False,
+) -> None:
+    """Ingest the verified MACULA Hebrew acquisition and run the full corpus gate."""
+    try:
+        result = ingest_hebrew_corpus(
+            manifest_path=manifest_path,
+            config_dir=config_dir,
+            data_root=data_root,
+            output_dir=output_dir,
+            database_path=database,
+            force=force,
+        )
+    except (
+        AcquisitionError,
+        ConfigLoadError,
+        CorpusStorageError,
+        CorpusValidationError,
+        HebrewIngestionError,
+        HebrewPipelineError,
+        SourceManifestError,
+        OSError,
+    ) as exc:
+        typer.echo(f"Hebrew ingestion failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(
+        f"Ingested {result.summary.total_tokens} tokens from "
+        f"{result.adapter_summary.source_records} source records."
+    )
+    typer.echo(f"Processed output: {result.processed.output_dir}")
+    typer.echo(
+        f"Validation: errors={result.validation.error_count}, "
+        f"warnings={result.validation.warning_count}"
+    )
+    if not result.validation.passed:
+        raise typer.Exit(code=1)
+
+
+@app.command("validate-corpus")
+def validate_corpus_command(
+    corpus: Annotated[str, typer.Option("--corpus", help="Corpus identifier.")] = "hebrew",
+    manifest_path: SourceManifestPath = Path("data/manifests/sources.yaml"),
+    config_dir: ConfigDir = Path("config"),
+    data_root: DataRoot = Path("data"),
+    output_dir: Annotated[
+        Path | None,
+        typer.Option("--output-dir", help="Optional processed corpus directory."),
+    ] = None,
+    database: Annotated[
+        Path | None,
+        typer.Option("--database", help="Optional local DuckDB database path."),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit the structured validation report as JSON."),
+    ] = False,
+) -> None:
+    """Validate an existing processed corpus without acquiring or rewriting data."""
+    if corpus != "hebrew":
+        typer.echo(f"Unsupported corpus: {corpus}", err=True)
+        raise typer.Exit(code=1)
+    try:
+        report = validate_existing_hebrew_corpus(
+            manifest_path=manifest_path,
+            config_dir=config_dir,
+            data_root=data_root,
+            output_dir=output_dir,
+            database_path=database,
+        )
+    except (
+        ConfigLoadError,
+        CorpusValidationError,
+        HebrewPipelineError,
+        SourceManifestError,
+    ) as exc:
+        typer.echo(f"Corpus validation failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if json_output:
+        _echo_json(report)
+    else:
+        typer.echo(
+            f"Validated Hebrew corpus: tokens={report.total_tokens}, "
+            f"books={report.book_count}, chapters={report.chapter_count}, "
+            f"verses={report.verse_count}."
+        )
+        typer.echo(f"Findings: errors={report.error_count}, warnings={report.warning_count}.")
+    if not report.passed:
+        raise typer.Exit(code=1)
+
+
+@app.command("corpus-summary")
+def corpus_summary_command(
+    corpus: Annotated[str, typer.Option("--corpus", help="Corpus identifier.")] = "hebrew",
+    database: Annotated[
+        Path,
+        typer.Option("--database", help="Local DuckDB database path.", resolve_path=True),
+    ] = Path("data/processed/project_echoes.duckdb"),
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit the summary as JSON."),
+    ] = False,
+) -> None:
+    """Report corpus coverage, language, annotation, and issue counts."""
+    if corpus != "hebrew":
+        typer.echo(f"Unsupported corpus: {corpus}", err=True)
+        raise typer.Exit(code=1)
+    try:
+        summary = corpus_summary(database)
+    except CorpusStorageError as exc:
+        typer.echo(f"Corpus summary failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if json_output:
+        _echo_json(summary)
+        return
+    typer.echo(
+        f"Hebrew corpus {summary.source_version}: {summary.total_tokens} tokens, "
+        f"{summary.total_books} books."
+    )
+    typer.echo(f"Languages: hebrew={summary.hebrew_tokens}, aramaic={summary.aramaic_tokens}.")
+    typer.echo(
+        "Missing annotations: "
+        f"lemma={summary.missing_lemma_count}, "
+        f"morphology={summary.missing_morphology_count}, "
+        f"syntax={summary.missing_syntax_count}."
+    )
+    typer.echo(
+        f"Variants={summary.variant_count}, ketiv/qere={summary.ketiv_qere_count}, "
+        f"punctuation={summary.punctuation_count}, issues={summary.validation_issue_count}."
+    )
 
 
 @app.command("create-run-manifest")

@@ -5,34 +5,67 @@ sources:
     corpus: Hebrew and Aramaic Old Testament
     role: primary_discovery
     language: [hebrew, aramaic]
-    edition: Westminster Leningrad Codex base text as represented by MACULA
+    edition: Westminster Leningrad Codex 4.20 as represented by MACULA Hebrew 25.08.11
     provider: Clear Bible / Biblica
     repository_or_location: https://github.com/Clear-Bible/macula-hebrew
-    version_or_commit: null
-    download_date: null
-    license: CC BY 4.0 for MACULA datasets; component-specific permissions require review
-    license_url: https://github.com/Clear-Bible/macula-hebrew/blob/main/LICENSE.md
-    license_review_status: in_progress
-    required_attribution: MACULA Hebrew Linguistic Datasets, available at https://github.com/Clear-Bible/macula-hebrew/
+    version_or_commit: 7ab368fcb14e4ad2e0f784138241a098fb516ec4
+    download_date: 2026-07-11
+    license: >-
+      Composite dataset: MACULA aggregate, OSHB morphology, Westminster syntax, and
+      Cherith glosses under CC BY 4.0; WLC text unrestricted/public-domain; SDBH fields
+      included in the MACULA aggregate by permission from UBS
+    license_url: https://github.com/Clear-Bible/macula-hebrew/blob/25.08.11/LICENSE.md
+    license_review_status: complete
+    required_attribution: >-
+      Attribute "MACULA Hebrew Linguistic Datasets, available at
+      https://github.com/Clear-Bible/macula-hebrew/"; preserve the WLC, Open Scriptures
+      Hebrew Bible Project, Groves Center, Cherith Analytics, and UBS/SDBH notices
+      applicable to fields used in any derivative
     redistribution_status: acquisition_instructions_only
     machine_processing_status: permitted
     raw_data_git_policy: ignored_local_only
-    expected_files: []
-    file_hashes: {}
-    ingest_adapter: null
+    expected_files:
+      - README.md
+      - LICENSE.md
+      - WLC/nodes/macula-hebrew.xml
+    file_hashes:
+      README.md: 0da32645421164b46dfc098417604994d3ba2a70b7152e6bdca39a98d79247af
+      LICENSE.md: 08c8c36e37f245de517e3d536877aeffed86d5941e05510e5d45785b71c0590d
+      WLC/nodes/macula-hebrew.xml: 13ad64d524cfed9366bef0cf0b47b617e67e3fc6bcb77db38e51c19918a4166a
+    ingest_adapter: echoes.ingest.macula_hebrew
+    acquisition:
+      method: git_sparse
+      version_label: 25.08.11
+      upstream_commit: 7ab368fcb14e4ad2e0f784138241a098fb516ec4
+      repository_url: https://github.com/Clear-Bible/macula-hebrew.git
+      include_paths:
+        - README.md
+        - LICENSE.md
+        - WLC/nodes
+      expected_file_count: 932
     research_purpose: Primary token-level Hebrew and Aramaic text, morphology, syntax, semantics, and participant annotations.
     known_limitations:
-      - The aggregate combines components with separate provenance and permission statements.
-      - A release or commit and exact expected-file inventory have not been selected.
+      - The selected node representation has no formal XSD; the adapter pins and validates the observed structure.
+      - MACULA normally prefers Qere where present, so separate Ketiv material is not complete in this representation.
+      - Upstream issues document occasional missing xml:id values, split-word identifier inconsistencies, and a reported 1 Chronicles node-numbering problem; all are surfaced as validation findings.
+      - Release 25.08.11 predates later NFC and combining-grapheme-joiner fixes; Project Echoes applies Unicode normalization only to derived forms and preserves source values.
+      - The aggregate combines components with distinct attribution and downstream-publication conditions.
     notes:
-      - The source remains unapproved until every activated component is audited separately.
+      - Approved for reproducible local machine processing of release 25.08.11; raw files and full processed token tables remain Git-ignored and are not approved for public redistribution by project policy.
+      - Release 25.08.11 is deliberately selected because it predates the separately licensed SILHA gloss injection in 2026 releases.
+      - Limited metadata, checksums, aggregate statistics, validation findings, and non-textual schema information may be published with attribution.
+      - The Git-ignored acquisition receipt records SHA-256 hashes and sizes for all 932 acquired files; the tracked manifest retains hashes for the three required inventory anchors.
     confirmed_information:
-      - The official repository describes WLC text, OpenScriptures morphology, syntax, semantic, gloss, and participant layers.
-      - The repository license identifies the MACULA datasets as CC BY 4.0 and supplies attribution text.
+      - The official repository describes WLC text, OpenScriptures morphology, Westminster syntax, semantic, gloss, and participant layers and identifies each major component in its license.
+      - Release 25.08.11 resolves to commit 7ab368fcb14e4ad2e0f784138241a098fb516ec4 and predates the SILHA integration.
+      - The pinned source contains 929 chapter node files across 39 books plus one XInclude index; upstream tests assert 475911 morpheme records.
+      - Local ingestion reproduced the upstream count exactly and validated 475911 source-to-token mappings across all 39 books and 929 chapters.
+      - WLC text is unrestricted, OSHB and Groves syntax are CC BY 4.0, and Cherith glosses are CC BY 4.0.
+      - The tag's MACULA license expressly applies CC BY 4.0 to the integrated dataset, including the enumerated SDBH-derived attributes used with UBS permission.
     unresolved_questions:
-      - Does permission for every bundled semantic layer permit redistribution in Project Echoes derived tables?
-      - Which tagged release or commit will be the reproducible acquisition target?
-    status: under_review
+      - A public release of full processed token tables requires a separate field-level compatibility and attribution review, especially for SDBH-derived columns.
+      - A future upgrade to a 2026 release requires a new review of SILHA terms and must not silently replace this pinned pre-SIL version.
+    status: validated
 
   - source_id: macula-greek
     source_name: MACULA Greek Linguistic Datasets

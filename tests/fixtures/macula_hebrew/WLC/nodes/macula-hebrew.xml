@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<corpus xmlns:xi="http://www.w3.org/2001/XInclude">
+  <xi:include href="01-Gen-001.xml"/>
+  <xi:include href="15-Ezr-004.xml"/>
+</corpus>

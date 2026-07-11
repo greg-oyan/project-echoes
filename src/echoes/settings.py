@@ -49,8 +49,39 @@ class CorporaConfig(EchoesModel):
         return self
 
 
-class LanguageNormalization(EchoesModel):
-    """Declarative normalization choices; no transform is implemented in Milestone 0."""
+class HebrewTransformations(EchoesModel):
+    """Explicit transformations used to derive Hebrew analytical forms."""
+
+    unicode_normalization: Literal["NFD", "NFC"]
+    collapse_whitespace: bool
+    remove_combining_grapheme_joiner: bool
+    normalized_remove_cantillation: bool
+    normalized_remove_vowel_points: bool
+    unpointed_remove_cantillation: bool
+    unpointed_remove_vowel_points: bool
+    split_maqqef: Literal[False]
+    remove_paseq: Literal[False]
+    remove_sof_pasuq: Literal[False]
+    remove_punctuation: Literal[False]
+    normalize_final_letters: Literal[False]
+    collapse_orthographic_variants: Literal[False]
+    segment_prefixes: Literal[False]
+    segment_suffixes: Literal[False]
+    collapse_ketiv_qere: Literal[False]
+    normalize_divine_names: Literal[False]
+
+
+class HebrewNormalization(EchoesModel):
+    """Active, information-preserving Hebrew and Aramaic normalization policy."""
+
+    status: Literal["active"]
+    preserve_source_form: Literal[True]
+    lemma_namespace: Literal["macula"]
+    transformations: HebrewTransformations
+
+
+class GreekNormalization(EchoesModel):
+    """Deferred Greek normalization policy."""
 
     status: Literal["planned"]
     preserve_source_form: Literal[True]
@@ -60,9 +91,51 @@ class LanguageNormalization(EchoesModel):
 class NormalizationConfig(EchoesModel):
     """Normalization configuration for the primary source languages."""
 
+    schema_version: Literal[2]
+    hebrew: HebrewNormalization
+    greek: GreekNormalization
+
+
+class HebrewSpotCheck(EchoesModel):
+    """One reproducible manual-inspection target and its required facets."""
+
+    reference: str = Field(pattern=r"^[A-Z0-9]{3} [1-9][0-9]*:[1-9][0-9]*$")
+    category: str = Field(min_length=1)
+    expected_language: Literal["hebrew", "aramaic"]
+    check: list[
+        Literal[
+            "token_order",
+            "surface_forms",
+            "lemmas",
+            "morphology",
+            "clause_or_phrase_ids",
+            "language",
+            "canonical_reference",
+            "source_provenance",
+            "normalized_forms",
+            "ketiv_qere",
+            "segmentation",
+        ]
+    ] = Field(min_length=1)
+
+
+class HebrewIngestionConfig(EchoesModel):
+    """Governed full-corpus expectations and manual spot-check registry."""
+
     schema_version: Literal[1]
-    hebrew: LanguageNormalization
-    greek: LanguageNormalization
+    source_id: Literal["macula-hebrew"]
+    status: Literal["blocked", "ready"]
+    expected_books: Literal[39]
+    expected_chapters: Literal[929]
+    expected_tokens: Literal[475911]
+    spot_checks: list[HebrewSpotCheck] = Field(min_length=10)
+
+    @model_validator(mode="after")
+    def spot_check_references_are_unique(self) -> Self:
+        references = [item.reference for item in self.spot_checks]
+        if len(references) != len(set(references)):
+            raise ValueError("Hebrew spot-check references must be unique")
+        return self
 
 
 Granularity = Literal["clause", "sentence", "verse", "two_verse", "five_verse"]
@@ -122,6 +195,7 @@ class ReviewConfig(EchoesModel):
 CONFIG_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "corpora.yaml": CorporaConfig,
     "normalization.yaml": NormalizationConfig,
+    "hebrew_ingestion.yaml": HebrewIngestionConfig,
     "segmentation.yaml": SegmentationConfig,
     "scoring.yaml": ScoringConfig,
     "models.yaml": ModelsConfig,

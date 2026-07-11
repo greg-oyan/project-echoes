@@ -1,12 +1,26 @@
-schema_version: 1
+schema_version: 2
 hebrew:
-  status: planned
+  status: active
   preserve_source_form: true
+  lemma_namespace: macula
   transformations:
-    remove_cantillation: false
-    remove_vowel_points: false
+    unicode_normalization: NFD
+    collapse_whitespace: true
+    remove_combining_grapheme_joiner: true
+    normalized_remove_cantillation: false
+    normalized_remove_vowel_points: false
+    unpointed_remove_cantillation: true
+    unpointed_remove_vowel_points: true
     split_maqqef: false
+    remove_paseq: false
+    remove_sof_pasuq: false
+    remove_punctuation: false
     normalize_final_letters: false
+    collapse_orthographic_variants: false
+    segment_prefixes: false
+    segment_suffixes: false
+    collapse_ketiv_qere: false
+    normalize_divine_names: false
 greek:
   status: planned
   preserve_source_form: true
