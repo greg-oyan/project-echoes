@@ -35,6 +35,7 @@ def main() -> int:
             raw_root,
             source=source,
             normalization=normalization.hebrew,
+            analysis_reading=normalization.ketiv_qere.analysis_reading,
         )
         processed = write_processed_corpus(
             adapter,

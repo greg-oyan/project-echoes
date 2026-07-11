@@ -38,11 +38,13 @@ The 25.08.11 snapshot was selected instead of a mutable latest release because i
 
 The adapter streams the 929 chapter XML files in canonical book order and consumes the preferred source tree. Each of the 475,911 upstream morpheme records produces exactly one canonical token. Project identifiers have the form `HB_<BOOK>_<CHAPTER>_<VERSE>_<WORD>.<SUBTOKEN>` and derive from canonical location rather than file traversal or table row order. Duplicate native identifiers, duplicate canonical positions, ID collisions, malformed references or morphology, missing identifiers, and alternate source trees are surfaced as structured findings rather than silently repaired.
 
-Every token retains source ID and commit, source file and row, native identifier or recorded fallback, source word identifier, original surface, canonical reference and token positions, language, lemma, morphology, clause/phrase ancestry, semantic and participant fields, gloss, source attributes, schema/normalization versions, and ingestion run identity where applicable. Explicit source zero-width morphemes remain explicit zero-width records.
+Every token retains source ID and commit, source file and row, native identifier or recorded fallback, source word identifier, source-edition verse identifier, original surface, source positions, language, lemma, morphology, clause/phrase ancestry, semantic and participant fields, gloss, source attributes, schema/normalization versions, and ingestion run identity where applicable. Explicit source zero-width morphemes remain explicit zero-width records. Project token IDs derive only from source-edition book, chapter, verse, token/subtoken position, and native identity when variants require disambiguation; later crosswalks and alignments cannot rename them.
 
 ### Hebrew normalization
 
 The original source form is immutable. Derived forms use deterministic Unicode NFD, whitespace collapse, and removal of the combining grapheme joiner. The pointed normalized form retains vowel points, cantillation, maqqef, paseq, sof pasuq, punctuation, final letters, orthographic distinctions, affix segmentation, divine-name forms, and any supplied Ketiv/Qere distinction. A separate unpointed form removes Hebrew vowel points and cantillation while preserving the other distinctions. No normalization changes the source field or fills a source-absent variant.
+
+Supplied Ketiv and Qere readings remain separate canonical rows linked by a stable variant group. The root normalization setting selects `qere` or `ketiv` only for a derived analysis table/view, which recomputes continuous analysis positions after choosing one member of each complete pair. A lone available reading remains usable. Switching the selection leaves base IDs, counts, forms, provenance, and token-table hashes unchanged.
 
 ### Storage and validation
 

@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 2
 status: planned
 random_seed: 1729
 components:
@@ -11,3 +11,51 @@ components:
   - name: syntactic
     enabled: false
     weight: 0.0
+null_models:
+  status: planned
+  enabled: false
+  repetitions: null
+  families:
+    - name: within_book_reassignment
+      enabled: false
+      required_preservation:
+        - book_level_token_or_lemma_frequencies
+        - passage_counts
+        - passage_lengths
+      invalid_surrogates:
+        - passage_order_only
+        - passage_label_only
+    - name: frequency_preserving_synthetic_passages
+      enabled: false
+      required_preservation:
+        - passage_lengths
+        - book_or_genre_conditioned_lemma_frequencies
+      optional_preservation:
+        - part_of_speech_distributions
+        - morphological_distributions
+        - local_ngram_characteristics
+  required_threshold_metrics:
+    - observed_candidate_count
+    - mean_null_candidate_count
+    - empirical_null_interval_95
+    - observed_to_null_enrichment
+    - empirical_tail_probability
+    - estimated_empirical_false_discovery_rate
+rare_evidence:
+  status: planned
+  enabled: false
+  total_corpus_frequency_max: 3
+  require_independent_co_signal: true
+  allowed_co_signals:
+    - ordered_sequence_similarity
+    - shared_rare_phrase
+    - syntactic_match
+    - second_rare_lexical_item
+    - independent_detector_family
+  planned_evidence_fields:
+    - expected_cooccurrence_independence
+    - hypergeometric_p_value
+    - null_model_empirical_rate
+    - multiple_testing_adjustment
+  hypergeometric_role: baseline_only
+  empirical_calibration_priority: book_or_genre_conditioned_permutation

@@ -24,6 +24,7 @@ from echoes.manifests.sources import SourceManifest
 
 PARQUET_FILES = {
     "tokens": "tokens.parquet",
+    "analysis_tokens": "analysis_tokens.parquet",
     "books": "books.parquet",
     "source_records": "source_records.parquet",
     "issues": "ingestion_issues.parquet",
@@ -90,6 +91,7 @@ def _frames(
     raw_file_hashes: dict[str, str],
 ) -> tuple[dict[str, pl.DataFrame], str]:
     tokens = result.tokens.clone().select(CANONICAL_TOKEN_COLUMNS)
+    analysis_tokens = result.analysis_tokens.clone()
     book_rows = []
     for book in BOOKS:
         book_tokens = tokens.filter(pl.col("book") == book.code)
@@ -154,6 +156,7 @@ def _frames(
                 ),
                 "schema_version": CANONICAL_TOKEN_SCHEMA_VERSION,
                 "normalization_config_hash": normalization_config_hash,
+                "analysis_reading": str(analysis_tokens.item(0, "analysis_reading")),
                 "raw_file_hashes_json": json.dumps(raw_file_hashes, sort_keys=True),
                 "source_record_count": source_records.height,
                 "token_count": tokens.height,
@@ -166,6 +169,7 @@ def _frames(
             "source_version_label": pl.String,
             "schema_version": pl.Int16,
             "normalization_config_hash": pl.String,
+            "analysis_reading": pl.String,
             "raw_file_hashes_json": pl.String,
             "source_record_count": pl.Int64,
             "token_count": pl.Int64,
@@ -174,6 +178,7 @@ def _frames(
     )
     return {
         "tokens": tokens,
+        "analysis_tokens": analysis_tokens,
         "books": books,
         "source_records": source_records,
         "issues": issues,
@@ -217,6 +222,7 @@ def write_processed_corpus(
         file_hashes = {path.name: sha256_file(path) for path in sorted(parquet_paths.values())}
         sort_columns = {
             "tokens": ["position_in_corpus"],
+            "analysis_tokens": ["analysis_position_in_corpus"],
             "books": ["book_order"],
             "source_records": ["source_record_id"],
             "issues": ["severity", "code", "source_record_id"],
@@ -270,6 +276,7 @@ def load_hebrew_duckdb(processed: ProcessedCorpus, database_path: Path) -> None:
             try:
                 table_sources = {
                     "hebrew_tokens": processed.parquet_paths["tokens"],
+                    "hebrew_analysis_tokens": processed.parquet_paths["analysis_tokens"],
                     "hebrew_books": processed.parquet_paths["books"],
                     "hebrew_source_records": processed.parquet_paths["source_records"],
                     "hebrew_ingestion_issues": processed.parquet_paths["issues"],
@@ -296,8 +303,21 @@ def load_hebrew_duckdb(processed: ProcessedCorpus, database_path: Path) -> None:
                     "ON hebrew_tokens(source_record_id)"
                 )
                 connection.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS hebrew_analysis_token_idx "
+                    "ON hebrew_analysis_tokens(token_id)"
+                )
+                connection.execute(
                     "CREATE INDEX IF NOT EXISTS hebrew_reference_idx "
                     "ON hebrew_tokens(book_order, chapter, verse, position_in_verse)"
+                )
+                connection.execute(
+                    "CREATE OR REPLACE VIEW hebrew_analysis_stream AS "
+                    "SELECT tokens.*, analysis.analysis_reading, "
+                    "analysis.analysis_position_in_verse, "
+                    "analysis.analysis_position_in_clause, "
+                    "analysis.analysis_position_in_corpus "
+                    "FROM hebrew_analysis_tokens AS analysis "
+                    "JOIN hebrew_tokens AS tokens USING (token_id)"
                 )
                 connection.execute("COMMIT")
             except Exception:

@@ -9,7 +9,7 @@ from typing import Literal, Self
 import polars as pl
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-CANONICAL_TOKEN_SCHEMA_VERSION = 1
+CANONICAL_TOKEN_SCHEMA_VERSION = 2
 
 
 class Language(StrEnum):
@@ -32,14 +32,17 @@ class CanonicalToken(BaseModel):
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=False)
 
-    schema_version: Literal[1] = 1
-    token_id: str = Field(pattern=r"^HB_[A-Z0-9]{3}_\d{3}_\d{3}_\d{4}(?:\.\d{2})?$")
+    schema_version: Literal[2] = 2
+    token_id: str = Field(
+        pattern=r"^HB_[A-Z0-9]{3}_\d{3}_\d{3}_\d{4}(?:\.\d{2})?(?:~[a-f0-9]{12})?$"
+    )
     corpus: Literal["hebrew"] = "hebrew"
     source_id: str = Field(min_length=1)
     source_version: str = Field(min_length=1)
     source_file: str = Field(min_length=1)
     source_record_id: str = Field(min_length=1)
     source_word_id: str = Field(min_length=1)
+    source_edition_reference: str = Field(pattern=r"^[A-Z0-9]{3} [1-9][0-9]*:[1-9][0-9]*$")
     source_row_reference: str = Field(min_length=1)
     book: str = Field(pattern=r"^[A-Z0-9]{3}$")
     book_order: int = Field(ge=1, le=39)
@@ -72,7 +75,12 @@ class CanonicalToken(BaseModel):
     language: Language
     is_punctuation: bool = False
     is_variant: bool = False
-    variant_type: str | None = None
+    variant_type: Literal["ketiv", "qere"] | None = None
+    variant_group_id: str | None = Field(
+        default=None,
+        pattern=r"^KQ_[A-Z0-9]{3}_\d{3}_\d{3}_\d{4}~[a-f0-9]{12}$",
+    )
+    is_default_reading: bool = True
     ketiv_form: str | None = None
     qere_form: str | None = None
     source_extras_json: str
@@ -97,9 +105,22 @@ class CanonicalToken(BaseModel):
             raise ValueError("zero-width morphemes must preserve empty source and derived forms")
         if not self.is_zero_width and not all(forms):
             raise ValueError("non-zero-width tokens require source and derived forms")
-        has_variant_detail = any((self.variant_type, self.ketiv_form, self.qere_form))
-        if has_variant_detail and not self.is_variant:
-            raise ValueError("variant detail requires is_variant=true")
+        if self.is_variant and (self.variant_type is None or self.variant_group_id is None):
+            raise ValueError("variant records require a type and stable variant group")
+        if not self.is_variant and any(
+            (self.variant_type, self.variant_group_id, self.ketiv_form, self.qere_form)
+        ):
+            raise ValueError("ordinary tokens cannot contain variant detail")
+        if not self.is_variant and not self.is_default_reading:
+            raise ValueError("ordinary tokens must participate in the default stream")
+        if self.variant_type == "ketiv" and (
+            self.ketiv_form != self.surface_form or self.qere_form is not None
+        ):
+            raise ValueError("Ketiv records must preserve only their own Ketiv form")
+        if self.variant_type == "qere" and (
+            self.qere_form != self.surface_form or self.ketiv_form is not None
+        ):
+            raise ValueError("Qere records must preserve only their own Qere form")
         return self
 
 
@@ -127,6 +148,7 @@ CANONICAL_TOKEN_POLARS_SCHEMA = {
     "source_file": pl.String,
     "source_record_id": pl.String,
     "source_word_id": pl.String,
+    "source_edition_reference": pl.String,
     "source_row_reference": pl.String,
     "book": pl.String,
     "book_order": pl.Int16,
@@ -160,6 +182,8 @@ CANONICAL_TOKEN_POLARS_SCHEMA = {
     "is_punctuation": pl.Boolean,
     "is_variant": pl.Boolean,
     "variant_type": pl.String,
+    "variant_group_id": pl.String,
+    "is_default_reading": pl.Boolean,
     "ketiv_form": pl.String,
     "qere_form": pl.String,
     "source_extras_json": pl.String,

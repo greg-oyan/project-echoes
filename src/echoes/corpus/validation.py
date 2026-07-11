@@ -10,6 +10,7 @@ import duckdb
 import polars as pl
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from echoes.corpus.analysis import AnalysisReading, derive_analysis_stream
 from echoes.corpus.books import BOOKS
 from echoes.corpus.models import (
     CANONICAL_TOKEN_COLUMNS,
@@ -22,6 +23,7 @@ from echoes.corpus.storage import (
     ProcessedCorpus,
     logical_frame_hash,
 )
+from echoes.corpus.token_ids import generate_source_edition_token_id
 from echoes.manifest import sha256_file
 from echoes.normalize.hebrew import is_punctuation, normalize_hebrew_token
 from echoes.settings import HebrewNormalization
@@ -128,6 +130,7 @@ def _check_hashes(
             )
     sort_columns = {
         "tokens": ["position_in_corpus"],
+        "analysis_tokens": ["analysis_position_in_corpus"],
         "books": ["book_order"],
         "source_records": ["source_record_id"],
         "issues": ["severity", "code", "source_record_id"],
@@ -209,6 +212,53 @@ def _validate_identity(
             ValidationSeverity.ERROR,
             "source-version-mismatch",
             "source versions differ across corpus records",
+        )
+    word_counts = dict(
+        tokens.group_by("source_word_id").len().select("source_word_id", "len").iter_rows()
+    )
+    identity_mismatches = 0
+    reference_mismatches = 0
+    for row in tokens.select(
+        "token_id",
+        "book",
+        "chapter",
+        "verse",
+        "position_in_word",
+        "source_word_id",
+        "source_record_id",
+        "source_edition_reference",
+        "variant_type",
+    ).iter_rows(named=True):
+        word_id = str(row["source_word_id"])
+        expected_id = generate_source_edition_token_id(
+            book_identifier=str(row["book"]),
+            chapter=int(row["chapter"]),
+            verse=int(row["verse"]),
+            source_token_position=int(word_id.rsplit("!", maxsplit=1)[-1]),
+            source_subtoken_position=(
+                int(row["position_in_word"]) if int(word_counts[word_id]) > 1 else None
+            ),
+            source_record_id=str(row["source_record_id"]),
+            disambiguate_with_source_record=row["variant_type"] is not None,
+        )
+        if row["token_id"] != expected_id:
+            identity_mismatches += 1
+        expected_reference = f"{row['book']} {row['chapter']}:{row['verse']}"
+        if row["source_edition_reference"] != expected_reference:
+            reference_mismatches += 1
+    if identity_mismatches:
+        _issue(
+            issues,
+            ValidationSeverity.ERROR,
+            "non-source-edition-token-id",
+            f"{identity_mismatches} token IDs differ from their source-edition identities",
+        )
+    if reference_mismatches:
+        _issue(
+            issues,
+            ValidationSeverity.ERROR,
+            "source-edition-reference-mismatch",
+            f"{reference_mismatches} preserved source-edition verse references differ",
         )
 
 
@@ -372,15 +422,106 @@ def _validate_normalization(
             "punctuation-policy-mismatch",
             f"{punctuation_mismatches} punctuation flags differ from configuration",
         )
-    variants_missing_forms = tokens.filter(
-        pl.col("is_variant") & pl.col("ketiv_form").is_null() & pl.col("qere_form").is_null()
+    invalid_variant_rows = tokens.filter(
+        (
+            pl.col("is_variant")
+            & (
+                pl.col("variant_type").is_null()
+                | ~pl.col("variant_type").is_in(["ketiv", "qere"])
+                | pl.col("variant_group_id").is_null()
+                | (
+                    (pl.col("variant_type") == "ketiv")
+                    & (
+                        pl.col("ketiv_form").is_null()
+                        | (pl.col("ketiv_form") != pl.col("surface_form"))
+                        | pl.col("qere_form").is_not_null()
+                    )
+                )
+                | (
+                    (pl.col("variant_type") == "qere")
+                    & (
+                        pl.col("qere_form").is_null()
+                        | (pl.col("qere_form") != pl.col("surface_form"))
+                        | pl.col("ketiv_form").is_not_null()
+                    )
+                )
+            )
+        )
+        | (
+            ~pl.col("is_variant")
+            & (
+                pl.col("variant_type").is_not_null()
+                | pl.col("variant_group_id").is_not_null()
+                | pl.col("ketiv_form").is_not_null()
+                | pl.col("qere_form").is_not_null()
+                | ~pl.col("is_default_reading")
+            )
+        )
     )
-    if variants_missing_forms.height:
+    if invalid_variant_rows.height:
         _issue(
             issues,
             ValidationSeverity.ERROR,
             "variant-form-loss",
-            f"{variants_missing_forms.height} variant tokens lack preserved Ketiv/Qere forms",
+            f"{invalid_variant_rows.height} tokens have inconsistent variant preservation",
+        )
+    variant_groups = (
+        tokens.filter(pl.col("variant_group_id").is_not_null())
+        .group_by("variant_group_id")
+        .agg(
+            pl.col("variant_type").eq("ketiv").sum().alias("ketiv_count"),
+            pl.col("variant_type").eq("qere").sum().alias("qere_count"),
+            pl.col("is_default_reading").sum().alias("default_count"),
+            pl.col("is_default_reading")
+            .filter(pl.col("variant_type") == "qere")
+            .any()
+            .alias("qere_is_default"),
+        )
+    )
+    invalid_groups = variant_groups.filter(
+        (pl.col("ketiv_count") > 1)
+        | (pl.col("qere_count") > 1)
+        | (pl.col("default_count") != 1)
+        | ((pl.col("ketiv_count") == 1) & (pl.col("qere_count") == 1) & ~pl.col("qere_is_default"))
+    )
+    if invalid_groups.height:
+        _issue(
+            issues,
+            ValidationSeverity.ERROR,
+            "invalid-variant-group",
+            f"{invalid_groups.height} Ketiv/Qere groups are ambiguous or lack one default",
+        )
+
+
+def _validate_analysis_stream(
+    tokens: pl.DataFrame,
+    analysis_tokens: pl.DataFrame,
+    metadata: pl.DataFrame,
+    analysis_reading: AnalysisReading,
+    issues: list[IngestionIssue],
+) -> None:
+    expected = derive_analysis_stream(tokens, analysis_reading=analysis_reading)
+    actual = analysis_tokens.sort("analysis_position_in_corpus")
+    if actual.columns != expected.columns or actual.dtypes != expected.dtypes:
+        _issue(
+            issues,
+            ValidationSeverity.ERROR,
+            "analysis-stream-schema",
+            "derived analysis stream columns or types differ from the governed schema",
+        )
+    elif not actual.equals(expected):
+        _issue(
+            issues,
+            ValidationSeverity.ERROR,
+            "analysis-stream-mismatch",
+            f"derived analysis stream does not match configured {analysis_reading} selection",
+        )
+    if metadata.height == 1 and metadata.item(0, "analysis_reading") != analysis_reading:
+        _issue(
+            issues,
+            ValidationSeverity.ERROR,
+            "analysis-reading-metadata-mismatch",
+            "corpus metadata does not record the configured analysis reading",
         )
 
 
@@ -426,6 +567,7 @@ def _validate_duckdb(
         return
     table_map = {
         "tokens": "hebrew_tokens",
+        "analysis_tokens": "hebrew_analysis_tokens",
         "books": "hebrew_books",
         "source_records": "hebrew_source_records",
         "issues": "hebrew_ingestion_issues",
@@ -434,7 +576,10 @@ def _validate_duckdb(
     try:
         with duckdb.connect(str(database_path), read_only=True) as connection:
             existing = {row[0] for row in connection.execute("SHOW TABLES").fetchall()}
-            required = set(table_map.values()) | {"corpus_schema_versions"}
+            required = set(table_map.values()) | {
+                "corpus_schema_versions",
+                "hebrew_analysis_stream",
+            }
             missing_tables = sorted(required - existing)
             if missing_tables:
                 _issue(
@@ -496,6 +641,7 @@ def validate_hebrew_corpus(
     *,
     database_path: Path,
     normalization: HebrewNormalization,
+    analysis_reading: AnalysisReading = "qere",
     expected_books: int,
     expected_chapters: int,
     expected_tokens: int | None,
@@ -511,6 +657,13 @@ def validate_hebrew_corpus(
     _validate_identity(tokens, source_records, metadata, issues)
     _validate_structure(tokens, issues, require_full_coverage=require_full_coverage)
     _validate_normalization(tokens, normalization, issues)
+    _validate_analysis_stream(
+        tokens,
+        frames["analysis_tokens"],
+        metadata,
+        analysis_reading,
+        issues,
+    )
     completeness = _completeness(tokens, issues)
 
     book_count = tokens["book"].n_unique()

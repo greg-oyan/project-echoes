@@ -8,12 +8,27 @@ methods: [weighted_lemma_overlap, rare_root_overlap, phrase_order]
 parameters:
   configuration_status: governance_only
   require_held_out_evaluation: true
+  repeated_null_models_required: true
+  required_null_families:
+    - within_book_reassignment
+    - frequency_preserving_synthetic_passages
+  null_threshold_report_fields:
+    - observed_candidate_count
+    - mean_null_candidate_count
+    - empirical_null_interval_95
+    - observed_to_null_enrichment
+    - empirical_tail_probability
+    - estimated_empirical_false_discovery_rate
+  rare_evidence_total_corpus_frequency_max: 3
+  rare_evidence_requires_independent_co_signal: true
 evaluation_dataset: known-link-benchmark
 random_seed: 1729
 expected_outputs: [benchmark_metrics, false_positive_analysis, false_negative_analysis]
 acceptance_criteria:
   - Evaluation splits are fixed before detector tuning
   - Recovery exceeds random and simple-overlap baselines
+  - Expected-noise baselines from repeated required null simulations accompany observed candidate counts
+  - Rare evidence at or below the configured corpus-frequency threshold requires an independent co-signal
 prohibited_claims:
   - Benchmark recovery establishes novelty
   - Training and evaluation relationships may overlap

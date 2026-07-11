@@ -8,13 +8,24 @@ methods: [sparse_semantic_domains, literal_gloss_embeddings, original_language_e
 parameters:
   configuration_status: governance_only
   training_lineage_required: true
+  english_feature_ablation_required: true
+  english_ablation_record_fields:
+    - candidate_score_before_removal
+    - candidate_score_after_removal
+    - remaining_original_language_evidence
+    - review_eligibility_survives
+    - relationship_classification_changes
+  custom_contrastive_encoder: optional_stretch
+  milestone_10_requires_custom_encoder: false
 evaluation_dataset: known-link-benchmark
 random_seed: 1729
 expected_outputs: [representation_comparison, hard_negative_metrics, training_lineage_report]
 acceptance_criteria:
   - Adds measurable held-out value beyond lexical methods
   - Records model versions and possible benchmark exposure
+  - A strong candidate supported by English-derived features survives the registered no-English ablation
 prohibited_claims:
   - Cosine similarity alone constitutes textual evidence
   - English translation similarity alone supports a candidate relationship
+  - A candidate remains strong when its English-derived support disappears under ablation
 status: planned

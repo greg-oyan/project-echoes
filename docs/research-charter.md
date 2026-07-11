@@ -36,6 +36,10 @@ The initial discovery boundary is the 66-book Protestant canon: the Hebrew and A
 
 The boundary is a scope decision for a first reproducible experiment, not a theological judgment about other canons. Original-language evidence is primary. English may support reading, glossing, baselines, or optional features, but English similarity alone cannot support a candidate.
 
+### English-feature ablation
+
+Any candidate whose supporting evidence includes English translations, English glosses, or any other English-derived feature must survive a registered ablation that removes every English-derived feature before it may retain the label **strong candidate**. The ablation records the candidate score before and after removal, the original-language evidence that remains, whether review eligibility survives, and whether the relationship classification changes. English may assist discovery or interpretation, but it cannot conceal the absence of original-language support.
+
 ### Septuagint bridge corpus
 
 The Septuagint is a later bridge layer, not an initial independent discovery target. It may be activated only after the Hebrew and Greek primary pipelines pass their quality gates and transparent known-link recovery demonstrates value. Its role is direct Greek comparison, Hebrew–Greek–New Testament triangulation, translation-sensitive analysis, and testing whether a relationship is stronger in Greek tradition than in the surviving Hebrew text.
@@ -51,6 +55,14 @@ Biblical Dead Sea Scrolls, textual-variant datasets, critical apparatuses, and a
 ### Deferred reception-history layers
 
 Targums, non-biblical Dead Sea Scrolls, deuterocanonical literature, pseudepigrapha, rabbinic literature, Church Fathers, and later commentary traditions are excluded from initial candidate generation. If activated later, they address reception: whether an interpreter recognized, transmitted, or developed a relationship. Reception evidence is not direct proof of original authorial dependence.
+
+### Pauline chronology and mediation
+
+The Pauline letters predate the written canonical Gospels. A Paul–Jesus relationship therefore cannot automatically be described as Paul drawing from a written Gospel text. It must initially be framed as a possible relationship to Jesus sayings traditions, shared early Christian traditions, common scriptural sources, Septuagint wording, Hebrew scriptural wording, or another demonstrated form of mediation. A claim of direct dependence on a written Gospel requires separate historical evidence.
+
+Review-rubric question 6 is:
+
+> Is the proposed direction of dependence chronologically possible, and does the evidence support a written-text relationship, an oral sayings tradition, a shared scriptural source, or another form of mediation?
 
 ## Candidate relationship taxonomy
 
@@ -102,6 +114,7 @@ Novelty is a human-reviewed research status, never a detector output. A candidat
 8. Original-language evidence is checked manually before serious presentation.
 9. Accepted, rejected, and artifact classifications remain in a persistent, auditable ledger.
 10. Blind review is used before claims about new candidates are compared with known or negative examples.
+11. A corpus-specific contrastive encoder is optional stretch work, not a critical-path requirement. Milestone 10 must remain completable without training a custom encoder.
 
 ## Permitted claims
 

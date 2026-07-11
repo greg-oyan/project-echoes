@@ -1,4 +1,6 @@
-schema_version: 2
+schema_version: 3
+ketiv_qere:
+  analysis_reading: qere
 hebrew:
   status: active
   preserve_source_form: true

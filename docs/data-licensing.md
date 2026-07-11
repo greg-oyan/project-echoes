@@ -51,6 +51,8 @@ Before a release, generate an inventory of included files and their input source
 
 BHQ/BHS, Nestle-Aland, UBS, ECM, and other modern apparatuses are treated as proprietary research sources unless the rights holder grants explicit relevant permission. A subscription or browser interface does not authorize scraping. No apparatus is acquired through Milestone 2. Later use requires exact edition/coverage, written machine-processing terms, local-storage rules, citation requirements, extraction limits, and a derived-output agreement.
 
+The same rule applies to copyrighted UBS, Nestle-Aland, and comparable quotation or allusion appendices. Lawful manual consultation may be cited in a review record, but does not authorize ingestion, transcription, systematic extraction, reconstructed ordering, or copied benchmark data. Repository ingestion requires explicit permission covering the proposed machine use and publication.
+
 ## Citation and provenance
 
 Citation and license are separate obligations. Every processed record retains stable project ID, source ID, source version, file and row reference, input hash, adapter version, and transformation run. Live resources record access date, but cannot become active without an authorized reproducible snapshot. Provider-requested citations supplement—not replace—edition-level scholarly citations.
@@ -76,6 +78,28 @@ The required attribution names the MACULA Hebrew Linguistic Datasets and links t
 
 The selected release intentionally predates the SILHA gloss integration found in later 2026 releases. SILHA terms therefore are not imported into this snapshot, but a future upgrade must repeat the component and publication review rather than silently inherit this determination.
 
+## OpenBible.info Tier 3 determination
+
+The official [Bible Cross References page](https://www.openbible.info/labs/cross-references/) states that the graph contains approximately 340,000 cross references, draws primarily from public-domain sources—especially the *Treasury of Scripture Knowledge*—and provides a downloadable archive. The same page states that its content is licensed under the [Creative Commons Attribution 4.0 license](https://creativecommons.org/licenses/by/4.0/) unless otherwise indicated. It separately identifies displayed ESV Scripture quotations as copyrighted; those quotations are outside this determination and must not be copied into Project Echoes.
+
+The downloadable link graph is therefore classified as CC BY 4.0 with redistribution and machine processing permitted, subject to OpenBible.info attribution, a source and license link, preservation of notices, and indication of modifications. Project policy keeps any eventual raw archive in ignored local storage despite the permissive license.
+
+This completed license review does not activate the source. OpenBible remains planned until an immutable snapshot, archive schema, reference convention, expected-file inventory, and checksums are recorded. Methodologically it is Tier 3 weak supervision and broad knownness filtering only: its heterogeneous thematic, verbal, event, and person links are not scholarly ground truth and cannot serve as the sole positive benchmark or populate Tier 1 automatically.
+
+## Septuagint edition and component gate
+
+Before any Septuagint acquisition, the project must select an exact edition and separately determine:
+
+1. copyright status of the printed edition;
+2. license of the electronic transcription;
+3. license of morphology or other linguistic annotation;
+4. license of Hebrew–Greek alignment data;
+5. permission to redistribute raw text;
+6. permission to redistribute each proposed derived output; and
+7. required attribution and notice language for every component.
+
+No blanket conclusion may be inferred across layers. Swete's printed edition may be public domain, while a particular electronic transcription can still have separate terms that require review. Rahlfs-Hanhart is a copyrighted modern edition. CATSS text, morphology, parallel data, alignment material, and related modules may carry different agreements and must be evaluated individually. The eventual decision must identify edition-specific references, versions, access dates, component provenance, publication consequences, and an ADR before acquisition. No LXX source is selected or acquired by this amendment.
+
 ## Preliminary status table
 
 | Source ID | License review | License/terms recorded | Redistribution | Machine processing | Raw Git policy | Lifecycle |
@@ -83,12 +107,13 @@ The selected release intentionally predates the SILHA gloss integration found in
 | `macula-hebrew` | Complete for 25.08.11 | Composite notices reviewed; CC BY 4.0 aggregate, public-domain/unrestricted WLC, and named component terms | Acquisition instructions only by project policy | Permitted | Ignored local only | Validated |
 | `macula-greek` | In progress | CC BY 4.0 aggregate; component notices require audit | Acquisition instructions only pending component audit | Permitted | Ignored local only | Under review |
 | `stepbible-data` | In progress | CC BY 4.0 repository statement; selected-file audit pending | Acquisition instructions only pending subset audit | Permitted | Ignored local only | Under review |
-| `septuagint-catss` | In progress | CCAT/CATSS user agreement | Acquisition instructions only | Restricted | Ignored local only | Blocked |
-| `openbible-cross-references` | In progress | CC Attribution page notice; archive-content audit pending | Acquisition instructions only | Permitted | Ignored local only | Under review |
+| `septuagint-catss` | In progress | Component-specific CCAT/CATSS terms require separate review | Acquisition instructions only | Restricted | Ignored local only | Blocked |
+| `openbible-cross-references` | Complete | CC BY 4.0 official page notice; ESV quotations excluded | Permitted with attribution | Permitted | Ignored local only | Planned |
+| `project-echoes-tier1-quotations` | Complete for project-authored metadata | CC BY 4.0; third-party rights remain separate | Permitted with attribution | Permitted | Trackable | Planned, header only |
 | `ubs-parallel-passages` | Complete | CC BY-SA 4.0 dedicated data license | Permitted with attribution/ShareAlike | Permitted | Metadata only by project policy | Planned |
 | `etcbc-dead-sea-scrolls` | In progress | MIT repository license; upstream transcription scope unresolved | Unknown | Permitted | Ignored local only | Under review |
 | `hebrew-critical-apparatus` | Not started | Proprietary; publisher rights page recorded | Prohibited absent permission | Unknown | Prohibited | Planned |
 | `greek-critical-apparatus` | Not started | Proprietary; publisher rights page recorded | Prohibited absent permission | Unknown | Prohibited | Planned |
 | `targum-corpus` | Not started | No general bulk-reuse license found | Unknown | Unknown | Prohibited | Planned |
 
-These are operational classifications as of the review date. MACULA Hebrew and UBS Parallel Passages have completed licensing reviews; only the pinned MACULA Hebrew snapshot is acquired and validated. Source-specific unresolved questions and publication boundaries are preserved in the machine-readable manifest.
+These are operational classifications as of the review date. MACULA Hebrew, OpenBible.info cross references, UBS Parallel Passages, and the future Project Echoes-authored Tier 1 metadata have completed the stated licensing reviews; only the pinned MACULA Hebrew snapshot is acquired and validated. Source-specific unresolved questions and publication boundaries are preserved in the machine-readable manifest.

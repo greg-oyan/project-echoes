@@ -36,4 +36,15 @@
 - Models and candidate generation: none.
 - Boundary: no MACULA Greek acquisition, supplementary annotation, segmentation, embedding, semantic-analysis, candidate-generation, or review-console work was performed.
 
+## 2026-07-11 - Pre-Milestone-3 token-identity and reading-stream amendment
+
+- Purpose: verify that the approved source-edition identity and non-destructive Ketiv/Qere policy can be introduced without changing any existing full-corpus token identity.
+- Implementation: canonical schema version 2 adds the preserved source-edition verse reference and variant relationship fields; normalization configuration version 3 adds a `qere`/`ketiv` derived-stream selection; a separate analysis Parquet table and DuckDB view hold continuous selected-stream positions.
+- Fixture result: a legally safe synthetic pair retains distinct Ketiv and Qere rows, IDs, source/normalized forms, and provenance under both settings. Switching the setting selects the corresponding row with identical deterministic analysis positions while the base token table and its hashes remain unchanged. A lone supplied reading remains analyzable.
+- Full-corpus result: a governed rebuild from the existing verified receipt produced 475,911 source records and 475,911 base tokens across 39 books, 929 chapters, and 23,213 verses, with 468,362 Hebrew and 7,549 Aramaic records. Validation reported zero errors and zero warnings.
+- Identity comparison: SHA-256 over ordered `token_id`, `source_record_id`, and `source_word_id` triples was `91e923e6f4234e3d1946ad6fb1487f5894ec4e28f2fd3c919bf6ebd1680693b6` both before and after the amendment.
+- Derived stream: the configured Qere stream contains 475,911 rows with continuous corpus positions 1 through 475,911; run ID is `hebrew-0b2cbc267086537c407a`.
+- Local Ketiv/Qere spot check: 2 Kings 8:10 contains 18 preserved source-edition records and no variant group in release 25.08.11. No source text was recorded. This confirms that the selected MACULA representation supplies only its preferred analysis there; it does not justify reconstructing a missing Ketiv record or claiming that the tradition has no variant.
+- Boundary: no source was reacquired, no raw or processed corpus artifact was tracked, and no Greek, Septuagint, benchmark population, scoring, semantic, or review engine was started.
+
 Substantive experiments are prohibited until their prerequisite milestones and data-governance gates pass.

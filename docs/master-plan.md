@@ -35,6 +35,8 @@ The system must generate candidate discoveries. It must not claim to prove autho
 
 Codex must treat this project as a staged research program.
 
+This document is the sole governing implementation specification for Project Echoes. Amend requirements within the existing milestone numbers rather than creating a competing plan or renumbering milestones. A requirement added to a future milestone changes that milestone's specification; it does not authorize early implementation before the current milestone and acceptance gate are complete.
+
 ## 2.1 General execution rules
 
 Codex must:
@@ -128,6 +130,14 @@ English translations may be used only as:
 
 English translation similarity must never be the sole evidence supporting a candidate relationship.
 
+Any candidate whose supporting evidence includes English translations, English glosses, or other English-derived features must survive a registered ablation that removes all English-derived features before the candidate may retain the label `strong candidate`. The ablation must record:
+
+* Candidate score before removal
+* Candidate score after removal
+* Remaining original-language evidence
+* Whether review eligibility survives
+* Whether the relationship classification changes
+
 ## 3.2 Greek bridge corpus
 
 The Septuagint must be added after the primary Hebrew and Greek pipelines pass corpus-quality and known-link-recovery gates.
@@ -143,7 +153,23 @@ It will support:
 * Improved analysis of quotations, allusions, and semantic echoes
 * Evaluation of whether a relationship is stronger in the Greek textual tradition than in the surviving Hebrew text
 
-Before activation, the Septuagint source must receive a separate review covering:
+Before acquisition or activation, the Septuagint source must receive a separate edition-selection and licensing decision. That decision must evaluate separately:
+
+1. Copyright status of the printed edition
+2. License of the electronic transcription
+3. License of morphology or linguistic annotation
+4. License of Hebrew-Greek alignment data
+5. Raw-text redistribution
+6. Derived-output redistribution
+7. Required attribution
+
+The review must not assume that related resources share one license. In particular:
+
+* Swete's printed edition is public domain, but each electronic transcription still requires separate review.
+* Rahlfs-Hanhart is a copyrighted modern edition.
+* CATSS text, morphology, parallel data, and related modules may have different terms and must be verified individually rather than assigned one blanket license.
+
+The eventual source decision and redistribution consequences must be recorded in `docs/data-licensing.md` and an ADR. Before activation, the selected Septuagint source must also receive a technical review covering:
 
 * Provenance
 * Textual edition
@@ -156,6 +182,8 @@ Before activation, the Septuagint source must receive a separate review covering
 * Alignment with New Testament references
 
 If redistribution rights are unclear, keep the raw data outside the public repository and provide acquisition instructions.
+
+Version 1 aligns the Hebrew and Septuagint corpora at passage or verse level through the separate Milestone 4 versification-crosswalk layer, supplemented by statistical lemma-level alignment with explicit confidence scores. Token-level Hebrew-Septuagint alignment is out of scope for version 1.
 
 ## 3.3 Supplementary annotation layers
 
@@ -539,6 +567,13 @@ token_id
 corpus
 source_id
 source_token_id
+source_record_identity
+source_edition_book_id
+source_edition_chapter
+source_edition_verse
+source_edition_verse_id
+source_position_in_verse
+source_position_in_word
 book
 book_order
 chapter
@@ -570,10 +605,34 @@ language
 is_punctuation
 is_variant
 variant_type
+variant_group_id
+is_default_reading
 source_row_reference
 ```
 
 Every processed token must trace back to the original source row.
+
+Canonical token identity must derive only from the source edition's own book identifier, chapter, verse, source token or subtoken position, and, where required to distinguish variants, source-record identity. Token IDs must never depend on:
+
+* A versification crosswalk
+* English versification
+* Septuagint alignment
+* External canonical mappings
+* Any later supplementary dataset
+
+The source edition's own verse identifiers and coordinates must remain preserved separately from all later mappings. Adding, removing, or changing a crosswalk must not change any underlying token ID.
+
+Where the source supplies Ketiv and Qere, retain both readings as separate records. Each record must have its own stable `token_id`, source and normalized forms, provenance, `variant_type`, shared `variant_group_id`, and `is_default_reading` value. `variant_type` is `ketiv`, `qere`, or null. A configuration change must never mutate, delete, merge, or re-identify either preserved record.
+
+Downstream analysis uses a separately derived token stream or view containing only the configured reading and positions such as:
+
+```text
+analysis_position_in_verse
+analysis_position_in_clause
+analysis_position_in_corpus
+```
+
+These analysis positions are derived data, not source-edition identity, and must be deterministic for either configured reading.
 
 ## 9.3 Passage table
 
@@ -683,9 +742,15 @@ feature_value
 corpus_frequency
 local_frequency
 statistical_measure
+expected_cooccurrence_independence
+hypergeometric_p_value
+null_model_empirical_rate
+multiple_testing_adjustment
 explanation
 run_id
 ```
+
+`hypergeometric_p_value` is a simple independence baseline, not a calibrated probability of literary dependence. Biblical vocabulary is not independently distributed; book- or genre-conditioned permutation results take precedence for empirical calibration.
 
 ## 9.8 Human-review table
 
@@ -754,6 +819,22 @@ Create configurable transformations for:
 
 Do not normalize final forms or orthographic variants unless the method requires it and the decision is documented.
 
+Lock the Ketiv/Qere policy at ingestion. When the source supplies both readings:
+
+* Preserve Ketiv and Qere as separate stable token records.
+* Give each record its own source form, normalized form, provenance, and token ID.
+* Link both records with a stable variant-group identifier.
+* Never overwrite one reading with the other or delete either reading.
+
+Select only the derived analysis stream through `config/normalization.yaml`:
+
+```yaml
+ketiv_qere:
+  analysis_reading: qere
+```
+
+Supported values are `qere` and `ketiv`; `qere` is the default. Switching the setting must change derived analytical positions and stream membership deterministically without changing an underlying token ID, token count, source form, or normalized form.
+
 ## 10.3 Greek normalization
 
 Create configurable transformations for:
@@ -781,6 +862,8 @@ Where MACULA and supplementary datasets disagree:
 ## 10.5 Versification
 
 Create a versification-crosswalk table.
+
+The crosswalk is introduced as a separate mapping layer in Milestone 4. It may map edition-specific references for comparison, but it must not participate in source-edition token-ID generation or rewrite the source edition's own verse identifiers. Token identity must remain unchanged when crosswalk rows are added, removed, or corrected.
 
 Do not assume:
 
@@ -817,6 +900,19 @@ Create `docs/research-charter.md` containing:
 * Publication claims
 * Stop rules
 * Change-control process
+
+The charter must register the English-feature ablation rule: a candidate supported by English translations, glosses, or other English-derived features cannot retain `strong candidate` status unless it remains eligible after all English-derived features are removed. The recorded ablation must contain the score before removal, score after removal, remaining original-language evidence, whether review eligibility survives, and whether the relationship classification changes.
+
+The charter must also register the chronological guardrail for Pauline work. The Pauline letters predate the written canonical Gospels; therefore, a Paul-Jesus relationship must not automatically be described as Paul drawing from a written Gospel text. Initially evaluate such relationships as possible relationships to:
+
+* Jesus sayings traditions
+* Shared early Christian traditions
+* Common scriptural sources
+* Septuagint wording
+* Hebrew scriptural wording
+* Other demonstrated mediation
+
+A claim of direct dependence on a written Gospel requires separate historical evidence.
 
 Create a literature matrix with:
 
@@ -964,6 +1060,10 @@ Each adapter must:
 * Load DuckDB tables.
 * Produce an ingestion report.
 
+Token IDs must use only source-edition identity: the source's own book identifier, chapter, verse, source token or subtoken position, and source-record identity when needed to distinguish variants. Ingestion code must not import, query, or otherwise depend on a versification crosswalk, English reference system, Septuagint alignment, external canonical mapping, or supplementary dataset to generate token IDs.
+
+When the source supplies both Ketiv and Qere, the Hebrew adapter must emit both as separate linked token records and build the configured derived analysis stream without mutating the preserved records.
+
 Generate stable IDs such as:
 
 ```text
@@ -988,6 +1088,15 @@ Automated checks:
 * Morphological fields follow documented vocabularies.
 * Re-running ingestion produces identical outputs.
 * Processed token counts remain stable unless a source version changes.
+* Token-ID generation imports or queries no crosswalk code or table.
+* Adding, removing, or changing a crosswalk cannot change a token ID.
+* Identical source-edition records generate identical IDs across reruns.
+* Token-ID collisions fail clearly.
+* Source-edition verse identifiers remain preserved separately from later mappings.
+* Both Ketiv and Qere are retrievable in a representative legally safe fixture.
+* Alternate readings retain stable, distinct IDs and normalized forms.
+* Switching the configured reading changes only the derived analysis stream.
+* Derived analytical positions are deterministic for both reading selections.
 
 Manual spot checks:
 
@@ -1018,6 +1127,8 @@ Do not proceed until:
 * Token counts and reference ranges are documented.
 * Manual checks reveal no systematic errors.
 * Corpus validation runs through one CLI command.
+* Token identity is demonstrably independent of all crosswalk data.
+* Ketiv and Qere preservation and stream-switching tests pass.
 
 ---
 
@@ -1092,11 +1203,43 @@ Create machine-readable benchmark sets for:
 
 Broad crowd-sourced or aggregated cross-reference datasets must be treated as weak supervision, not scholarly ground truth.
 
+Use the existing OpenBible cross-reference source as a Tier 3 resource only. Its planned role is weak supervision and broad knownness filtering, not scholarly ground truth and never the sole positive benchmark. Record that it contains approximately 340,000 broad cross-reference links derived primarily from the Treasury of Scripture Knowledge and related sources. Its planned license classification is Creative Commons Attribution, subject to confirmation and recorded attribution for the exact acquired artifact; do not infer missing license facts.
+
+Create a future project-curated Tier 1 explicit New Testament quotation benchmark at `data/benchmarks/tier1_quotations.csv`. Begin with schema and header only; do not invent or prepopulate the approximately 300 expected human-curated rows. The schema must include:
+
+```text
+quotation_id
+nt_reference
+ot_reference
+ot_source_tradition
+relationship_class
+quotation_marker
+curation_source
+source_public_domain_status
+curator
+review_status
+notes
+```
+
+Create `docs/tier1-quotation-curation.md` as the curation-instructions document. It must define:
+
+* Allowed public-domain source indexes
+* Row-level provenance requirements
+* Review procedure
+* Relationship classifications
+* Duplicate handling
+* Ambiguous source handling
+* Hebrew-versus-Septuagint source identification
+* Required human verification
+* Project licensing for the resulting curated dataset
+
+Copyrighted UBS, Nestle-Aland, or comparable quotation and allusion appendices must not be ingested into the repository without explicit permission. They may be consulted manually where lawful, but that consultation must not become copied benchmark data.
+
 ## Benchmark tiers
 
 ### Tier 1: High-confidence relationships
 
-Manually curated, strongly accepted examples.
+Manually curated, strongly accepted examples with row-level provenance and required human verification. The project-curated explicit New Testament quotation benchmark belongs here after population and review; an empty schema is not yet benchmark evidence.
 
 ### Tier 2: Moderate-confidence relationships
 
@@ -1105,6 +1248,8 @@ Commonly proposed allusions and thematic parallels.
 ### Tier 3: Broad cross-reference links
 
 Useful for training or retrieval evaluation but too heterogeneous to function as definitive truth.
+
+OpenBible broad cross-reference links belong here and may support weak supervision or broad knownness filtering only.
 
 ## Split strategy
 
@@ -1160,6 +1305,9 @@ Track:
 * A transparent lexical baseline has been evaluated.
 * Results are documented.
 * The project can identify known relationships above random and common-vocabulary baselines.
+* The OpenBible source is classified as Tier 3 and its exact license and attribution are verified in the manifest.
+* The project-curated Tier 1 quotation benchmark schema validates before any rows are curated.
+* No copyrighted quotation or allusion appendix has been copied into benchmark data without explicit permission.
 
 ---
 
@@ -1205,6 +1353,54 @@ Implement:
 * Longest common subsequence
 * Weighted sequence alignment
 
+## Null-model calibration
+
+Every lexical scoring experiment must run repeated simulations from both required null families.
+
+### Within-book reassignment null
+
+Preserve:
+
+* Book-level token or lemma frequencies
+* Passage counts
+* Passage lengths
+
+Break meaningful passage relationships by randomly reassigning tokens or lemmas among passages within the same book. Merely shuffling passage order or labels is not an acceptable null because it leaves pairwise similarities unchanged.
+
+### Frequency-preserving synthetic-passage null
+
+Generate synthetic passages that preserve, at minimum:
+
+* Passage lengths
+* Book- or genre-conditioned lemma frequencies
+
+Stricter registered variants may also preserve part-of-speech distributions, morphological distributions, or local n-gram characteristics.
+
+At every review threshold, each scoring run must report:
+
+* Observed candidate count
+* Mean null candidate count
+* 95% empirical null interval
+* Observed-to-null enrichment
+* Empirical tail probability where appropriate
+* Estimated empirical false-discovery rate
+
+All stochastic null runs must record seeds, iteration counts, conditioning choices, and configuration hashes.
+
+## Conjunctive rare-evidence rule
+
+A shared lemma or root with total corpus frequency of three or fewer cannot by itself make a candidate review-eligible. The maximum frequency is a configuration value, with `3` as the initial default, and must not be hard-coded.
+
+Such evidence requires at least one independent co-signal:
+
+* Ordered sequence similarity
+* Shared rare phrase
+* Syntactic match
+* A second rare lexical item
+* Another independently defined detector-family signal
+
+This conjunctive rule must be implemented and validated before Milestone 8 human review begins.
+
 ## Scoring concept
 
 ```text
@@ -1244,6 +1440,10 @@ For every candidate, store:
 * Passage-local frequencies
 * Alternative passages containing the same features
 * Statistical measures
+* Independence-baseline expected co-occurrence
+* Hypergeometric baseline value
+* Empirical null-model rate
+* Multiple-testing adjustment
 * Contribution of each feature to the score
 
 ## Exit gate
@@ -1252,6 +1452,9 @@ For every candidate, store:
 * Candidate evidence is human-readable.
 * Frequency controls reduce obvious false positives.
 * Top unknown candidates can be inspected without an LLM.
+* Repeated null simulations from both required families are reproducible.
+* Every review threshold reports observed counts, null counts and intervals, enrichment, empirical tail probabilities where appropriate, and estimated empirical false-discovery rate.
+* The configurable conjunctive rare-evidence rule prevents a single very rare lemma or root from qualifying a candidate without an independent co-signal.
 
 ---
 
@@ -1268,6 +1471,9 @@ Do not start this phase until:
 * Hebrew and Greek corpus QA passes.
 * The lexical baseline works.
 * Known-link recovery is documented.
+* The separate Milestone 4 versification crosswalk is validated.
+* A Septuagint edition-selection and licensing ADR is approved before acquisition.
+* Printed-edition copyright, electronic-transcription license, annotation licenses, alignment-data license, raw and derived redistribution, and attribution have each been evaluated separately.
 
 ## Tasks
 
@@ -1277,10 +1483,24 @@ Create:
 
 * Septuagint token table
 * Septuagint passage table
-* Hebrew-to-Septuagint alignment table
+* Hebrew-to-Septuagint passage- or verse-alignment table using the Milestone 4 crosswalk
+* Statistical Hebrew-to-Septuagint lemma-alignment table
 * Septuagint-to-New-Testament comparison features
-* Versification crosswalk
 * Alignment-confidence values
+
+The passage or verse alignment and statistical lemma alignment must support:
+
+* One-to-one mappings
+* One-to-many mappings
+* Many-to-one mappings
+* Unmatched material
+* Additions
+* Alternate chapter or book structures
+* Alignment method
+* Alignment confidence
+* Edition-specific references
+
+Token-level Hebrew-Septuagint alignment is explicitly out of scope for version 1. Statistical lemma correspondences must be presented with explicit confidence and must not be represented as manually verified token equivalences.
 
 Distinguish:
 
@@ -1307,10 +1527,13 @@ Known quotation or allusion status
 
 ## Exit gate
 
-* Hebrew–Septuagint alignments are validated.
+* Hebrew-Septuagint passage or verse alignments are validated against the Milestone 4 crosswalk.
+* Statistical lemma alignments expose method and confidence and are evaluated separately from passage mappings.
+* One-to-many, many-to-one, unmatched, added, and alternate-structure cases are represented without forced equivalence.
 * Known New Testament quotations following the Septuagint are recovered.
 * The system distinguishes Greek-mediated evidence from direct Hebrew evidence.
-* Licensing and publication restrictions are documented.
+* The edition-selection ADR and separate license review are complete before acquisition, and publication restrictions are documented.
+* No token-level Hebrew-Septuagint alignment is required or claimed for version 1.
 
 ---
 
@@ -1331,11 +1554,13 @@ Evaluate independently:
 5. Root-sequence embeddings
 6. Multilingual embeddings
 7. Septuagint-mediated Greek comparison
-8. Corpus-specific contrastive encoder
+8. Corpus-specific contrastive encoder as optional stretch work
 9. Semantic-domain vectors
 10. Sparse concept vectors
 
 Do not assume one representation is best.
+
+The corpus-specific contrastive encoder is not on the critical path. This phase and Milestone 10 must be completable without training a custom encoder.
 
 ## Evaluation requirements
 
@@ -1348,6 +1573,8 @@ Each representation must be benchmarked against:
 * Known quotations
 * Known allusions
 * Same-theme non-intertextual pairs
+
+For any candidate supported by literal English gloss embeddings or another English-derived representation, run the registered English-feature ablation before it may retain `strong candidate` status. Record the score before and after removal, remaining original-language evidence, whether review eligibility survives, and whether the classification changes.
 
 ## Corpus-specific training
 
@@ -1380,6 +1607,7 @@ Semantic candidates must include:
 * At least one semantic method outperforms generic embeddings or adds complementary recall.
 * Training leakage is controlled.
 * Semantic retrieval does not dominate the final ensemble without interpretable support.
+* Every English-supported `strong candidate` has a complete registered ablation and remains eligible without English-derived features.
 
 ---
 
@@ -1696,12 +1924,14 @@ Store:
 A candidate enters human review when:
 
 * Two independent detector families support it, or
-* One transparent detector provides exceptionally strong rare evidence
+* One transparent detector provides exceptionally strong evidence that satisfies every applicable conjunctive-evidence rule
 * It is not merely adjacent context
 * It passes data-quality checks
 * It is not already strongly represented in known-link sources
 * It has identifiable textual evidence
 * It has no unresolved training-data contamination
+
+A shared lemma or root at or below the configured rare-evidence frequency threshold cannot satisfy eligibility alone. It requires ordered sequence similarity, a shared rare phrase, a syntactic match, a second rare lexical item, or another independently defined detector-family co-signal. The configured threshold, evidence fields, and empirical null calibration must be retained with the candidate.
 
 ---
 
@@ -1809,6 +2039,9 @@ Display:
 * Narrative features
 * Detector scores
 * Corpus frequencies
+* Observed candidate count at the active threshold
+* Null-model expected-noise baseline beside the observed count
+* Mean null count, 95% empirical interval, enrichment, and estimated empirical false-discovery rate
 * Alternative source passages
 * Known cross-references
 * Training-exposure warning
@@ -1844,7 +2077,7 @@ For every candidate, answer:
 3. Does their order matter?
 4. Does the surrounding context strengthen the relationship?
 5. Is the similarity better explained by genre?
-6. Is the chronology compatible with literary dependence?
+6. Is the proposed direction of dependence chronologically possible, and does the evidence support a written-text relationship, an oral sayings tradition, a shared scriptural source, or another form of mediation?
 7. Does the New Testament language follow the Septuagint, Hebrew, or neither?
 8. Are there closer alternative sources?
 9. Is the proposed relationship meaningful without theological overstatement?
@@ -2011,6 +2244,8 @@ A candidate must not be presented as a serious finding unless:
 * The conclusion uses calibrated language.
 * The strongest counterargument is included.
 * The analysis can be reproduced from a run manifest.
+* Any English-supported `strong candidate` survives its registered all-English-feature ablation.
+* Proposed direction and mediation are chronologically possible and independently supported.
 
 ---
 
@@ -2050,6 +2285,8 @@ Process:
 * Rank rare-phrase and ordered-lemma candidates.
 * Manually review the top 100.
 * Categorize false positives.
+* Display the null-model expected-noise baseline beside observed candidate counts.
+* Draft Output J as the standalone review and false-positive taxonomy.
 
 ## Experiment 3: Septuagint bridge
 
@@ -2060,9 +2297,13 @@ Determine which New Testament relationships become stronger when the Greek Old T
 Output:
 
 * Hebrew–Greek–New Testament triangles
+* Passage- or verse-level Hebrew-Septuagint mappings
+* Statistical lemma alignments with explicit confidence
 * Septuagint-dependent candidates
 * Known quotation recovery
 * Translation-sensitive cases
+
+Token-level Hebrew-Septuagint alignment is not part of the version 1 experiment.
 
 ## Experiment 4: Semantic retrieval
 
@@ -2078,6 +2319,8 @@ Compare:
 * Corpus-specific embeddings
 * Sparse semantic-domain vectors
 
+Training a corpus-specific contrastive encoder is optional stretch work; this experiment must be completable without it. Any result supported by English-derived representations must undergo the registered English-feature ablation before retaining `strong candidate` status.
+
 ## Experiment 5: Independent detector agreement
 
 Goal:
@@ -2091,6 +2334,10 @@ This becomes the first serious candidate set.
 Research question:
 
 > Which Pauline passages have strong computational relationships to sayings of Jesus, the Septuagint, and the Hebrew Bible that are weakly represented in conventional cross-reference systems?
+
+Chronological interpretation rule:
+
+The Pauline letters predate the written canonical Gospels. A detected Paul-Jesus relationship therefore must not automatically be framed as Paul's dependence on a written Gospel. First evaluate possible Jesus sayings traditions, shared early Christian traditions, common scriptural sources, Septuagint wording, Hebrew scriptural wording, and other demonstrated mediation. Direct dependence on a written Gospel requires separate historical evidence.
 
 Subquestions:
 
@@ -2300,6 +2547,25 @@ Potential title:
 
 > I Compared Every Passage in the Bible Against Every Other Passage. Here Is What the Computer Found.
 
+## Output J: Milestone 8 Top-100 Review and False-Positive Taxonomy
+
+Create a standalone writeup under `outputs/publications/` containing:
+
+* Candidate-selection procedure
+* Thresholds
+* Null-model expected-noise baseline
+* Accepted candidates
+* Rejected candidates
+* False-positive categories
+* Data artifacts
+* Formulaic-language effects
+* Genre effects
+* Common-vocabulary effects
+* Lessons for scoring revisions
+* Methodological limitations
+
+The drafted Output J is an acceptance artifact for Milestone 8, not a substitute for the complete candidate ledger or later publication review.
+
 ---
 
 # 33. Stop Rules
@@ -2317,17 +2583,22 @@ Codex must enforce the following:
 * Do not discard rejected candidates.
 * Do not modify scoring weights after inspecting individual attractive results without recording a new experiment.
 * Do not publish restricted source data.
+* Do not ingest copyrighted quotation or allusion appendices without explicit permission or turn lawful manual consultation into copied benchmark data.
 * Do not conceal annotation disagreements.
 * Do not conceal model-training exposure.
 * Do not use textual variants as independent proof of intertextuality.
 * Do not treat reception-history evidence as proof of original authorial intent.
 * Do not optimize for impressive visualizations at the expense of methodological validity.
+* Do not claim token-level Hebrew-Septuagint alignment in version 1.
+* Do not retain `strong candidate` status for English-supported evidence without the registered English-feature ablation.
 
 ---
 
 # 34. Milestone Plan for Codex
 
 ## Milestone 0: Repository foundation
+
+time_budget:
 
 Build:
 
@@ -2350,9 +2621,12 @@ Acceptance:
 
 ## Milestone 1: Research and source governance
 
+time_budget:
+
 Build:
 
 * Research charter
+* Registered English-feature ablation and Pauline chronology guardrails
 * Source manifest schema
 * Dataset manifest validator
 * Licensing documentation
@@ -2363,25 +2637,37 @@ Acceptance:
 
 * Invalid manifests fail validation.
 * Every initial source has a documented status.
+* The research charter contains the English-feature ablation and Pauline chronology requirements.
 
 ## Milestone 2: Hebrew ingestion
+
+time_budget:
 
 Build:
 
 * MACULA Hebrew adapter
 * Hebrew normalization
 * Token schema
+* Source-edition-only token-ID generation
+* Separate Ketiv and Qere records with stable variant grouping
+* Configurable derived Ketiv/Qere analysis stream and deterministic analysis positions
 * DuckDB loading
 * Validation report
 
 Acceptance:
 
 * Complete Hebrew corpus loads.
-* Stable token IDs exist.
+* Stable token IDs derive only from source-edition coordinates and source-record identity where variants require it.
+* Token-ID generation imports or queries no crosswalk, and crosswalk changes cannot change an ID.
+* Source-edition verse identifiers remain separate from later mappings, and token-ID collisions fail clearly.
+* Both Ketiv and Qere records are retained with distinct stable IDs, forms, and provenance in a legally safe fixture.
+* Switching the configured analysis reading changes only the derived stream and produces deterministic positions.
 * Spot checks pass.
 * Reprocessing is deterministic.
 
 ## Milestone 3: Greek ingestion
+
+time_budget:
 
 Build:
 
@@ -2398,19 +2684,24 @@ Acceptance:
 
 ## Milestone 4: Supplementary annotations
 
+time_budget:
+
 Build:
 
 * STEPBible adapter
 * Annotation-alignment tables
 * Conflict-preservation logic
-* Versification crosswalks
+* Separate versification-crosswalk mapping layer
 
 Acceptance:
 
 * Supplementary data never overwrites primary annotations.
 * Annotation conflicts are queryable.
+* Crosswalk rows preserve edition-specific references and cannot change primary token IDs or source-edition verse identifiers.
 
 ## Milestone 5: Passage segmentation
+
+time_budget:
 
 Build:
 
@@ -2428,9 +2719,13 @@ Acceptance:
 
 ## Milestone 6: Known-link benchmark
 
+time_budget:
+
 Build:
 
 * Known-relationship schema
+* Updated OpenBible Tier 3 manifest record for weak supervision and broad knownness filtering
+* Empty project-curated Tier 1 quotation-benchmark schema and curation instructions
 * Benchmark importers
 * Evaluation splits
 * Negative examples
@@ -2440,8 +2735,13 @@ Acceptance:
 
 * Benchmark can be generated and versioned.
 * Leakage checks pass.
+* OpenBible is not used as scholarly ground truth or the sole positive benchmark, and its exact license and attribution are verified.
+* The Tier 1 quotation CSV contains only its validated header until human curation begins; no rows are invented.
+* Copyrighted quotation and allusion appendices are not copied without explicit permission.
 
 ## Milestone 7: Lexical baseline
+
+time_budget:
 
 Build:
 
@@ -2451,13 +2751,22 @@ Build:
 * Phrase scoring
 * Ordered-sequence scoring
 * Candidate evidence generation
+* Repeated within-book reassignment null simulations
+* Repeated frequency-preserving synthetic-passage null simulations
+* Configurable conjunctive rare-evidence rule and co-signal evidence fields
 
 Acceptance:
 
 * Known-link recovery exceeds random and simple overlap baselines.
 * Candidate evidence is interpretable.
+* Within-book reassignment preserves book frequency, passage counts, and passage lengths while breaking passage relationships; label or order shuffling alone is rejected.
+* Synthetic passages preserve passage lengths and book- or genre-conditioned lemma frequencies.
+* At every review threshold, reports include observed count, mean null count, 95% empirical interval, enrichment, empirical tail probability where appropriate, and estimated empirical false-discovery rate.
+* A lemma or root at or below the configured frequency threshold cannot qualify a candidate without an independent co-signal.
 
 ## Milestone 8: First unknown-candidate review
+
+time_budget:
 
 Build:
 
@@ -2465,28 +2774,42 @@ Build:
 * Candidate-ranking output
 * Manual-review CSV or basic console
 * False-positive taxonomy
+* Expected-noise display beside observed candidate counts
+* Draft standalone Output J
 
 Acceptance:
 
 * Top 100 candidates reviewed.
 * Main false-positive patterns documented.
+* The review output shows the relevant null-model expected-noise baseline beside each observed candidate-count threshold.
+* The Milestone 7 conjunctive rare-evidence rule is implemented before review eligibility is calculated.
+* Output J is drafted under `outputs/publications/` with selection procedure, thresholds, expected noise, accepted and rejected candidates, false-positive categories, data artifacts, formulaic-language, genre, and common-vocabulary effects, scoring lessons, and limitations.
 * Scoring changes, if any, are recorded as a new experiment.
 
 ## Milestone 9: Septuagint bridge
 
+time_budget:
+
 Build:
 
+* Septuagint edition-selection and licensing ADR before any acquisition
 * Septuagint adapter
-* Alignment tables
+* Passage- or verse-level Hebrew-Septuagint alignment through the Milestone 4 crosswalk
+* Statistical lemma alignment with explicit confidence
 * Cross-language retrieval
 * Triangulated evidence reports
 
 Acceptance:
 
 * Known Septuagint-mediated relationships are recovered.
-* Alignment quality is documented.
+* Printed edition, electronic transcription, annotations, alignment data, raw and derived redistribution, and attribution are each licensed and documented separately before acquisition.
+* Passage and verse mappings support one-to-one, one-to-many, many-to-one, unmatched, additions, and alternate book or chapter structures.
+* Statistical lemma-alignment method and confidence are documented.
+* Token-level Hebrew-Septuagint alignment remains explicitly out of scope for version 1.
 
 ## Milestone 10: Semantic retrieval
+
+time_budget:
 
 Build:
 
@@ -2495,13 +2818,19 @@ Build:
 * Nearest-neighbor index
 * Hard-negative evaluation
 * Training-lineage tracking
+* Registered English-feature ablation
+* Optional corpus-specific contrastive encoder as stretch work only
 
 Acceptance:
 
 * Semantic methods add measurable value beyond lexical methods.
 * No evaluation leakage exists.
+* The milestone is complete without requiring a custom contrastive encoder.
+* Every `strong candidate` supported by an English-derived feature survives a recorded all-English-feature ablation or is downgraded.
 
 ## Milestone 11: Syntactic and narrative engines
+
+time_budget:
 
 Build:
 
@@ -2517,6 +2846,8 @@ Acceptance:
 
 ## Milestone 12: Anomaly and structural engines
 
+time_budget:
+
 Build:
 
 * Anomaly features
@@ -2531,6 +2862,8 @@ Acceptance:
 
 ## Milestone 13: Candidate ensemble
 
+time_budget:
+
 Build:
 
 * Score normalization
@@ -2543,8 +2876,11 @@ Acceptance:
 
 * Ensemble results retain raw evidence.
 * No opaque model dominates without explanation.
+* Rare-evidence eligibility retains the configured threshold, required independent co-signal, independence baseline, empirical null rate, and multiple-testing adjustment.
 
 ## Milestone 14: Review console
+
+time_budget:
 
 Build:
 
@@ -2563,6 +2899,8 @@ Acceptance:
 
 ## Milestone 15: Pauline case study
 
+time_budget:
+
 Build:
 
 * Study-specific configuration
@@ -2571,13 +2909,18 @@ Build:
 * Septuagint–Paul analysis
 * Pauline anomaly analysis
 * Research dossiers
+* Chronology- and mediation-aware relationship classification in the case-study documentation
 
 Acceptance:
 
 * Findings meet minimum publishability standards.
 * Strong candidates receive outside linguistic review where possible.
+* Paul-Jesus relationships distinguish possible oral sayings tradition, shared early Christian tradition, common scriptural source, Septuagint or Hebrew wording, and written-text dependence.
+* Direct dependence on a written canonical Gospel is claimed only with separate historical evidence.
 
 ## Milestone 16: Whole-canon run
+
+time_budget:
 
 Build:
 
@@ -2608,32 +2951,32 @@ Codex must begin in this order:
 6. Create licensing and provenance documentation.
 7. Add MACULA Hebrew acquisition instructions.
 8. Implement Hebrew ingestion.
-9. Implement Hebrew validation.
+9. Implement Hebrew validation, including source-edition-only token IDs, separate Ketiv/Qere preservation, and both deterministic derived reading streams.
 10. Add MACULA Greek acquisition instructions.
 11. Implement Greek ingestion.
 12. Implement Greek validation.
 13. Create the unified token table.
 14. Add STEPBible supplementary annotations.
 15. Build the annotation-conflict layer.
-16. Build the versification crosswalk.
+16. Build the separate versification crosswalk without changing primary token identity.
 17. Generate clause, sentence, verse, two-verse, and five-verse passages.
-18. Create benchmark schemas.
-19. Import known relationships.
+18. Create benchmark schemas, including the empty project-curated Tier 1 quotation schema.
+19. Verify the OpenBible Tier 3 manifest and import permitted known relationships without copying restricted appendices.
 20. Create evaluation splits.
 21. Implement TF-IDF.
 22. Implement BM25.
-23. Implement rare-lemma scoring.
-24. Implement phrase and sequence scoring.
-25. Evaluate known-link recovery.
-26. Generate unknown lexical candidates.
+23. Implement rare-lemma scoring and the configurable conjunctive co-signal rule.
+24. Implement phrase and sequence scoring plus both repeated lexical null families.
+25. Evaluate known-link recovery and report empirical null metrics at review thresholds.
+26. Generate unknown lexical candidates with expected-noise baselines.
 27. Review the top 100.
-28. Document false positives.
-29. Audit and ingest the Septuagint.
-30. Build Hebrew–Septuagint alignments.
+28. Draft Output J with the false-positive taxonomy and scoring lessons.
+29. Complete the Septuagint edition-selection and separate licensing decision, then ingest only the approved source.
+30. Build passage- or verse-level Hebrew-Septuagint mappings and statistical lemma alignments with confidence.
 31. Build Septuagint–New-Testament comparison.
 32. Evaluate Septuagint-mediated known links.
-33. Add semantic models.
-34. Evaluate semantic models.
+33. Add semantic models; treat a custom contrastive encoder as optional stretch work.
+34. Evaluate semantic models and run registered English-feature ablations where applicable.
 35. Add syntactic features.
 36. Add narrative event structures.
 37. Add structural analysis.

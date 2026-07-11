@@ -9,10 +9,12 @@ import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import polars as pl
 from pydantic import BaseModel, ConfigDict
 
+from echoes.corpus.analysis import AnalysisReading, derive_analysis_stream
 from echoes.corpus.books import BookSpec, book_by_code, validate_reference
 from echoes.corpus.models import (
     CANONICAL_TOKEN_COLUMNS,
@@ -22,6 +24,7 @@ from echoes.corpus.models import (
     Language,
     ValidationSeverity,
 )
+from echoes.corpus.token_ids import generate_source_edition_token_id
 from echoes.manifests.sources import SourceManifest
 from echoes.normalize.hebrew import is_punctuation, normalize_hebrew_token, normalize_lemma
 from echoes.settings import HebrewNormalization
@@ -89,6 +92,7 @@ class NativeToken:
 @dataclass(frozen=True, slots=True)
 class AdapterResult:
     tokens: pl.DataFrame
+    analysis_tokens: pl.DataFrame
     source_records: pl.DataFrame
     issues: list[IngestionIssue]
     summary: IngestionSummary
@@ -381,19 +385,44 @@ def _semantic_domain(native: NativeToken) -> str | None:
     )
 
 
-def _variant(native: NativeToken) -> tuple[bool, str | None, str | None, str | None]:
-    variant_type = _clean_optional(native.attributes.get("type"))
-    if variant_type is None or not any(
-        marker in variant_type.lower() for marker in ("ketiv", "kethiv", "qere")
-    ):
-        return False, None, None, None
-    ketiv = (
-        native.surface_form
-        if any(marker in variant_type.lower() for marker in ("ketiv", "kethiv"))
-        else None
+def _variant_type(native: NativeToken) -> Literal["ketiv", "qere"] | None:
+    raw_type = _clean_optional(native.attributes.get("type"))
+    if raw_type is None:
+        return None
+    lowered = raw_type.lower()
+    is_ketiv = "ketiv" in lowered or "kethiv" in lowered
+    is_qere = "qere" in lowered
+    if is_ketiv and is_qere:
+        raise HebrewIngestionError(
+            f"source record {native.source_record_id} ambiguously declares both Ketiv and Qere"
+        )
+    if is_ketiv:
+        return "ketiv"
+    if is_qere:
+        return "qere"
+    return None
+
+
+def _variant_group_id(group: list[NativeToken]) -> str | None:
+    variants = [token for token in group if _variant_type(token) is not None]
+    if not variants:
+        return None
+    reading_types = [_variant_type(token) for token in variants]
+    duplicate_types = [
+        reading_type for reading_type, count in Counter(reading_types).items() if count > 1
+    ]
+    if duplicate_types:
+        source_word_reference = variants[0].source_word_id
+        raise HebrewIngestionError(
+            f"variant group {source_word_reference} has duplicate readings: {duplicate_types}"
+        )
+    parsed_reference = variants[0].reference
+    source_identity = "\0".join(sorted(token.source_record_id for token in variants))
+    digest = hashlib.sha256(source_identity.encode("utf-8")).hexdigest()[:12]
+    return (
+        f"KQ_{parsed_reference.book.code}_{parsed_reference.chapter:03d}_"
+        f"{parsed_reference.verse:03d}_{parsed_reference.word_position:04d}~{digest}"
     )
-    qere = native.surface_form if "qere" in variant_type.lower() else None
-    return True, variant_type, ketiv, qere
 
 
 def _canonicalize(
@@ -429,6 +458,7 @@ def _canonicalize(
             token.reference.word_position,
         )
         word_groups[key].append(token)
+    variant_group_ids = {key: _variant_group_id(group) for key, group in word_groups.items()}
 
     verse_positions: Counter[tuple[int, int, int]] = Counter()
     clause_positions: Counter[str] = Counter()
@@ -451,18 +481,28 @@ def _canonicalize(
         else:
             position_in_clause = None
 
-        token_id = (
-            f"HB_{native.reference.book.code}_{native.reference.chapter:03d}_"
-            f"{native.reference.verse:03d}_{native.reference.word_position:04d}"
+        variant_type = _variant_type(native)
+        variant_group_id = variant_group_ids[word_key]
+        paired_group = variant_group_id is not None and {
+            reading for item in group if (reading := _variant_type(item)) is not None
+        } == {"ketiv", "qere"}
+        token_id = generate_source_edition_token_id(
+            book_identifier=native.reference.book.code,
+            chapter=native.reference.chapter,
+            verse=native.reference.verse,
+            source_token_position=native.reference.word_position,
+            source_subtoken_position=position_in_word if len(group) > 1 else None,
+            source_record_id=native.source_record_id,
+            disambiguate_with_source_record=variant_type is not None,
         )
-        if len(group) > 1:
-            token_id = f"{token_id}.{position_in_word:02d}"
         forms = (
             normalize_hebrew_token(native.surface_form, normalization)
             if native.surface_form
             else None
         )
-        is_variant, variant_type, ketiv_form, qere_form = _variant(native)
+        is_variant = variant_type is not None
+        ketiv_form = native.surface_form if variant_type == "ketiv" else None
+        qere_form = native.surface_form if variant_type == "qere" else None
         raw = {
             "attributes": native.attributes,
             "ancestry": native.ancestry,
@@ -483,6 +523,10 @@ def _canonicalize(
                 source_file=native.source_file,
                 source_record_id=native.source_record_id,
                 source_word_id=native.source_word_id,
+                source_edition_reference=(
+                    f"{native.reference.book.code} {native.reference.chapter}:"
+                    f"{native.reference.verse}"
+                ),
                 source_row_reference=native.source_row_reference,
                 book=native.reference.book.code,
                 book_order=native.reference.book.order,
@@ -516,6 +560,8 @@ def _canonicalize(
                 is_punctuation=is_punctuation(native.surface_form),
                 is_variant=is_variant,
                 variant_type=variant_type,
+                variant_group_id=variant_group_id,
+                is_default_reading=(not paired_group or variant_type == "qere"),
                 ketiv_form=ketiv_form,
                 qere_form=qere_form,
                 source_extras_json=raw_json,
@@ -560,6 +606,7 @@ def parse_macula_hebrew_nodes(
     *,
     source: SourceManifest,
     normalization: HebrewNormalization,
+    analysis_reading: AnalysisReading = "qere",
 ) -> AdapterResult:
     """Parse every pinned MACULA node chapter into deterministic canonical tokens."""
     nodes_dir = raw_root / "WLC" / "nodes"
@@ -629,6 +676,10 @@ def parse_macula_hebrew_nodes(
         raise HebrewIngestionError("canonical token-ID collisions remain after batch assembly")
     if canonical["position_in_corpus"].n_unique() != canonical.height:
         raise HebrewIngestionError("duplicate canonical corpus positions remain after assembly")
+    analysis_tokens = derive_analysis_stream(
+        canonical,
+        analysis_reading=analysis_reading,
+    )
     summary = IngestionSummary(
         source_records=source_records.height,
         processed_tokens=canonical.height,
@@ -641,4 +692,10 @@ def parse_macula_hebrew_nodes(
         punctuation_tokens=canonical.filter(pl.col("is_punctuation")).height,
         issues_by_severity=dict(sorted(Counter(issue.severity.value for issue in issues).items())),
     )
-    return AdapterResult(canonical, source_records, issues, summary)
+    return AdapterResult(
+        tokens=canonical,
+        analysis_tokens=analysis_tokens,
+        source_records=source_records,
+        issues=issues,
+        summary=summary,
+    )
