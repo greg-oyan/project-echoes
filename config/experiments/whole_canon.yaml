@@ -1,0 +1,7 @@
+schema_version: 1
+name: whole_canon
+description: Final whole-canon experiment; blocked until every earlier milestone gate passes.
+status: planned
+random_seed: 1729
+corpora: [macula-hebrew, macula-greek]
+methods: [ensemble]

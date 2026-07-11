@@ -1,0 +1,70 @@
+# Python and uv
+.venv/
+__pycache__/
+*.py[cod]
+*.pyd
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*credentials*.json
+*secrets*.json
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Biblical source data: raw/external data is acquired locally and never committed
+data/raw/**
+!data/raw/.gitkeep
+data/external/**
+!data/external/.gitkeep
+data/interim/**
+!data/interim/.gitkeep
+data/processed/**
+!data/processed/.gitkeep
+data/alignments/**
+!data/alignments/.gitkeep
+data/review/**
+!data/review/.gitkeep
+
+# Generated research artifacts
+outputs/experiments/**
+!outputs/experiments/.gitkeep
+outputs/candidates/**
+!outputs/candidates/.gitkeep
+outputs/dossiers/**
+!outputs/dossiers/.gitkeep
+outputs/figures/**
+!outputs/figures/.gitkeep
+outputs/tables/**
+!outputs/tables/.gitkeep
+outputs/publications/**
+!outputs/publications/.gitkeep
+
+# Local analytical databases and indexes
+*.duckdb
+*.duckdb.wal
+*.db
+*.sqlite
+*.sqlite3
+*.parquet
+*.arrow
+*.feather
+*.faiss
+
+# Notebook state and build output
+.ipynb_checkpoints/
+build/
+dist/

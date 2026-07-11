@@ -1,0 +1,7 @@
+schema_version: 1
+name: lexical_baseline
+description: Transparent lexical retrieval baseline; inactive until the corpus gates pass.
+status: planned
+random_seed: 1729
+corpora: [macula-hebrew, macula-greek]
+methods: [tfidf, bm25, rare_lemma, ordered_sequence]

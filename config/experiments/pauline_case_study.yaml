@@ -1,0 +1,7 @@
+schema_version: 1
+name: pauline_case_study
+description: Planned Pauline case study after all prerequisite detector and review gates.
+status: planned
+random_seed: 1729
+corpora: [macula-hebrew, macula-greek, septuagint]
+methods: [ensemble, anomaly]

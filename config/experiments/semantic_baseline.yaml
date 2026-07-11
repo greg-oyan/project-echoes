@@ -1,0 +1,7 @@
+schema_version: 1
+name: semantic_baseline
+description: Semantic retrieval comparison; blocked on lexical and corpus validation gates.
+status: planned
+random_seed: 1729
+corpora: [macula-hebrew, macula-greek]
+methods: [sparse_semantic_domains, embeddings]

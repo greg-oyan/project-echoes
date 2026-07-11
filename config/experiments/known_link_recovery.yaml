@@ -1,0 +1,7 @@
+schema_version: 1
+name: known_link_recovery
+description: Recovery benchmark for established relationships; inactive until benchmark construction.
+status: planned
+random_seed: 1729
+corpora: [macula-hebrew, macula-greek]
+methods: [weighted_lemma_overlap, rare_root_overlap, phrase_order]

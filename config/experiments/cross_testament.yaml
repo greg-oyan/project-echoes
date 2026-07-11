@@ -1,0 +1,7 @@
+schema_version: 1
+name: cross_testament
+description: Cross-testament candidate retrieval; inactive until known-link recovery succeeds.
+status: planned
+random_seed: 1729
+corpora: [macula-hebrew, macula-greek]
+methods: [lexical_ensemble]

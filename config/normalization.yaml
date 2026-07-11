@@ -1,0 +1,17 @@
+schema_version: 1
+hebrew:
+  status: planned
+  preserve_source_form: true
+  transformations:
+    remove_cantillation: false
+    remove_vowel_points: false
+    split_maqqef: false
+    normalize_final_letters: false
+greek:
+  status: planned
+  preserve_source_form: true
+  transformations:
+    case_fold: false
+    remove_accents: false
+    remove_breathings: false
+    separate_punctuation: false

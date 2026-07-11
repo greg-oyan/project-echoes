@@ -1,0 +1,31 @@
+schema_version: 1
+corpora:
+  - corpus_id: macula-hebrew
+    role: primary
+    languages: [hebrew, aramaic]
+    status: planned
+    activation_prerequisites:
+      - Milestone 1 provenance and licensing review
+      - Pinned source version and reproducible acquisition process
+  - corpus_id: macula-greek
+    role: primary
+    languages: [greek]
+    status: planned
+    activation_prerequisites:
+      - Milestone 1 provenance and licensing review
+      - Pinned source version and reproducible acquisition process
+  - corpus_id: septuagint
+    role: bridge
+    languages: [greek]
+    status: blocked
+    activation_prerequisites:
+      - Hebrew and Greek primary corpus quality gates
+      - Known-link recovery gate
+      - Separate provenance, licensing, and alignment review
+  - corpus_id: stepbible
+    role: supplementary
+    languages: [hebrew, greek, english]
+    status: planned
+    activation_prerequisites:
+      - Milestone 1 provenance and licensing review
+      - Annotation-conflict preservation design

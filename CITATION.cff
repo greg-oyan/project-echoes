@@ -1,0 +1,14 @@
+cff-version: 1.2.0
+message: "If you use Project Echoes, please cite the repository and the exact release or commit."
+title: "Project Echoes"
+type: software
+authors:
+  - family-names: "Project Echoes contributors"
+version: 0.1.0
+date-released: 2026-07-10
+repository-code: "https://github.com/greg-oyan/project-echoes"
+keywords:
+  - computational biblical studies
+  - intertextuality
+  - Hebrew Bible
+  - Greek New Testament
