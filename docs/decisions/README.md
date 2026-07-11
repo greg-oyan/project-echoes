@@ -41,3 +41,4 @@ Decision records preserve durable methodological, data, licensing, architecture,
 - [0007 — Preserve source forms and derive conservative Hebrew analytical forms](0007-hebrew-normalization-policy.md)
 - [0008 — Apply approved methodological amendments](0008-methodology-amendments.md)
 - [0009 — Supply Ketiv readings from OSHB keyed to MACULA word-number gaps](0009-oshb-ketiv-qere-supplementation.md)
+- [0010 — Select pinned MACULA Greek Nestle1904 node data](0010-macula-greek-source-selection.md)

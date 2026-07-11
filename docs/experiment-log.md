@@ -58,4 +58,16 @@
 - Superseded artifacts: the text-mode inventory is retained, marked superseded, as an appendix inside the regenerated Milestone 2 ingestion report; the superseded values must never be used for verification.
 - Boundary: no normalization, schema, or token-identity semantics changed; only acquisition byte handling, hash records, validation, and documentation.
 
+## 2026-07-11 - Milestone 3 MACULA Greek ingestion validation
+
+- Purpose: prove reproducible, provenance-preserving acquisition and canonical ingestion of the Greek New Testament primary corpus and unified cross-corpus queryability before any discovery analysis.
+- Source: official MACULA Greek `Nestle1904/nodes`, release `24.06.17`, immutable commit `b5b7ecec0882a3e9a609ecac99e157391e5d9b46`, selected by ADR 0010 after verifying the SBLGNT representation's documented annotation gaps.
+- Acquisition: canonical-byte sparse checkout of 29 expected files (381,774,487-byte Hebrew re-acquisition pattern reused); three tracked anchor SHA-256 hashes externally verified against the pinned commit's raw bytes plus a Git-ignored receipt for every file.
+- Result: 137,779 source records mapped one-to-one to 137,779 `GNT_` tokens across 27 books, 260 chapters, and 7,943 verses, exactly matching the count asserted by the pinned upstream test suite (`test/test_nestle1904_nodes.py`). Validation reported zero errors and zero warnings; run ID `greek-c35c0121a2fea8b057cd`.
+- Normalization: punctuation separated losslessly (18,552 punctuation-bearing tokens; reconstruction validated per token), 1,223 elided tokens with elision marks kept in the word core, crasis preserved as single tokens, folded accent-insensitive forms derived, and the edition's accent-regularized `NormalizedForm` preserved separately (37,183 tokens differ from the punctuation-separated surface, evidencing preserved grave/enclitic accentuation).
+- Versification: fifteen edition-omitted verses declared and verified; the pericope adulterae is present inline (JHN 7:53-8:11, 190 tokens); the shorter ending of Mark is encoded at MRK 16:99 (33 tokens). Both disputed-passage handlings are recorded and flagged for human review, not decided.
+- Unified tables: the `unified_tokens` DuckDB view exposes 613,690 rows (475,911 Hebrew + 137,779 Greek) over the shared canonical columns with distinct corpus and provenance values and no token-ID collisions; cross-corpus, duplicate-prevention, and transactional-rerun tests pass on synthetic fixtures and the full corpora.
+- Scripted spot checks: 17 of 17 assertions passed with expected values recorded in the Milestone 3 ingestion report (Synoptic samples, John, Romans, James, Revelation, enclitic/punctuation/elision cases, and the disputed-passage and versification cases).
+- Boundary: no supplementary annotation, versification-crosswalk data, segmentation, embedding, candidate-generation, or review-console work was performed.
+
 Substantive experiments are prohibited until their prerequisite milestones and data-governance gates pass.

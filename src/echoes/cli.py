@@ -17,6 +17,12 @@ from echoes.acquire import (
     audit_manifest_hashes,
     verify_acquisition,
 )
+from echoes.corpus.greek import (
+    GreekPipelineError,
+    ingest_greek_corpus,
+    validate_existing_greek_corpus,
+)
+from echoes.corpus.greek_storage import greek_corpus_summary
 from echoes.corpus.hebrew import (
     HebrewPipelineError,
     ingest_hebrew_corpus,
@@ -24,6 +30,7 @@ from echoes.corpus.hebrew import (
 )
 from echoes.corpus.storage import CorpusStorageError, corpus_summary
 from echoes.corpus.validation import CorpusValidationError
+from echoes.ingest.macula_greek import GreekIngestionError
 from echoes.ingest.macula_hebrew import HebrewIngestionError
 from echoes.manifest import build_run_manifest, write_run_manifest
 from echoes.manifests.sources import (
@@ -324,9 +331,65 @@ def ingest_hebrew_command(
         raise typer.Exit(code=1)
 
 
+@app.command("ingest-greek")
+def ingest_greek_command(
+    manifest_path: SourceManifestPath = Path("data/manifests/sources.yaml"),
+    config_dir: ConfigDir = Path("config"),
+    data_root: DataRoot = Path("data"),
+    output_dir: Annotated[
+        Path | None,
+        typer.Option("--output-dir", help="Optional versioned processed output directory."),
+    ] = None,
+    database: Annotated[
+        Path | None,
+        typer.Option("--database", help="Optional local DuckDB database path."),
+    ] = None,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Explicitly replace this source version's processed outputs."),
+    ] = False,
+) -> None:
+    """Ingest the verified MACULA Greek acquisition and run the full corpus gate."""
+    try:
+        result = ingest_greek_corpus(
+            manifest_path=manifest_path,
+            config_dir=config_dir,
+            data_root=data_root,
+            output_dir=output_dir,
+            database_path=database,
+            force=force,
+        )
+    except (
+        AcquisitionError,
+        ConfigLoadError,
+        CorpusStorageError,
+        CorpusValidationError,
+        GreekIngestionError,
+        GreekPipelineError,
+        SourceManifestError,
+        OSError,
+    ) as exc:
+        typer.echo(f"Greek ingestion failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(
+        f"Ingested {result.summary.total_tokens} tokens from "
+        f"{result.adapter_summary.source_records} source records."
+    )
+    typer.echo(f"Processed output: {result.processed.output_dir}")
+    typer.echo(
+        f"Validation: errors={result.validation.error_count}, "
+        f"warnings={result.validation.warning_count}"
+    )
+    if not result.validation.passed:
+        raise typer.Exit(code=1)
+
+
 @app.command("validate-corpus")
 def validate_corpus_command(
-    corpus: Annotated[str, typer.Option("--corpus", help="Corpus identifier.")] = "hebrew",
+    corpus: Annotated[
+        str,
+        typer.Option("--corpus", help="Corpus identifier: hebrew, greek, or unified."),
+    ] = "hebrew",
     manifest_path: SourceManifestPath = Path("data/manifests/sources.yaml"),
     config_dir: ConfigDir = Path("config"),
     data_root: DataRoot = Path("data"),
@@ -344,41 +407,62 @@ def validate_corpus_command(
     ] = False,
 ) -> None:
     """Validate an existing processed corpus without acquiring or rewriting data."""
-    if corpus != "hebrew":
+    if corpus not in {"hebrew", "greek", "unified"}:
         typer.echo(f"Unsupported corpus: {corpus}", err=True)
         raise typer.Exit(code=1)
+    reports = []
     try:
-        report = validate_existing_hebrew_corpus(
-            manifest_path=manifest_path,
-            config_dir=config_dir,
-            data_root=data_root,
-            output_dir=output_dir,
-            database_path=database,
-        )
+        if corpus in {"hebrew", "unified"}:
+            reports.append(
+                validate_existing_hebrew_corpus(
+                    manifest_path=manifest_path,
+                    config_dir=config_dir,
+                    data_root=data_root,
+                    output_dir=output_dir if corpus == "hebrew" else None,
+                    database_path=database,
+                )
+            )
+        if corpus in {"greek", "unified"}:
+            reports.append(
+                validate_existing_greek_corpus(
+                    manifest_path=manifest_path,
+                    config_dir=config_dir,
+                    data_root=data_root,
+                    output_dir=output_dir if corpus == "greek" else None,
+                    database_path=database,
+                )
+            )
     except (
         ConfigLoadError,
         CorpusValidationError,
+        GreekPipelineError,
         HebrewPipelineError,
         SourceManifestError,
     ) as exc:
         typer.echo(f"Corpus validation failed: {exc}", err=True)
         raise typer.Exit(code=1) from exc
-    if json_output:
-        _echo_json(report)
-    else:
-        typer.echo(
-            f"Validated Hebrew corpus: tokens={report.total_tokens}, "
-            f"books={report.book_count}, chapters={report.chapter_count}, "
-            f"verses={report.verse_count}."
-        )
-        typer.echo(f"Findings: errors={report.error_count}, warnings={report.warning_count}.")
-    if not report.passed:
+    failed = False
+    for report in reports:
+        if json_output:
+            _echo_json(report)
+        else:
+            typer.echo(
+                f"Validated {report.corpus} corpus: tokens={report.total_tokens}, "
+                f"books={report.book_count}, chapters={report.chapter_count}, "
+                f"verses={report.verse_count}."
+            )
+            typer.echo(f"Findings: errors={report.error_count}, warnings={report.warning_count}.")
+        failed = failed or not report.passed
+    if failed:
         raise typer.Exit(code=1)
 
 
 @app.command("corpus-summary")
 def corpus_summary_command(
-    corpus: Annotated[str, typer.Option("--corpus", help="Corpus identifier.")] = "hebrew",
+    corpus: Annotated[
+        str,
+        typer.Option("--corpus", help="Corpus identifier: hebrew or greek."),
+    ] = "hebrew",
     database: Annotated[
         Path,
         typer.Option("--database", help="Local DuckDB database path.", resolve_path=True),
@@ -389,6 +473,33 @@ def corpus_summary_command(
     ] = False,
 ) -> None:
     """Report corpus coverage, language, annotation, and issue counts."""
+    if corpus == "greek":
+        try:
+            greek_summary = greek_corpus_summary(database)
+        except CorpusStorageError as exc:
+            typer.echo(f"Corpus summary failed: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+        if json_output:
+            _echo_json(greek_summary)
+            return
+        typer.echo(
+            f"Greek corpus {greek_summary.source_version}: {greek_summary.total_tokens} tokens, "
+            f"{greek_summary.total_books} books."
+        )
+        typer.echo(
+            "Missing annotations: "
+            f"lemma={greek_summary.missing_lemma_count}, "
+            f"morphology={greek_summary.missing_morphology_count}, "
+            f"syntax={greek_summary.missing_syntax_count}, "
+            f"gloss={greek_summary.missing_gloss_count}, "
+            f"semantic_domain={greek_summary.missing_semantic_domain_count}."
+        )
+        typer.echo(
+            f"Elided={greek_summary.elided_count}, "
+            f"punctuation-bearing={greek_summary.punctuation_bearing_count}, "
+            f"issues={greek_summary.validation_issue_count}."
+        )
+        return
     if corpus != "hebrew":
         typer.echo(f"Unsupported corpus: {corpus}", err=True)
         raise typer.Exit(code=1)

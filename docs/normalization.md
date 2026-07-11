@@ -1,10 +1,10 @@
-# Hebrew and Aramaic normalization
+# Hebrew, Aramaic, and Greek normalization
 
-Status: active for Milestone 2
+Status: Hebrew/Aramaic active for Milestone 2; Greek active for Milestone 3
 
-Configuration: `config/normalization.yaml`, schema version `3`
+Configuration: `config/normalization.yaml`, schema version `4`
 
-Implementation: `src/echoes/normalize/hebrew.py`
+Implementation: `src/echoes/normalize/hebrew.py` and `src/echoes/normalize/greek.py`
 
 Project Echoes stores source text and analytical forms separately. Normalization
 is deterministic and deliberately conservative: it creates derived forms without
@@ -151,7 +151,59 @@ To change normalization safely:
 5. treat changed configuration hashes and derived-table hashes as expected,
    documented corpus-version changes.
 
-Greek normalization remains `planned` and is outside Milestone 2. See
-[ADR 0007](decisions/0007-hebrew-normalization-policy.md) for the original
+See [ADR 0007](decisions/0007-hebrew-normalization-policy.md) for the original
 normalization decision and [ADR 0008](decisions/0008-methodology-amendments.md) for
 the non-destructive reading-stream policy.
+
+# Greek normalization
+
+Status: active for Milestone 3
+
+Implementation: `src/echoes/normalize/greek.py`; source selection in
+[ADR 0010](decisions/0010-macula-greek-source-selection.md).
+
+The MACULA Greek Nestle1904 node representation attaches punctuation to the
+word text (for example a trailing comma inside the leaf text) and marks
+elision with U+2019. Greek normalization is deterministic and conservative:
+derived forms never alter the surface string.
+
+## Three form layers plus preserved source forms
+
+| Form | Purpose | Milestone 3 transformation |
+| --- | --- | --- |
+| `surface_form` | Source evidence and visual inspection | Exact leaf text, including attached punctuation, original accentuation, elision marks, and casing. |
+| `normalized_form` | Punctuation-separated word core | Leading/trailing punctuation split off (stored in `leading_punctuation` and `trailing_punctuation`); Unicode NFC. Reconstruction `leading + normalized + trailing == surface` is validated for every token. |
+| `folded_form` | Accent-insensitive comparison form | NFD decomposition; removal of acute, grave, and perispomeni accents and both breathing marks; case folding (final sigma folds to medial sigma); NFC recomposition. Diaeresis is phonemic and retained. |
+
+The source edition's own accent-regularized `NormalizedForm` attribute (which,
+for example, regularizes grave to acute) is preserved unchanged in the separate
+`source_normalized_form` column. It is never overwritten and never replaces the
+deterministic derived forms.
+
+## Explicit policies
+
+- **Punctuation separation**: the observed punctuation set (comma, full stop,
+  semicolon/Greek question mark, middle dot/ano teleia, parentheses, brackets,
+  dashes, guillemets, and quotation marks) is split from the word core.
+  Standalone punctuation tokens do not occur in this representation
+  (validated: zero `is_punctuation` rows in the full corpus).
+- **Elision**: the elision mark (U+2019 and variants) after a letter is part
+  of the word core, never separated; elided tokens carry `is_elided=true`
+  (1,223 tokens in the pinned corpus). Elided vowels are never restored
+  (`restore_elided_letters` is pinned false).
+- **Crasis**: crasis forms remain single tokens exactly as the source
+  tokenizes them (`decompose_crasis` is pinned false).
+- **Enclitics**: enclitic-driven accent variation (double accents, enclitic
+  accent shifts) is preserved in `surface_form`; the edition's regularized
+  accentuation is available in `source_normalized_form`; `folded_form` is
+  fully accent-insensitive (`enclitic_accent_policy: preserve_source`).
+- **Lemmas**: namespace `macula`; the `UnicodeLemma` value receives NFC and
+  whitespace collapse only; homograph disambiguators (for example a trailing
+  Roman-numeral marker) are preserved verbatim.
+
+## Reproducibility and validation
+
+Full Greek validation recomputes every `normalized_form`, `folded_form`,
+punctuation split, and elision flag from `surface_form` under the pinned
+configuration and reports any mismatch as an error, and verifies lossless
+punctuation reconstruction for every token.

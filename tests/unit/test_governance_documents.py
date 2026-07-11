@@ -30,6 +30,7 @@ REQUIRED_DOCUMENTS = [
     "docs/decisions/0007-hebrew-normalization-policy.md",
     "docs/decisions/0008-methodology-amendments.md",
     "docs/decisions/0009-oshb-ketiv-qere-supplementation.md",
+    "docs/decisions/0010-macula-greek-source-selection.md",
     "outputs/reports/milestone-2-hebrew-ingestion-report.md",
     "data/review/literature_matrix.csv",
     "data/benchmarks/tier1_quotations.csv",

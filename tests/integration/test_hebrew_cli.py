@@ -102,13 +102,19 @@ def test_corpus_summary_cli_succeeds_with_fixture_database(
     assert '"aramaic_tokens": 2' in result.stdout
 
 
-def test_hebrew_commands_reject_unsupported_corpora(tmp_path: Path) -> None:
-    validation = runner.invoke(app, ["validate-corpus", "--corpus", "greek"])
+def test_corpus_commands_reject_unsupported_corpora(tmp_path: Path) -> None:
+    validation = runner.invoke(app, ["validate-corpus", "--corpus", "septuagint"])
     summary = runner.invoke(
+        app,
+        ["corpus-summary", "--corpus", "septuagint", "--database", str(tmp_path / "none")],
+    )
+    greek_summary_without_database = runner.invoke(
         app,
         ["corpus-summary", "--corpus", "greek", "--database", str(tmp_path / "none")],
     )
 
     assert validation.exit_code == 1
     assert summary.exit_code == 1
-    assert "Unsupported corpus: greek" in validation.output
+    assert "Unsupported corpus: septuagint" in validation.output
+    assert greek_summary_without_database.exit_code == 1
+    assert "does not exist" in greek_summary_without_database.output

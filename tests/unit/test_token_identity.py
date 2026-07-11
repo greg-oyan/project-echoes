@@ -26,6 +26,16 @@ def _identity() -> str:
     )
 
 
+def _greek_identity() -> str:
+    return generate_source_edition_token_id(
+        book_identifier="JHN",
+        chapter=1,
+        verse=1,
+        source_token_position=1,
+        corpus_prefix="GNT",
+    )
+
+
 def test_token_identity_module_imports_no_crosswalk_layer() -> None:
     tree = ast.parse(inspect.getsource(token_ids))
     imported_modules = {
@@ -43,15 +53,42 @@ def test_crosswalk_file_add_change_and_removal_cannot_change_identity(
     tmp_path: Path,
 ) -> None:
     before = _identity()
+    greek_before = _greek_identity()
     crosswalk = tmp_path / "versification-crosswalk.yaml"
     crosswalk.write_text("GEN 1:2: GEN 1:3\n", encoding="utf-8")
     after_add = _identity()
-    crosswalk.write_text("GEN 1:2: EXO 2:1\n", encoding="utf-8")
+    greek_after_add = _greek_identity()
+    crosswalk.write_text("GEN 1:2: EXO 2:1\nJHN 1:1: JHN 1:2\n", encoding="utf-8")
     after_change = _identity()
+    greek_after_change = _greek_identity()
     crosswalk.unlink()
     after_removal = _identity()
+    greek_after_removal = _greek_identity()
 
     assert {before, after_add, after_change, after_removal} == {before}
+    assert {greek_before, greek_after_add, greek_after_change, greek_after_removal} == {
+        greek_before
+    }
+
+
+def test_greek_ids_use_the_same_source_edition_identity_module() -> None:
+    assert _greek_identity() == "GNT_JHN_001_001_0001"
+    assert _greek_identity() == _greek_identity()
+    hebrew_style = generate_source_edition_token_id(
+        book_identifier="JHN",
+        chapter=1,
+        verse=1,
+        source_token_position=1,
+    )
+    assert hebrew_style == "HB_JHN_001_001_0001"
+    with pytest.raises(TokenIdentityError, match="corpus_prefix"):
+        generate_source_edition_token_id(
+            book_identifier="JHN",
+            chapter=1,
+            verse=1,
+            source_token_position=1,
+            corpus_prefix="gnt",
+        )
 
 
 def test_source_identity_is_stable_and_requires_explicit_variant_disambiguation() -> None:

@@ -1,0 +1,66 @@
+schema_version: 1
+source_id: macula-greek
+status: ready
+expected_books: 27
+expected_chapters: 260
+expected_tokens: 137779
+# Verses the pinned Nestle 1904 edition omits (later-numbered verses absent
+# from the edition). These are edition-level versification facts, recorded
+# exactly as the pinned source supplies them, never harmonized.
+expected_missing_verses:
+  - MAT 17:21
+  - MAT 18:11
+  - MAT 23:14
+  - MRK 7:16
+  - MRK 9:44
+  - MRK 9:46
+  - MRK 11:26
+  - MRK 15:28
+  - LUK 17:36
+  - LUK 23:17
+  - ACT 8:37
+  - ACT 15:34
+  - ACT 24:7
+  - ACT 28:29
+  - ROM 16:24
+# The pinned edition encodes the shorter ending of Mark at MRK 16:99 after
+# the inline longer ending (16:9-20). Recorded, flagged for human review.
+expected_out_of_sequence_verses:
+  - MRK 16:99
+spot_checks:
+  - reference: MAT 5:3
+    category: Synoptic sample (Sermon on the Mount)
+    check: [token_order, surface_forms, lemmas, morphology, canonical_reference, source_provenance, normalized_forms]
+  - reference: MRK 1:2
+    category: Synoptic sample with quotation framing
+    check: [token_order, surface_forms, lemmas, morphology, canonical_reference, source_provenance, normalized_forms]
+  - reference: LUK 15:11
+    category: Synoptic sample (Lukan parable opening)
+    check: [token_order, surface_forms, lemmas, morphology, canonical_reference, source_provenance, normalized_forms]
+  - reference: JHN 1:1
+    category: John prologue
+    check: [token_order, surface_forms, lemmas, morphology, canonical_reference, source_provenance, normalized_forms, punctuation_separation]
+  - reference: ROM 3:23
+    category: Pauline letter
+    check: [token_order, surface_forms, lemmas, morphology, canonical_reference, source_provenance, normalized_forms]
+  - reference: JAS 1:1
+    category: General letter opening
+    check: [token_order, surface_forms, lemmas, morphology, canonical_reference, source_provenance, normalized_forms]
+  - reference: REV 22:20
+    category: Revelation closing
+    check: [token_order, surface_forms, lemmas, morphology, canonical_reference, source_provenance, normalized_forms]
+  - reference: JHN 8:3
+    category: Pericope adulterae (disputed passage, present inline in Nestle 1904)
+    check: [token_order, surface_forms, canonical_reference, source_provenance, disputed_passage]
+  - reference: MRK 16:9
+    category: Longer ending of Mark (disputed passage, present inline)
+    check: [token_order, surface_forms, canonical_reference, source_provenance, disputed_passage, versification]
+  - reference: MAT 8:2
+    category: Enclitic and punctuation case (proskynei clause with attached punctuation)
+    check: [surface_forms, normalized_forms, punctuation_separation, enclitics]
+  - reference: JHN 3:2
+    category: Elision case (elided preposition or particle)
+    check: [surface_forms, normalized_forms, elision]
+  - reference: ACT 8:36
+    category: Versification boundary (edition omits ACT 8:37)
+    check: [canonical_reference, versification, source_provenance]

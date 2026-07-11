@@ -74,34 +74,69 @@ sources:
     corpus: Greek New Testament
     role: primary_discovery
     language: [greek]
-    edition: SBL Greek New Testament v1.2 representation with MACULA annotations (provisional selection)
+    edition: Nestle 1904 Greek New Testament as represented by the MACULA Greek 24.06.17 Nestle1904 dataset
     provider: Clear Bible / Biblica
     repository_or_location: https://github.com/Clear-Bible/macula-greek
-    version_or_commit: null
-    download_date: null
-    license: CC BY 4.0 for MACULA datasets; component-specific permissions require review
-    license_url: https://github.com/Clear-Bible/macula-greek/blob/main/LICENSE.md
-    license_review_status: in_progress
-    required_attribution: MACULA Greek Linguistic Datasets, available at https://github.com/Clear-Bible/macula-greek/
+    version_or_commit: b5b7ecec0882a3e9a609ecac99e157391e5d9b46
+    download_date: 2026-07-11
+    license: >-
+      MACULA Greek Linguistic Datasets © 2022-2024 Biblica, Inc under CC BY 4.0 as the
+      aggregate license; per the pinned LICENSE.md the aggregate includes the Nestle1904
+      text (published 1904; transcription by Diego Santos, morphology by Ulrik
+      Sandborg-Petersen, markup by Jonathan Robie), SBLGNT-derived data from Logos,
+      MARBLE word-sense data used with permission, Berean Interlinear glosses placed in
+      the public domain as of 2023-04-30, and Cherith glosses under CC BY 4.0
+    license_url: https://github.com/Clear-Bible/macula-greek/blob/24.06.17/LICENSE.md
+    license_review_status: complete
+    required_attribution: >-
+      Attribute "MACULA Greek Linguistic Datasets, available at
+      https://github.com/Clear-Bible/macula-greek/"; preserve the Nestle1904, SBLGNT,
+      UBS/MARBLE, Berean, and Cherith Analytics notices applicable to fields used in any
+      derivative
     redistribution_status: acquisition_instructions_only
     machine_processing_status: permitted
     raw_data_git_policy: ignored_local_only
-    expected_files: []
-    file_hashes: {}
-    ingest_adapter: null
+    expected_files:
+      - README.md
+      - LICENSE.md
+      - Nestle1904/nodes/26-jude.xml
+    file_hashes:
+      README.md: 46bc2238caa8dcc0046798f7ce574fc402e460db54c1d396f45a85caf5a09501
+      LICENSE.md: 41b49a2387b628a7bc772ddfae3a8af9dd8f4d4470b27b6132f6da6c73e4a557
+      Nestle1904/nodes/26-jude.xml: cede4239434f5606a02ed729326666e7cabb2a0c8363aeb826dfb8d6ef0e4182
+    ingest_adapter: echoes.ingest.macula_greek
+    acquisition:
+      method: git_sparse
+      version_label: 24.06.17
+      upstream_commit: b5b7ecec0882a3e9a609ecac99e157391e5d9b46
+      repository_url: https://github.com/Clear-Bible/macula-greek.git
+      include_paths:
+        - README.md
+        - LICENSE.md
+        - Nestle1904/nodes
+      expected_file_count: 29
     research_purpose: Primary token-level Greek New Testament text, morphology, syntax, semantics, and participant annotations.
     known_limitations:
-      - The repository combines N1904, SBLGNT mappings, MARBLE data used with permission, and other layers with distinct notices.
-      - The final SBLGNT branch and its annotation completeness relative to the N1904 representation require verification.
+      - The selected node representation has no formal XSD; the adapter pins and validates the observed structure.
+      - The Nestle 1904 edition omits several later-numbered verses and includes the pericope adulterae inline; edition-level versification is recorded, not silently harmonized.
+      - The aggregate combines components with distinct attribution and downstream-publication conditions; MARBLE word-sense fields are included by permission.
+      - The SBLGNT representation in the same release documents unmapped nodes lacking Gloss, Louw-Nida, and Domain values and is not selected.
     notes:
-      - The textual edition and every activated annotation layer must remain explicit in processed provenance.
+      - Approved for reproducible local machine processing of release 24.06.17; raw files and full processed token tables remain Git-ignored and are not approved for public redistribution by project policy.
+      - All recorded hashes are canonical-byte SHA-256 values, externally verified against raw.githubusercontent.com at commit b5b7ecec0882a3e9a609ecac99e157391e5d9b46 on 2026-07-11.
+      - ADR 0010 records the edition selection, superseding the provisional SBLGNT v1.2 selection with the release's native Nestle1904 dataset.
+      - The Git-ignored acquisition receipt records SHA-256 hashes and sizes for all 29 acquired files; the tracked manifest retains hashes for the three required inventory anchors.
     confirmed_information:
-      - The official license lists syntax, morphology, word senses, frames, participant referents, synonyms, and mappings.
-      - The repository license identifies the MACULA datasets as CC BY 4.0 and supplies attribution text.
+      - Release 24.06.17 resolves to commit b5b7ecec0882a3e9a609ecac99e157391e5d9b46 and is the newest tagged release as of 2026-07-11.
+      - The pinned LICENSE.md applies CC BY 4.0 to the aggregate © 2022-2024 Biblica, Inc, supplies the exact attribution sentence, and enumerates component datasets and their terms as recorded above.
+      - The pinned upstream test suite (test/test_nestle1904_nodes.py) asserts 137,779 leaf word nodes for the Nestle1904 nodes dataset.
+      - The Nestle1904/nodes directory contains exactly 27 book files; every leaf node in sampled books carries xml:id, ref, morphId, UnicodeLemma, FunctionalTag, FormalTag, NormalizedForm, Unicode, Cat, and Gloss attributes.
+      - The pinned Nestle1904 representation includes the pericope adulterae (JHN 7:53-8:11) inline with 190 leaf tokens.
+      - Local ingestion reproduced the upstream count exactly and validated 137,779 source-to-token mappings across all 27 books and 260 chapters with zero errors; 17 scripted spot checks passed.
+      - The Nestle 1904 edition omits fifteen declared verses and encodes the shorter ending of Mark at out-of-sequence verse MRK 16:99; both are verified at ingestion and flagged for human interpretation.
     unresolved_questions:
-      - Which branch and tagged MACULA release fully represents the provisional SBLGNT v1.2 selection?
-      - Which permission-only component fields may appear in redistributable derived outputs?
-    status: under_review
+      - Which permission-only component fields (especially MARBLE-derived LN and LexDomain values) may appear in redistributable derived outputs?
+    status: validated
 
   - source_id: stepbible-data
     source_name: STEPBible Data

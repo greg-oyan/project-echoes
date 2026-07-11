@@ -18,6 +18,21 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 ### Added
 
+- Milestone 3 MACULA Greek ingestion: governed canonical-byte acquisition of
+  release `24.06.17` (commit `b5b7ece`), ADR 0010 selecting the Nestle1904 node
+  dataset over the annotation-incomplete SBLGNT representation, an active typed
+  Greek normalization policy (lossless punctuation separation, preserved
+  elision and crasis, accent-insensitive folded forms, preserved source
+  accent regularization), a `WLC`-pattern Greek adapter emitting 137,779
+  `GNT_` tokens through the shared source-edition-only identity module,
+  Greek Parquet/DuckDB tables with a unified `unified_tokens` cross-corpus
+  view, full GNT validation (27 books, 260 chapters, declared edition verse
+  gaps, MRK 16:99 shorter ending), `ingest-greek`/`validate-corpus
+  --corpus greek|unified`/`corpus-summary --corpus greek` CLI workflows,
+  17 scripted spot checks with recorded expectations, an extended opt-in
+  full-corpus regression, and a Milestone 3 ingestion report whose token
+  count matches the pinned upstream test expectation.
+
 - OSHB Ketiv/Qere governance: a pinned, license-verified `oshb-morphhb`
   manifest entry (supplementary role, planned lifecycle, CC BY 4.0 with public
   domain WLC text, no acquisition) and proposed ADR 0009 describing how OSHB
