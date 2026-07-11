@@ -18,6 +18,16 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 ### Added
 
+- Milestone 4 preparation (docs, schema, and tests only): a
+  versification-crosswalk schema and validator with alignment method and
+  confidence fields, cardinality-constrained mapping types (including
+  unmatched, addition, and alternate-structure cases), no data rows, and
+  synthetic-fixture tests proving invalid crosswalks fail;
+  `docs/versification-crosswalk.md` covering the master plan section 10.5
+  hazards; and `docs/milestone-4-execution-plan.md` enumerating the
+  STEPBible subset-audit questions that require human licensing judgment,
+  deliberately unresolved.
+
 - Milestone 3 MACULA Greek ingestion: governed canonical-byte acquisition of
   release `24.06.17` (commit `b5b7ece`), ADR 0010 selecting the Nestle1904 node
   dataset over the annotation-incomplete SBLGNT representation, an active typed
