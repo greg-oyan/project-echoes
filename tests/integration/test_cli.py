@@ -16,6 +16,9 @@ def test_cli_help_runs() -> None:
 
     assert result.exit_code == 0
     assert "validate-config" in result.stdout
+    assert "validate-sources" in result.stdout
+    assert "list-sources" in result.stdout
+    assert "show-source" in result.stdout
     assert "create-run-manifest" in result.stdout
 
 

@@ -1,0 +1,28 @@
+schema_version: 1
+sources:
+  - source_id: invalid-enum
+    source_name: Invalid Enum Fixture
+    corpus: Synthetic
+    role: invented_role
+    language: [english]
+    edition: null
+    provider: Test suite
+    repository_or_location: https://example.invalid/invalid-enum
+    version_or_commit: null
+    download_date: null
+    license: null
+    license_url: null
+    license_review_status: not_started
+    required_attribution: null
+    redistribution_status: unknown
+    machine_processing_status: unknown
+    raw_data_git_policy: ignored_local_only
+    expected_files: []
+    file_hashes: {}
+    ingest_adapter: null
+    research_purpose: Test enum validation.
+    known_limitations: [Synthetic]
+    notes: []
+    confirmed_information: []
+    unresolved_questions: [Synthetic]
+    status: planned

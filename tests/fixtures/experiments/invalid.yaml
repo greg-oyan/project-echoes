@@ -1,0 +1,13 @@
+schema_version: 1
+experiment_name: invalid_fixture
+description: Missing the required research question.
+input_sources: [fixture-primary]
+input_tables: []
+methods: [fixture_method]
+parameters: {}
+evaluation_dataset: null
+random_seed: 1729
+expected_outputs: [fixture_output]
+acceptance_criteria: [This should not validate]
+prohibited_claims: [An invalid manifest may run]
+status: planned

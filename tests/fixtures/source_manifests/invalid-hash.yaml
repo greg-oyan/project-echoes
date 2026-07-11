@@ -1,0 +1,29 @@
+schema_version: 1
+sources:
+  - source_id: invalid-hash
+    source_name: Invalid Hash Fixture
+    corpus: Synthetic
+    role: reference
+    language: [english]
+    edition: null
+    provider: Test suite
+    repository_or_location: https://example.invalid/invalid-hash
+    version_or_commit: null
+    download_date: null
+    license: null
+    license_url: null
+    license_review_status: not_started
+    required_attribution: null
+    redistribution_status: unknown
+    machine_processing_status: unknown
+    raw_data_git_policy: ignored_local_only
+    expected_files: [source.dat]
+    file_hashes:
+      source.dat: abc123
+    ingest_adapter: null
+    research_purpose: Test SHA-256 validation.
+    known_limitations: [Synthetic]
+    notes: []
+    confirmed_information: []
+    unresolved_questions: [Synthetic]
+    status: planned

@@ -37,7 +37,7 @@ data/processed/**
 data/alignments/**
 !data/alignments/.gitkeep
 data/review/**
-!data/review/.gitkeep
+!data/review/literature_matrix.csv
 
 # Generated research artifacts
 outputs/experiments/**

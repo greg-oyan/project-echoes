@@ -1,0 +1,54 @@
+schema_version: 1
+sources:
+  - source_id: fixture-primary
+    source_name: Synthetic Primary Fixture
+    corpus: Synthetic corpus
+    role: primary_discovery
+    language: [hebrew]
+    edition: Synthetic Edition 1
+    provider: Test suite
+    repository_or_location: https://example.invalid/fixture-primary
+    version_or_commit: null
+    download_date: null
+    license: null
+    license_url: null
+    license_review_status: not_started
+    required_attribution: null
+    redistribution_status: unknown
+    machine_processing_status: unknown
+    raw_data_git_policy: ignored_local_only
+    expected_files: []
+    file_hashes: {}
+    ingest_adapter: null
+    research_purpose: Exercise primary-source validation without real corpus content.
+    known_limitations: [Synthetic metadata only]
+    notes: []
+    confirmed_information: [Created solely for tests]
+    unresolved_questions: [No external source exists]
+    status: planned
+  - source_id: fixture-reference
+    source_name: Synthetic Reference Fixture
+    corpus: Synthetic references
+    role: reference
+    language: [english]
+    edition: null
+    provider: Test suite
+    repository_or_location: https://example.invalid/fixture-reference
+    version_or_commit: null
+    download_date: null
+    license: null
+    license_url: null
+    license_review_status: in_progress
+    required_attribution: null
+    redistribution_status: acquisition_instructions_only
+    machine_processing_status: permitted
+    raw_data_git_policy: ignored_local_only
+    expected_files: []
+    file_hashes: {}
+    ingest_adapter: null
+    research_purpose: Exercise source-list filtering without real reference content.
+    known_limitations: [Synthetic metadata only]
+    notes: []
+    confirmed_information: [Created solely for tests]
+    unresolved_questions: [No external source exists]
+    status: under_review

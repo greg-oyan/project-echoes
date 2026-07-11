@@ -1,7 +1,77 @@
-# Data licensing
+# Data licensing and publication governance
 
-Status: **Milestone 1 placeholder**.
+Status: **Preliminary Milestone 1 review**
+Review date: 2026-07-10
 
-The repository's software and documentation license is intentionally pending owner selection during Milestone 1. The current `LICENSE` grants no reuse rights. Any future repository license will not grant rights to a biblical text, annotation set, cross-reference collection, translation, or external research dataset.
+This document records operational governance, not legal advice. Technical accessibility, a public Git repository, or an online reading interface does not by itself grant permission to copy, process in bulk, redistribute, or publish derived data. Uncertainty blocks source approval.
 
-No external data may be committed, redistributed, or activated until its license, required attribution, machine-processing permission, redistribution status, and derived-output policy are documented. Restricted material belongs outside version control.
+The repository software/documentation license remains pending owner selection. That decision is separate from every external dataset license.
+
+## Review procedure
+
+1. Identify the provider, rights holder, edition, exact files, and upstream components.
+2. Read the provider's official license, terms, rights page, attribution instructions, and component notices; preserve URLs and review date.
+3. Classify redistribution and machine processing separately. A right to read, query, or use academically is not necessarily a right to redistribute.
+4. Record required attribution, notice preservation, modification marking, noncommercial or ShareAlike conditions, and any permission correspondence.
+5. Decide raw-data Git policy independently. Project Echoes defaults to local ignored storage even for permissive sources.
+6. Define which derived outputs may be public and whether they could reconstruct protected source content.
+7. Have ambiguous or proprietary cases reviewed by the repository owner and, where material, the provider or qualified counsel.
+8. Update the manifest through a reviewed commit and decision record. Preserve the prior determination in Git history.
+
+## Fields required before approval
+
+An approved source needs a non-unknown license and official URL, completed review status, explicit attribution, non-unknown redistribution and machine-processing classifications, safe raw-data policy, edition where it is a primary source, and notes describing limitations. Acquisition additionally requires an immutable version or commit, acquisition date, expected files, and SHA-256 hashes. The Pydantic schema enforces these minimum blockers.
+
+## Attribution
+
+Attribution is preserved in source manifests, data lineage, generated reports, public tables, and release notices. It identifies the source name, provider, edition/version, URL, license, required wording, modifications, and access or acquisition date. Mixed-source outputs include every applicable attribution rather than citing only the final aggregator.
+
+## Raw-data Git policy
+
+- `trackable` is allowed by schema only when redistribution and machine processing are both permitted; project policy may still choose not to track it.
+- `metadata_only` permits only manifests, checksums, instructions, and related metadata.
+- `ignored_local_only` requires raw files to stay under excluded local storage.
+- `prohibited` means the repository must not store or acquire raw content absent a new determination.
+
+Restricted biblical text, apparatus data, licensed exports, and credentials never enter Git history, fixtures, CI caches, logs, GitHub issues, or releases.
+
+## Restricted datasets
+
+Restricted sources require an authorized acquisition path, access controls consistent with their terms, local-only storage, a record of who obtained the data and under what grant, and reproducible processing instructions that do not expose the source. If a collaborator lacks access, the pipeline must fail with an acquisition instruction rather than silently substitute another edition.
+
+## Derived outputs
+
+A derived result is not automatically free of source restrictions. Review considers whether it contains recoverable text, dense annotations, apparatus decisions, aligned excerpts, or a substantial database adaptation. Permitted results retain attribution, transformation documentation, input hashes, and license notices. ShareAlike conditions are evaluated for database adaptations. Restricted evidence may require aggregate-only publication, short quotation under an applicable exception, or no public output.
+
+## Public releases
+
+Before a release, generate an inventory of included files and their input sources; verify every manifest and output determination; scan for raw/restricted data and secrets; include notices and citations; distinguish code, original documentation, external data, and derived-data licenses; and record the exact release commit. Unknown or conflicting rights remove the affected material from the release.
+
+## Proprietary critical editions
+
+BHQ/BHS, Nestle-Aland, UBS, ECM, and other modern apparatuses are treated as proprietary research sources unless the rights holder grants explicit relevant permission. A subscription or browser interface does not authorize scraping. No apparatus is acquired in Milestone 1. Later use requires exact edition/coverage, written machine-processing terms, local-storage rules, citation requirements, extraction limits, and a derived-output agreement.
+
+## Citation and provenance
+
+Citation and license are separate obligations. Every processed record retains stable project ID, source ID, source version, file and row reference, input hash, adapter version, and transformation run. Live resources record access date, but cannot become active without an authorized reproducible snapshot. Provider-requested citations supplement—not replace—edition-level scholarly citations.
+
+## Changing a determination
+
+A change requires new official evidence, a manifest update, reviewer and date, an explanatory decision record when publication behavior changes, revalidation, and assessment of existing raw/derived artifacts. Rights are never broadened by inference from a repository's visibility. A more restrictive determination triggers quarantine and release review; a less restrictive determination does not retroactively alter prior source versions without documentation.
+
+## Preliminary status table
+
+| Source ID | License review | License/terms recorded | Redistribution | Machine processing | Raw Git policy | Lifecycle |
+|---|---|---|---|---|---|---|
+| `macula-hebrew` | In progress | CC BY 4.0 aggregate; component notices require audit | Acquisition instructions only pending component audit | Permitted | Ignored local only | Under review |
+| `macula-greek` | In progress | CC BY 4.0 aggregate; component notices require audit | Acquisition instructions only pending component audit | Permitted | Ignored local only | Under review |
+| `stepbible-data` | In progress | CC BY 4.0 repository statement; selected-file audit pending | Acquisition instructions only pending subset audit | Permitted | Ignored local only | Under review |
+| `septuagint-catss` | In progress | CCAT/CATSS user agreement | Acquisition instructions only | Restricted | Ignored local only | Blocked |
+| `openbible-cross-references` | In progress | CC Attribution page notice; archive-content audit pending | Acquisition instructions only | Permitted | Ignored local only | Under review |
+| `ubs-parallel-passages` | Complete | CC BY-SA 4.0 dedicated data license | Permitted with attribution/ShareAlike | Permitted | Metadata only by project policy | Planned |
+| `etcbc-dead-sea-scrolls` | In progress | MIT repository license; upstream transcription scope unresolved | Unknown | Permitted | Ignored local only | Under review |
+| `hebrew-critical-apparatus` | Not started | Proprietary; publisher rights page recorded | Prohibited absent permission | Unknown | Prohibited | Planned |
+| `greek-critical-apparatus` | Not started | Proprietary; publisher rights page recorded | Prohibited absent permission | Unknown | Prohibited | Planned |
+| `targum-corpus` | Not started | No general bulk-reuse license found | Unknown | Unknown | Prohibited | Planned |
+
+These are preliminary operational classifications as of the review date. Only the UBS record has a completed licensing review, and it is still not acquired or active. Source-specific unresolved questions are preserved in the machine-readable manifest.

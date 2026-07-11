@@ -1,7 +1,20 @@
 schema_version: 1
-name: pauline_case_study
-description: Planned Pauline case study after all prerequisite detector and review gates.
-status: planned
+experiment_name: pauline_case_study
+description: Planned Pauline case study after detector, Septuagint, review, and knownness gates.
+research_question: Which Pauline passages have strong computational relationships to Jesus traditions and earlier biblical corpora that are weakly represented in checked references?
+input_sources: [macula-hebrew, macula-greek, septuagint-catss]
+input_tables: [passages, known_relationships, candidate_evidence, human_reviews]
+methods: [candidate_ensemble, anomaly_analysis]
+parameters:
+  configuration_status: governance_only
+  external_review_required: true
+evaluation_dataset: blind-review-set
 random_seed: 1729
-corpora: [macula-hebrew, macula-greek, septuagint]
-methods: [ensemble, anomaly]
+expected_outputs: [candidate_dossiers, pauline_source_map, limitations_report]
+acceptance_criteria:
+  - Findings meet the minimum publishability standard
+  - Strong candidates receive qualified external linguistic review
+prohibited_claims:
+  - Computational similarity proves Pauline dependence
+  - No match in checked sources means no scholar has identified the relationship
+status: planned

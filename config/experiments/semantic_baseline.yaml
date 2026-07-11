@@ -1,7 +1,20 @@
 schema_version: 1
-name: semantic_baseline
-description: Semantic retrieval comparison; blocked on lexical and corpus validation gates.
-status: planned
+experiment_name: semantic_baseline
+description: Planned semantic retrieval comparison after lexical and corpus validation gates.
+research_question: Do semantic representations add held-out retrieval value beyond transparent lexical methods?
+input_sources: [macula-hebrew, macula-greek]
+input_tables: [passages, known_relationships]
+methods: [sparse_semantic_domains, literal_gloss_embeddings, original_language_embeddings]
+parameters:
+  configuration_status: governance_only
+  training_lineage_required: true
+evaluation_dataset: known-link-benchmark
 random_seed: 1729
-corpora: [macula-hebrew, macula-greek]
-methods: [sparse_semantic_domains, embeddings]
+expected_outputs: [representation_comparison, hard_negative_metrics, training_lineage_report]
+acceptance_criteria:
+  - Adds measurable held-out value beyond lexical methods
+  - Records model versions and possible benchmark exposure
+prohibited_claims:
+  - Cosine similarity alone constitutes textual evidence
+  - English translation similarity alone supports a candidate relationship
+status: planned

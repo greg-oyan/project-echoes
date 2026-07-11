@@ -1,7 +1,20 @@
 schema_version: 1
-name: known_link_recovery
-description: Recovery benchmark for established relationships; inactive until benchmark construction.
-status: planned
-random_seed: 1729
-corpora: [macula-hebrew, macula-greek]
+experiment_name: known_link_recovery
+description: Recovery benchmark for established relationships, implemented only after corpus and benchmark gates.
+research_question: Which transparent features recover established cross-testament relationships without evaluation leakage?
+input_sources: [macula-hebrew, macula-greek, openbible-cross-references, ubs-parallel-passages]
+input_tables: [passages, known_relationships, evaluation_splits]
 methods: [weighted_lemma_overlap, rare_root_overlap, phrase_order]
+parameters:
+  configuration_status: governance_only
+  require_held_out_evaluation: true
+evaluation_dataset: known-link-benchmark
+random_seed: 1729
+expected_outputs: [benchmark_metrics, false_positive_analysis, false_negative_analysis]
+acceptance_criteria:
+  - Evaluation splits are fixed before detector tuning
+  - Recovery exceeds random and simple-overlap baselines
+prohibited_claims:
+  - Benchmark recovery establishes novelty
+  - Training and evaluation relationships may overlap
+status: planned

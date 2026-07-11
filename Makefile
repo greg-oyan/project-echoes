@@ -17,5 +17,6 @@ test:
 
 validate:
 	uv run echoes validate-config
+	uv run echoes validate-sources
 
 quality: lint format-check typecheck test validate

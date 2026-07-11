@@ -33,3 +33,5 @@ jobs:
         run: uv run pytest
       - name: Validate configuration
         run: uv run echoes validate-config
+      - name: Validate source governance
+        run: uv run echoes validate-sources

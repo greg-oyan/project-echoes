@@ -19,7 +19,8 @@ def test_build_run_manifest_has_required_provenance() -> None:
     assert manifest.run_id.startswith("foundation-smoke-")
     assert len(manifest.config_hash) == 64
     assert manifest.random_seed == 1729
-    assert manifest.dataset_manifest_hash is None
+    assert manifest.dataset_manifest_hash is not None
+    assert len(manifest.dataset_manifest_hash) == 64
     assert manifest.model_names == []
     assert RunManifest.model_validate_json(manifest.model_dump_json()) == manifest
 

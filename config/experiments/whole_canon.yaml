@@ -1,7 +1,20 @@
 schema_version: 1
-name: whole_canon
-description: Final whole-canon experiment; blocked until every earlier milestone gate passes.
-status: planned
+experiment_name: whole_canon
+description: Final primary-corpus discovery run after every earlier validation and review gate.
+research_question: Which whole-canon passage pairs receive independent, transparent evidence and survive knownness and quality controls?
+input_sources: [macula-hebrew, macula-greek]
+input_tables: [passages, known_relationships, detector_scores, candidate_evidence]
+methods: [candidate_ensemble]
+parameters:
+  configuration_status: governance_only
+  require_detector_independence: true
+evaluation_dataset: blind-review-set
 random_seed: 1729
-corpora: [macula-hebrew, macula-greek]
-methods: [ensemble]
+expected_outputs: [candidate_ledger, run_manifest, visual_atlas_inputs]
+acceptance_criteria:
+  - The complete run is reproducible and candidates are source-traceable
+  - Knownness, data-quality, and human-review states remain queryable
+prohibited_claims:
+  - A high ensemble score proves authorial intent
+  - The system has discovered relationships no person has ever seen
+status: planned

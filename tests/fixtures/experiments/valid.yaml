@@ -1,0 +1,15 @@
+schema_version: 1
+experiment_name: fixture_experiment
+description: Synthetic governance-only experiment fixture.
+research_question: Does the experiment schema accept a complete declaration?
+input_sources: [fixture-primary]
+input_tables: []
+methods: [fixture_method]
+parameters:
+  threshold: 0.5
+evaluation_dataset: null
+random_seed: 1729
+expected_outputs: [fixture_output]
+acceptance_criteria: [The schema validates]
+prohibited_claims: [A fixture result is research evidence]
+status: planned

@@ -11,6 +11,8 @@ from typing import ClassVar, Literal, Self, cast
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from echoes.manifests.experiments import ExperimentManifest
+
 
 class ConfigLoadError(ValueError):
     """Raised when a configuration file cannot be loaded or validated."""
@@ -117,19 +119,7 @@ class ReviewConfig(EchoesModel):
     require_evidence_trace: Literal[True]
 
 
-class ExperimentConfig(EchoesModel):
-    """A planned experiment declaration."""
-
-    schema_version: Literal[1]
-    name: str = Field(min_length=1)
-    description: str = Field(min_length=1)
-    status: Literal["planned", "active"]
-    random_seed: int = Field(ge=0)
-    corpora: list[str]
-    methods: list[str]
-
-
-CONFIG_SCHEMAS: Mapping[str, type[EchoesModel]] = {
+CONFIG_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "corpora.yaml": CorporaConfig,
     "normalization.yaml": NormalizationConfig,
     "segmentation.yaml": SegmentationConfig,
@@ -176,17 +166,17 @@ def _load_yaml_mapping(path: Path) -> dict[str, object]:
     return cast(dict[str, object], loaded)
 
 
-def schema_for_path(path: Path) -> type[EchoesModel]:
+def schema_for_path(path: Path) -> type[BaseModel]:
     """Select the strict schema associated with a configuration path."""
     if path.parent.name == "experiments":
-        return ExperimentConfig
+        return ExperimentManifest
     try:
         return CONFIG_SCHEMAS[path.name]
     except KeyError as exc:
         raise ConfigLoadError(f"no configuration schema is registered for {path}") from exc
 
 
-def load_config(path: Path) -> EchoesModel:
+def load_config(path: Path) -> BaseModel:
     """Load one YAML file and validate it against its registered Pydantic schema."""
     values = _load_yaml_mapping(path)
     schema = schema_for_path(path)
@@ -196,7 +186,7 @@ def load_config(path: Path) -> EchoesModel:
         raise ConfigLoadError(f"validation failed for {path}:\n{exc}") from exc
 
 
-def validate_config_directory(config_dir: Path) -> dict[Path, EchoesModel]:
+def validate_config_directory(config_dir: Path) -> dict[Path, BaseModel]:
     """Validate every project YAML configuration and require the Milestone 0 set."""
     if not config_dir.is_dir():
         raise ConfigLoadError(f"configuration directory does not exist: {config_dir}")
@@ -206,6 +196,16 @@ def validate_config_directory(config_dir: Path) -> dict[Path, EchoesModel]:
         raise ConfigLoadError(f"no YAML configuration files found in {config_dir}")
 
     validated = {path: load_config(path) for path in paths}
+    experiment_locations: dict[str, Path] = {}
+    for path, model in validated.items():
+        if not isinstance(model, ExperimentManifest):
+            continue
+        previous = experiment_locations.get(model.experiment_name)
+        if previous is not None:
+            raise ConfigLoadError(
+                f"duplicate experiment_name '{model.experiment_name}' in {previous} and {path}"
+            )
+        experiment_locations[model.experiment_name] = path
     present_root_files = {path.name for path in paths if path.parent == config_dir}
     missing = sorted(REQUIRED_CONFIG_FILES - present_root_files)
     if missing:

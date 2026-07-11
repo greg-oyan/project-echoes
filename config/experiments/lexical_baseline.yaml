@@ -1,7 +1,20 @@
 schema_version: 1
-name: lexical_baseline
-description: Transparent lexical retrieval baseline; inactive until the corpus gates pass.
-status: planned
-random_seed: 1729
-corpora: [macula-hebrew, macula-greek]
+experiment_name: lexical_baseline
+description: Transparent lexical retrieval baseline governed here but implemented in Milestone 7.
+research_question: Can transparent lexical methods recover held-out established relationships above simple overlap and random baselines?
+input_sources: [macula-hebrew, macula-greek]
+input_tables: [passages, known_relationships]
 methods: [tfidf, bm25, rare_lemma, ordered_sequence]
+parameters:
+  configuration_status: governance_only
+  adjacency_exclusion: true
+evaluation_dataset: known-link-benchmark
+random_seed: 1729
+expected_outputs: [ranked_candidates, benchmark_metrics, error_analysis]
+acceptance_criteria:
+  - Exceeds random and unweighted-overlap baselines on a held-out evaluation split
+  - Every retrieved pair retains inspectable lexical evidence and run lineage
+prohibited_claims:
+  - Lexical similarity proves literary dependence
+  - A high score proves authorial intent or scholarly novelty
+status: planned

@@ -1,7 +1,20 @@
 schema_version: 1
-name: cross_testament
-description: Cross-testament candidate retrieval; inactive until known-link recovery succeeds.
-status: planned
-random_seed: 1729
-corpora: [macula-hebrew, macula-greek]
+experiment_name: cross_testament
+description: Planned Hebrew Bible to New Testament retrieval after known-link recovery succeeds.
+research_question: Which cross-testament passage pairs receive transparent multi-feature support beyond known reference links?
+input_sources: [macula-hebrew, macula-greek]
+input_tables: [passages, known_relationships]
 methods: [lexical_ensemble]
+parameters:
+  configuration_status: governance_only
+  exclude_known_links: true
+evaluation_dataset: known-link-benchmark
+random_seed: 1729
+expected_outputs: [candidate_ledger, detector_evidence]
+acceptance_criteria:
+  - Known relationships and adjacent context are explicitly controlled
+  - Candidate evidence remains token-traceable
+prohibited_claims:
+  - Unlisted candidates are universally novel
+  - Retrieval direction proves dependence direction
+status: planned

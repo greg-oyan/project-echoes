@@ -23,3 +23,13 @@ repos:
         language: system
         pass_filenames: false
         stages: [pre-commit]
+      - id: validate-config
+        name: validate project configuration
+        entry: uv run echoes validate-config
+        language: system
+        pass_filenames: false
+      - id: validate-sources
+        name: validate source governance
+        entry: uv run echoes validate-sources
+        language: system
+        pass_filenames: false

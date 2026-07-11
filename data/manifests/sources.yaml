@@ -1,0 +1,335 @@
+schema_version: 1
+sources:
+  - source_id: macula-hebrew
+    source_name: MACULA Hebrew Linguistic Datasets
+    corpus: Hebrew and Aramaic Old Testament
+    role: primary_discovery
+    language: [hebrew, aramaic]
+    edition: Westminster Leningrad Codex base text as represented by MACULA
+    provider: Clear Bible / Biblica
+    repository_or_location: https://github.com/Clear-Bible/macula-hebrew
+    version_or_commit: null
+    download_date: null
+    license: CC BY 4.0 for MACULA datasets; component-specific permissions require review
+    license_url: https://github.com/Clear-Bible/macula-hebrew/blob/main/LICENSE.md
+    license_review_status: in_progress
+    required_attribution: MACULA Hebrew Linguistic Datasets, available at https://github.com/Clear-Bible/macula-hebrew/
+    redistribution_status: acquisition_instructions_only
+    machine_processing_status: permitted
+    raw_data_git_policy: ignored_local_only
+    expected_files: []
+    file_hashes: {}
+    ingest_adapter: null
+    research_purpose: Primary token-level Hebrew and Aramaic text, morphology, syntax, semantics, and participant annotations.
+    known_limitations:
+      - The aggregate combines components with separate provenance and permission statements.
+      - A release or commit and exact expected-file inventory have not been selected.
+    notes:
+      - The source remains unapproved until every activated component is audited separately.
+    confirmed_information:
+      - The official repository describes WLC text, OpenScriptures morphology, syntax, semantic, gloss, and participant layers.
+      - The repository license identifies the MACULA datasets as CC BY 4.0 and supplies attribution text.
+    unresolved_questions:
+      - Does permission for every bundled semantic layer permit redistribution in Project Echoes derived tables?
+      - Which tagged release or commit will be the reproducible acquisition target?
+    status: under_review
+
+  - source_id: macula-greek
+    source_name: MACULA Greek Linguistic Datasets
+    corpus: Greek New Testament
+    role: primary_discovery
+    language: [greek]
+    edition: SBL Greek New Testament v1.2 representation with MACULA annotations (provisional selection)
+    provider: Clear Bible / Biblica
+    repository_or_location: https://github.com/Clear-Bible/macula-greek
+    version_or_commit: null
+    download_date: null
+    license: CC BY 4.0 for MACULA datasets; component-specific permissions require review
+    license_url: https://github.com/Clear-Bible/macula-greek/blob/main/LICENSE.md
+    license_review_status: in_progress
+    required_attribution: MACULA Greek Linguistic Datasets, available at https://github.com/Clear-Bible/macula-greek/
+    redistribution_status: acquisition_instructions_only
+    machine_processing_status: permitted
+    raw_data_git_policy: ignored_local_only
+    expected_files: []
+    file_hashes: {}
+    ingest_adapter: null
+    research_purpose: Primary token-level Greek New Testament text, morphology, syntax, semantics, and participant annotations.
+    known_limitations:
+      - The repository combines N1904, SBLGNT mappings, MARBLE data used with permission, and other layers with distinct notices.
+      - The final SBLGNT branch and its annotation completeness relative to the N1904 representation require verification.
+    notes:
+      - The textual edition and every activated annotation layer must remain explicit in processed provenance.
+    confirmed_information:
+      - The official license lists syntax, morphology, word senses, frames, participant referents, synonyms, and mappings.
+      - The repository license identifies the MACULA datasets as CC BY 4.0 and supplies attribution text.
+    unresolved_questions:
+      - Which branch and tagged MACULA release fully represents the provisional SBLGNT v1.2 selection?
+      - Which permission-only component fields may appear in redistributable derived outputs?
+    status: under_review
+
+  - source_id: stepbible-data
+    source_name: STEPBible Data
+    corpus: Hebrew Bible, Greek Bible, lexicons, names, and versification resources
+    role: supplementary_annotation
+    language: [hebrew, aramaic, greek, english]
+    edition: Multiple named datasets; exact activated files not yet selected
+    provider: STEPBible / Tyndale House Cambridge
+    repository_or_location: https://github.com/STEPBible/STEPBible-Data
+    version_or_commit: null
+    download_date: null
+    license: CC BY 4.0 at repository level; file-level provenance review pending
+    license_url: https://github.com/STEPBible/STEPBible-Data
+    license_review_status: in_progress
+    required_attribution: Credit STEP Bible and link to https://www.STEPBible.org/
+    redistribution_status: acquisition_instructions_only
+    machine_processing_status: permitted
+    raw_data_git_policy: ignored_local_only
+    expected_files: []
+    file_hashes: {}
+    ingest_adapter: null
+    research_purpose: Supplement primary annotations with glosses, lexical mappings, semantic data, proper names, and versification crosswalk evidence.
+    known_limitations:
+      - The repository contains heterogeneous datasets with different upstream derivations and update schedules.
+      - AI-authored descriptions in some resources are not primary linguistic evidence.
+    notes:
+      - Supplementary values must be stored in parallel and must never silently overwrite MACULA annotations.
+    confirmed_information:
+      - The official repository states CC BY 4.0 and requests credit to STEP Bible.
+      - The repository publishes UTF-8 tab-separated datasets including tagged texts, lexicons, names, and versification data.
+    unresolved_questions:
+      - Which individual files measurably improve the core pipeline and satisfy item-level provenance review?
+      - Which upstream text-edition restrictions apply to fields derived from commercial editions?
+    status: under_review
+
+  - source_id: septuagint-catss
+    source_name: CATSS Morphologically Analyzed Septuagint and Parallel Hebrew-Greek Module
+    corpus: Septuagint
+    role: bridge
+    language: [hebrew, greek]
+    edition: Rahlfs 1935 Greek base with CATSS morphology; Stuttgart Hebrew base in the parallel module
+    provider: CATSS / Center for Computer Analysis of Texts, University of Pennsylvania
+    repository_or_location: https://ccat.sas.upenn.edu/rak/catss.html
+    version_or_commit: null
+    download_date: null
+    license: CCAT User Agreement and fair-use conditions, version 050215
+    license_url: https://ccat.sas.upenn.edu/gopher/text/religion/biblical/lxxmorph/0-user-declaration.txt
+    license_review_status: in_progress
+    required_attribution: Identify published-text rights holders, encoders, CATSS/CCAT, and the distribution source as documented
+    redistribution_status: acquisition_instructions_only
+    machine_processing_status: restricted
+    raw_data_git_policy: ignored_local_only
+    expected_files: []
+    file_hashes: {}
+    ingest_adapter: null
+    research_purpose: Later Hebrew-Greek-New Testament triangulation and evaluation of Septuagint-mediated wording.
+    known_limitations:
+      - Legacy modules and revisions require separate provenance, tokenization, and redistribution review.
+      - Versification and alignment differ from both the Masoretic Text and New Testament references.
+    notes:
+      - Activation is blocked until Hebrew and Greek primary corpus and known-link gates pass.
+    confirmed_information:
+      - CATSS produced morphologically analyzed Greek and Hebrew-Greek parallel materials based on a Rahlfs textual tradition.
+      - CCAT materials use source-specific user declarations rather than one repository-wide open license.
+    unresolved_questions:
+      - Which CATSS modules are currently obtainable and what exact agreement governs each?
+      - May any raw or derived aligned text be redistributed publicly?
+    status: blocked
+
+  - source_id: openbible-cross-references
+    source_name: OpenBible.info Bible Cross References
+    corpus: Canon-wide English-versification cross-reference graph
+    role: benchmark
+    language: [english]
+    edition: Continuously updated downloadable archive; exact snapshot not yet pinned
+    provider: OpenBible.info
+    repository_or_location: https://www.openbible.info/labs/cross-references/
+    version_or_commit: null
+    download_date: null
+    license: Creative Commons Attribution license stated on the source page; archive audit pending
+    license_url: https://creativecommons.org/licenses/by/4.0/
+    license_review_status: in_progress
+    required_attribution: Attribute OpenBible.info and preserve source notices
+    redistribution_status: acquisition_instructions_only
+    machine_processing_status: permitted
+    raw_data_git_policy: ignored_local_only
+    expected_files: []
+    file_hashes: {}
+    ingest_adapter: null
+    research_purpose: Broad known-link benchmark and exclusion layer, not original-language textual evidence.
+    known_limitations:
+      - Links mix themes, words, events, and people and are primarily verse-to-verse rather than passage ranges.
+      - The page includes ESV quotations whose copyright is separate from the downloadable link graph.
+    notes:
+      - The data derives primarily from the Treasury of Scripture Knowledge with additional ranking signals.
+    confirmed_information:
+      - The official page describes approximately 340,000 cross references and provides a downloadable archive.
+      - The page states a Creative Commons Attribution license unless otherwise indicated.
+    unresolved_questions:
+      - Does the downloadable archive contain any content beyond reference identifiers and vote counts?
+      - What stable snapshot mechanism will pin a reproducible version?
+    status: under_review
+
+  - source_id: ubs-parallel-passages
+    source_name: Paratext Parallel Passages Database
+    corpus: Biblical parallel-passage reference data
+    role: benchmark
+    language: [hebrew, greek]
+    edition: UBS Parallel Passage Database, 2023
+    provider: United Bible Societies
+    repository_or_location: https://github.com/ubsicap/ubs-open-license/tree/main/parallel%20passages
+    version_or_commit: null
+    download_date: null
+    license: CC BY-SA 4.0
+    license_url: https://github.com/ubsicap/ubs-open-license/blob/main/parallel%20passages/LICENSE.md
+    license_review_status: complete
+    required_attribution: UBS Parallel Passage Database, © 2023 United Bible Societies; link the source and license, identify modifications, and preserve ShareAlike terms
+    redistribution_status: permitted
+    machine_processing_status: permitted
+    raw_data_git_policy: metadata_only
+    expected_files: []
+    file_hashes: {}
+    ingest_adapter: null
+    research_purpose: Curated intertextual and parallel-passage reference layer for benchmark tiering and knownness checks.
+    known_limitations:
+      - Reference categories and canonical coverage must be mapped to Project Echoes passage identifiers.
+    notes:
+      - Source approval still requires a pinned commit and an acquisition design even though licensing review is complete.
+    confirmed_information:
+      - The official project repository publishes the parallel-passage data under CC BY-SA 4.0.
+    unresolved_questions:
+      - Which fields and relationship categories are suitable for training, evaluation, or knownness exclusion?
+    status: planned
+
+  - source_id: etcbc-dead-sea-scrolls
+    source_name: ETCBC Dead Sea Scrolls Text-Fabric Dataset
+    corpus: Biblical and non-biblical Dead Sea Scrolls
+    role: textual_validation
+    language: [hebrew, aramaic]
+    edition: ETCBC Text-Fabric representation based on data supplied by Martin Abegg
+    provider: Eep Talstra Centre for Bible and Computer
+    repository_or_location: https://github.com/ETCBC/dss
+    version_or_commit: null
+    download_date: null
+    license: MIT repository license; upstream transcription and edition scope unresolved
+    license_url: https://github.com/ETCBC/dss/blob/master/LICENSE
+    license_review_status: in_progress
+    required_attribution: Cite ETCBC dataset, its archived release, contributors, and upstream transcription provider
+    redistribution_status: unknown
+    machine_processing_status: permitted
+    raw_data_git_policy: ignored_local_only
+    expected_files: []
+    file_hashes: {}
+    ingest_adapter: null
+    research_purpose: Later test of textual stability and early witness support for already-identified candidates.
+    known_limitations:
+      - The repository contains biblical and non-biblical scrolls; Project Echoes would require an explicit biblical subset.
+      - Repository licensing may not by itself settle rights in upstream transcriptions or underlying editions.
+    notes:
+      - This layer cannot independently prove an intertextual relationship.
+    confirmed_information:
+      - The official repository provides Text-Fabric transcriptions and linguistic annotations and acknowledges Martin Abegg's data.
+      - The repository displays an MIT license and publishes archived releases.
+    unresolved_questions:
+      - Does the repository license cover redistribution of all underlying transcription content?
+      - Which fragments are biblical and align reliably with the primary corpus?
+    status: under_review
+
+  - source_id: hebrew-critical-apparatus
+    source_name: Hebrew Critical-Apparatus Source Category
+    corpus: Hebrew Bible textual variants and apparatus
+    role: textual_validation
+    language: [hebrew, aramaic, greek]
+    edition: null
+    provider: Deutsche Bibelgesellschaft or another rights holder to be selected
+    repository_or_location: https://www.die-bibel.de/en/the-editio-critica-maior-ecm/scholarly-bible-editions/biblia-hebraica-quinta-bhq
+    version_or_commit: null
+    download_date: null
+    license: Copyrighted proprietary publication; written permission required except for specified uses
+    license_url: https://www.die-bibel.de/en/rights
+    license_review_status: not_started
+    required_attribution: null
+    redistribution_status: prohibited
+    machine_processing_status: unknown
+    raw_data_git_policy: prohibited
+    expected_files: []
+    file_hashes: {}
+    ingest_adapter: null
+    research_purpose: Later evaluate whether candidate wording depends on a Hebrew variant or unstable reading.
+    known_limitations:
+      - Modern critical apparatuses are copyrighted scholarly editions and may require negotiated machine-processing rights.
+      - Biblia Hebraica Quinta is not yet complete for every biblical book.
+    notes:
+      - This is a source category, not approval of any edition or digital product.
+    confirmed_information:
+      - Deutsche Bibelgesellschaft describes BHQ as a critical edition collating textual witnesses and variants.
+    unresolved_questions:
+      - Which edition offers lawful machine access for the required books and use case?
+      - What derived variant metadata, if any, may be published?
+    status: planned
+
+  - source_id: greek-critical-apparatus
+    source_name: Greek New Testament Critical-Apparatus Source Category
+    corpus: Greek New Testament textual variants and apparatus
+    role: textual_validation
+    language: [greek]
+    edition: null
+    provider: Deutsche Bibelgesellschaft and relevant edition partners
+    repository_or_location: https://www.die-bibel.de/en/the-septuagint-lxx/scholarly-bible-editions/novum-testamentum-graece-nestle-aland/scholarly-bible-editions/novum-testamentum-graece-nestle-aland
+    version_or_commit: null
+    download_date: null
+    license: Copyrighted proprietary publication; written permission required except for specified uses
+    license_url: https://www.die-bibel.de/en/rights
+    license_review_status: not_started
+    required_attribution: null
+    redistribution_status: prohibited
+    machine_processing_status: unknown
+    raw_data_git_policy: prohibited
+    expected_files: []
+    file_hashes: {}
+    ingest_adapter: null
+    research_purpose: Later evaluate whether candidate wording depends on a Greek textual variant or disputed reading.
+    known_limitations:
+      - Critical apparatus content is proprietary unless a rights holder grants explicit processing and publication permission.
+      - Edition coverage and apparatus purpose differ between NA, UBS, and ECM products.
+    notes:
+      - Technical web access does not authorize automated extraction or redistribution.
+    confirmed_information:
+      - Deutsche Bibelgesellschaft publishes the Nestle-Aland, UBS, and ECM scholarly editions.
+    unresolved_questions:
+      - Which apparatus is methodologically appropriate and available under written machine-processing terms?
+      - What limited derived claims or citations may be published?
+    status: planned
+
+  - source_id: targum-corpus
+    source_name: Targum Source Category via the Comprehensive Aramaic Lexicon
+    corpus: Aramaic Targum traditions
+    role: reception_history
+    language: [aramaic]
+    edition: Live CAL text database; exact Targum editions and snapshots not selected
+    provider: Comprehensive Aramaic Lexicon Project, Hebrew Union College
+    repository_or_location: https://cal.huc.edu/newtextmenu.html
+    version_or_commit: null
+    download_date: null
+    license: null
+    license_url: null
+    license_review_status: not_started
+    required_attribution: Cite Stephen A. Kaufman et al., The Comprehensive Aramaic Lexicon, the specific resource, and access date; acknowledge HUC
+    redistribution_status: unknown
+    machine_processing_status: unknown
+    raw_data_git_policy: prohibited
+    expected_files: []
+    file_hashes: {}
+    ingest_adapter: null
+    research_purpose: Deferred reception-history evidence about whether later Aramaic interpreters recognized or developed a candidate relationship.
+    known_limitations:
+      - CAL is a changing text and lexicon database rather than a single pinned Targum edition.
+      - The public site does not present one general redistribution license for bulk corpus use.
+    notes:
+      - Targum evidence must never be treated as direct proof of original authorial dependence.
+    confirmed_information:
+      - CAL describes itself as a work-in-progress Aramaic text base and requests access dates in scholarly citations.
+    unresolved_questions:
+      - Which specific Targum editions, texts, and permissions would support reproducible local analysis?
+      - Is bulk machine processing or redistribution available by agreement?
+    status: planned

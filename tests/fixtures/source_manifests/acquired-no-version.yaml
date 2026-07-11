@@ -1,0 +1,28 @@
+schema_version: 1
+sources:
+  - source_id: acquired-no-version
+    source_name: Acquired without Version Fixture
+    corpus: Synthetic
+    role: reference
+    language: [english]
+    edition: null
+    provider: Test suite
+    repository_or_location: https://example.invalid/acquired-no-version
+    version_or_commit: null
+    download_date: 2026-07-10
+    license: CC0 1.0
+    license_url: https://creativecommons.org/publicdomain/zero/1.0/
+    license_review_status: complete
+    required_attribution: No attribution required; source citation retained for provenance
+    redistribution_status: permitted
+    machine_processing_status: permitted
+    raw_data_git_policy: metadata_only
+    expected_files: []
+    file_hashes: {}
+    ingest_adapter: null
+    research_purpose: Test acquisition version blocking.
+    known_limitations: [Synthetic]
+    notes: []
+    confirmed_information: []
+    unresolved_questions: [Synthetic]
+    status: acquired
