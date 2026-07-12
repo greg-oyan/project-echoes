@@ -44,3 +44,4 @@ Decision records preserve durable methodological, data, licensing, architecture,
 - [0010 — Select pinned MACULA Greek Nestle1904 node data](0010-macula-greek-source-selection.md)
 - [0011 — Separate source order from disputed-passage analysis](0011-disputed-passage-segmentation-policy.md)
 - [0012 — Defer STEPBible activation](0012-defer-stepbible-activation.md)
+- [0013 — Passage identity, membership, and analytical continuity](0013-passage-identity-membership-and-analytical-continuity.md)
