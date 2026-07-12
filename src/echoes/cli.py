@@ -28,6 +28,7 @@ from echoes.corpus.hebrew import (
     ingest_hebrew_corpus,
     validate_existing_hebrew_corpus,
 )
+from echoes.corpus.kq_supplement import KQPipelineError, ingest_kq_supplement
 from echoes.corpus.storage import CorpusStorageError, corpus_summary
 from echoes.corpus.validation import CorpusValidationError
 from echoes.ingest.macula_greek import GreekIngestionError
@@ -374,6 +375,64 @@ def ingest_greek_command(
     typer.echo(
         f"Ingested {result.summary.total_tokens} tokens from "
         f"{result.adapter_summary.source_records} source records."
+    )
+    typer.echo(f"Processed output: {result.processed.output_dir}")
+    typer.echo(
+        f"Validation: errors={result.validation.error_count}, "
+        f"warnings={result.validation.warning_count}"
+    )
+    if not result.validation.passed:
+        raise typer.Exit(code=1)
+
+
+@app.command("ingest-oshb-kq")
+def ingest_oshb_kq_command(
+    manifest_path: SourceManifestPath = Path("data/manifests/sources.yaml"),
+    config_dir: ConfigDir = Path("config"),
+    data_root: DataRoot = Path("data"),
+    output_dir: Annotated[
+        Path | None,
+        typer.Option("--output-dir", help="Optional versioned processed output directory."),
+    ] = None,
+    database: Annotated[
+        Path | None,
+        typer.Option("--database", help="Optional local DuckDB database path."),
+    ] = None,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Explicitly replace this supplement's processed outputs."),
+    ] = False,
+) -> None:
+    """Build the OSHB Ketiv/Qere supplement beside the untouched primary tables."""
+    try:
+        result = ingest_kq_supplement(
+            manifest_path=manifest_path,
+            config_dir=config_dir,
+            data_root=data_root,
+            output_dir=output_dir,
+            database_path=database,
+            force=force,
+        )
+    except (
+        AcquisitionError,
+        ConfigLoadError,
+        CorpusStorageError,
+        KQPipelineError,
+        SourceManifestError,
+        OSError,
+    ) as exc:
+        typer.echo(f"K/Q supplement ingestion failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    summary = result.summary
+    typer.echo(
+        f"Built {summary.loci} K/Q loci: paired={summary.paired_loci}, "
+        f"ketiv_only={summary.ketiv_only_loci}, qere_only={summary.qere_only_loci}, "
+        f"ketiv tokens={summary.ketiv_tokens}, conflicts={summary.conflicts}."
+    )
+    typer.echo(
+        f"Surface agreement: exact={summary.exact_surface_matches}, "
+        f"consonantal={summary.consonantal_surface_matches}, "
+        f"mismatch={summary.surface_mismatches}."
     )
     typer.echo(f"Processed output: {result.processed.output_dir}")
     typer.echo(

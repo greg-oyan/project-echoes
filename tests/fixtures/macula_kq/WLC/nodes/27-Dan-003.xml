@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter>
+  <Sentence verse="DAN 3:12">
+    <Trees>
+      <Tree>
+        <Node nodeId="kq-dan-cl-1" Cat="CL" Rule="S-V">
+          <m xml:id="m270030120011" word="DAN 3:12!1" lang="A" pos="noun" morph="ANcmpa" lemma="גבר">גֻּבְרִין</m>
+          <m xml:id="m270030120031" word="DAN 3:12!3" lang="A" pos="pron" morph="APp2ms" lemma="איתי">אִיתָ֑ךְ</m>
+          <m xml:id="m270030120041" word="DAN 3:12!4" lang="A" pos="noun" morph="ANcmsa" lemma="מלך">מֶלֶךְ</m>
+        </Node>
+      </Tree>
+    </Trees>
+  </Sentence>
+</chapter>

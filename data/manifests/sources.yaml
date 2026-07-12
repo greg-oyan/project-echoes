@@ -232,9 +232,10 @@ sources:
       - LICENSE.md at the pinned commit states CC BY 4.0 for lemma and morphology data, public domain for the WLC text, and the exact attribution sentence recorded above; its canonical-byte SHA-256 from the raw download stream is 9bf4a2890c25372e4c1dc750d550bfb4eacfbfcb63c53123b0628159370d1878.
       - The README at the pinned commit documents OSIS XML markup, lemma, morph, and unique immutable per-word id attributes in the wlc directory.
       - The wlc OSIS files mark the written reading inline as w-elements with type x-ketiv and carry the read reading inside note type=variant / rdg type=x-qere elements, verified at 2Kgs 8:10 in the pinned bytes.
+      - Milestone 4 Part 1 ingestion keyed all 1,268 ketiv words into vacant MACULA slots across 1,260 loci with zero gap violations and 1,254/1,254 exact qere-surface agreement; primary identity and content digests were byte-identical before and after.
     unresolved_questions:
-      - What alignment-confidence policy applies where OSHB word boundaries and MACULA word-number gaps disagree? (Being resolved empirically per locus by the Milestone 4 Part 1 supplement.)
-    status: acquired
+      - Whether OSHB's 1,260 encoded loci exhaust the Leningrad Ketiv/Qere tradition, or whether further loci exist that OSHB encodes differently, awaits a scholarly cross-check.
+    status: validated
 
   - source_id: septuagint-catss
     source_name: CATSS Morphologically Analyzed Septuagint and Parallel Hebrew-Greek Module

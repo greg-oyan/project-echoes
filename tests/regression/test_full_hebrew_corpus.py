@@ -112,3 +112,74 @@ def test_full_unified_tables_query_both_corpora() -> None:
         assert greek_count == 137_779
         assert total == hebrew_count + greek_count
         assert distinct_ids == total
+
+
+@pytest.mark.full_corpus
+@FULL_CORPUS
+def test_full_kq_supplement_passes_milestone_four_part_one_gate() -> None:
+    import json
+
+    from echoes.corpus.kq_supplement import validate_kq_supplement
+
+    supplement_dir = Path("data/processed/oshb-morphhb/master-3d15126")
+    primary = pl.read_parquet(HEBREW_TOKENS_PARQUET)
+    greek_ids = set(
+        pl.read_parquet(GREEK_TOKENS_PARQUET, columns=["token_id"])["token_id"].to_list()
+    )
+
+    report = validate_kq_supplement(
+        supplement_dir,
+        primary,
+        other_corpus_token_ids=greek_ids,
+        expected_primary_identity_digest=EXPECTED_IDENTITY_DIGEST,
+        expected_primary_content_digest=EXPECTED_HEBREW_CONTENT_DIGEST,
+    )
+
+    assert report.passed
+    assert report.error_count == 0
+    assert report.total_tokens == 1_268
+    assert report.coverage["loci"] == 1_260
+    assert report.coverage["paired_loci"] == 1_245
+    assert report.coverage["ketiv_only_loci"] == 6
+    assert report.coverage["qere_only_loci"] == 9
+    assert report.coverage["conflicts"] == 0
+
+    registry = pl.read_parquet(supplement_dir / "kq_locus_registry.parquet")
+    # 2KI 8:10: negative-particle ketiv at vacant slot 6 paired against the
+    # prepositional qere reading at slot 7.
+    locus = registry.filter(pl.col("locus_id") == "KQL_2KI_008_010_0006").to_dicts()[0]
+    assert locus["kind"] == "paired"
+    assert json.loads(locus["ketiv_word_slots_json"]) == [6]
+    assert json.loads(locus["qere_word_slots_json"]) == [7]
+    assert locus["ketiv_surface"] == "לא"  # lamed-alef (the negative particle)
+    assert locus["surface_match_tier"] == "exact"
+    assert locus["alignment_confidence"] == 1.0
+    assert json.loads(locus["macula_qere_token_ids_json"]) == [
+        "HB_2KI_008_010_0007.01",
+        "HB_2KI_008_010_0007.02",
+    ]
+    ketiv = pl.read_parquet(supplement_dir / "kq_ketiv_tokens.parquet")
+    two_kings = ketiv.filter(
+        (pl.col("book") == "2KI") & (pl.col("chapter") == 8) & (pl.col("verse") == 10)
+    ).to_dicts()
+    assert len(two_kings) == 1
+    assert json.loads(two_kings[0]["morphology_json"])["oshb_morph"] == "HTn"
+
+    # Four more paired loci across Torah, Prophets, and Writings.
+    for locus_id in (
+        "KQL_GEN_008_017_0014",
+        "KQL_DEU_005_010_0006",
+        "KQL_ISA_003_016_0009",
+        "KQL_PSA_005_009_0006",
+        "KQL_RUT_002_001_0002",
+    ):
+        row = registry.filter(pl.col("locus_id") == locus_id).to_dicts()
+        assert len(row) == 1, locus_id
+        assert row[0]["kind"] == "paired"
+        assert row[0]["surface_match_tier"] == "exact"
+        assert row[0]["alignment_confidence"] == 1.0
+
+    # No conflict rows exist in the pinned sources; the conflict path is
+    # exercised by synthetic fixtures instead.
+    conflicts = pl.read_parquet(supplement_dir / "kq_conflicts.parquet")
+    assert conflicts.height == 0

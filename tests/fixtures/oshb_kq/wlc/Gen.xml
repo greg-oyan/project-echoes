@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<osis xmlns="http://www.bibletechnologies.net/2003/OSIS/namespace">
+  <osisText xml:lang="he" osisIDWork="OSHB" osisRefWork="Bible">
+    <div type="book" osisID="Gen">
+      <chapter osisID="Gen.1">
+        <verse osisID="Gen.1.1">
+          <w lemma="4428" morph="HNcmsa" id="01aaa">מֶלֶךְ</w>
+          <w type="x-ketiv" lemma="3808" morph="HTn" id="01kt1">לא</w>
+          <note type="exegesis">Synthetic exegesis note between ketiv and variant.</note>
+          <note type="variant"><catchWord>לא</catchWord><rdg type="x-qere"><w lemma="l" morph="HR/Sp3ms" id="01qr1">ל֖וֹ</w></rdg></note>
+          <w lemma="216" morph="HNcbsa" id="01aab">אוֹר</w><seg type="x-sof-pasuq">׃</seg>
+        </verse>
+        <verse osisID="Gen.1.2">
+          <w lemma="4428" morph="HNcmsa" id="01aba">דָּבָר</w>
+          <w type="x-ketiv" lemma="4994" morph="HTe" id="01kt2">נא</w>
+          <note type="variant"><catchWord>נא</catchWord><rdg type="x-qere" /></note>
+          <w lemma="216" morph="HNcbsa" id="01abb">שָׁלוֹם</w><seg type="x-sof-pasuq">׃</seg>
+        </verse>
+        <verse osisID="Gen.1.3">
+          <w lemma="4428" morph="HNcmsa" id="01aca">סֵפֶר</w>
+          <note type="variant"><catchWord>הוא</catchWord><rdg type="x-qere"><w lemma="1931" morph="HPp3fs" id="01qr3">הִיא</w></rdg></note>
+          <w lemma="216" morph="HNcbsa" id="01acb">עִיר</w><seg type="x-sof-pasuq">׃</seg>
+        </verse>
+        <verse osisID="Gen.1.4">
+          <w lemma="4428" morph="HNcmsa" id="01ada">גָּדוֹל</w>
+          <w type="x-ketiv" lemma="7121" morph="HVqp3ms" id="01kt4">קרא</w>
+          <note type="variant"><catchWord>קרא</catchWord><rdg type="x-qere"><w lemma="7121" morph="HVqp3ms" id="01qr4">קָרֵא</w></rdg></note>
+          <w lemma="216" morph="HNcbsa" id="01adb">קָטָן</w><seg type="x-sof-pasuq">׃</seg>
+        </verse>
+        <verse osisID="Gen.1.5">
+          <w lemma="4428" morph="HNcmsa" id="01aea">רֹאשׁ</w>
+          <w type="x-ketiv" lemma="4480" morph="HR" id="01kt5">מנ</w>
+          <note n="M">Synthetic Masora note between two ketiv words.</note>
+          <w type="x-ketiv" lemma="5591" morph="HNcfsa" id="01kt6">ה/סערה</w>
+          <note type="variant"><catchWord>מנ ה/סערה</catchWord><rdg type="x-qere"><w lemma="4480" morph="HR" id="01qr5">מִן</w> <seg type="x-paseq">׀</seg><w lemma="5591" morph="HNcfsa" id="01qr6">הַסְּעָרָה</w></rdg></note>
+          <w lemma="216" morph="HNcbsa" id="01aeb">קוֹל</w><seg type="x-sof-pasuq">׃</seg>
+        </verse>
+        <verse osisID="Gen.1.6">
+          <w lemma="4428" morph="HNcmsa" id="01afa">יָד</w>
+          <w type="x-ketiv" lemma="1697" morph="HNcmsa" id="01kt7">דבר</w>
+          <note type="variant"><catchWord>דבר</catchWord><rdg type="x-qere"><w lemma="1697" morph="HNcmsa" id="01qr7">דָּבָר</w></rdg></note>
+          <w lemma="216" morph="HNcbsa" id="01afb">לֵב</w><seg type="x-sof-pasuq">׃</seg>
+        </verse>
+      </chapter>
+    </div>
+  </osisText>
+</osis>
