@@ -181,7 +181,7 @@ sources:
     provider: Open Scriptures Hebrew Bible Project
     repository_or_location: https://github.com/openscriptures/morphhb
     version_or_commit: 3d15126fb1ef74867fc1434be1942e837932691f
-    download_date: null
+    download_date: 2026-07-11
     license: >-
       Lemma and morphology data under CC BY 4.0; the WLC text itself is public
       domain (Creative Commons Public Domain Mark 1.0)
@@ -193,9 +193,25 @@ sources:
     redistribution_status: permitted
     machine_processing_status: permitted
     raw_data_git_policy: ignored_local_only
-    expected_files: []
-    file_hashes: {}
-    ingest_adapter: null
+    expected_files:
+      - README.md
+      - LICENSE.md
+      - wlc/2Kgs.xml
+    file_hashes:
+      README.md: 2da25acf89375558b843dab582bdf00833137baf1c8afe2b32cf09e251179999
+      LICENSE.md: 9bf4a2890c25372e4c1dc750d550bfb4eacfbfcb63c53123b0628159370d1878
+      wlc/2Kgs.xml: 056db5393beaef0a1159d9bcaac7dfd865df9bab2eb240ea90e9fa3f0c0e7449
+    ingest_adapter: echoes.ingest.oshb_ketiv_qere
+    acquisition:
+      method: git_sparse
+      version_label: master-3d15126
+      upstream_commit: 3d15126fb1ef74867fc1434be1942e837932691f
+      repository_url: https://github.com/openscriptures/morphhb.git
+      include_paths:
+        - README.md
+        - LICENSE.md
+        - wlc
+      expected_file_count: 42
     research_purpose: >-
       Paired Ketiv/Qere layer for Milestone 4: supply the Ketiv records that the
       MACULA preferred-Qere representation omits, keyed into MACULA's preserved
@@ -206,17 +222,19 @@ sources:
       - The OSHB repository is a live project without formal releases for every change; activation requires acquiring exactly the pinned commit.
       - OSHB README guidance warns against NFC normalization of its Hebrew text; derived-form handling must follow the project normalization policy.
     notes:
-      - Governance-only record; no acquisition, ingestion, or adapter exists yet. Acquisition is deferred to Milestone 4 and requires an acquisition specification and canonical-byte hashes at that point.
-      - ADR 0009 (Accepted) records the Ketiv/Qere supplementation strategy, including the verified MACULA word-number gap at 2KI 8:10 slot 6.
+      - ADR 0009 (Accepted, ratified 2026-07-11) records the Ketiv/Qere supplementation strategy, including the verified MACULA word-number gap at 2KI 8:10 slot 6; Milestone 4 Part 1 implements it.
       - Ketiv records from this layer must be produced as variant_type=ketiv tokens per canonical schema v2, leaving the existing Qere stream unchanged; annotation conflicts are preserved per master plan section 10.4.
+      - All recorded hashes are canonical-byte SHA-256 values, externally verified against raw.githubusercontent.com at commit 3d15126fb1ef74867fc1434be1942e837932691f on 2026-07-11; acquisitions disable Git text conversion.
+      - The sparse checkout scope is the wlc directory (39 OSIS book files plus VerseMap.xml) and the two notices; the Git-ignored acquisition receipt records SHA-256 hashes and sizes for all 42 files, and the tracked manifest retains the three anchor hashes.
+      - The version label master-3d15126 records that this pin is a default-branch head, not an upstream release tag.
     confirmed_information:
       - The pinned commit resolves the repository's default master branch head as of 2026-07-11.
       - LICENSE.md at the pinned commit states CC BY 4.0 for lemma and morphology data, public domain for the WLC text, and the exact attribution sentence recorded above; its canonical-byte SHA-256 from the raw download stream is 9bf4a2890c25372e4c1dc750d550bfb4eacfbfcb63c53123b0628159370d1878.
       - The README at the pinned commit documents OSIS XML markup, lemma, morph, and unique immutable per-word id attributes in the wlc directory.
+      - The wlc OSIS files mark the written reading inline as w-elements with type x-ketiv and carry the read reading inside note type=variant / rdg type=x-qere elements, verified at 2Kgs 8:10 in the pinned bytes.
     unresolved_questions:
-      - Which exact wlc files and attributes carry the Ketiv records, and how completely do they cover the roughly 1,500 K/Q loci of the Leningrad tradition?
-      - What alignment-confidence policy applies where OSHB word boundaries and MACULA word-number gaps disagree?
-    status: planned
+      - What alignment-confidence policy applies where OSHB word boundaries and MACULA word-number gaps disagree? (Being resolved empirically per locus by the Milestone 4 Part 1 supplement.)
+    status: acquired
 
   - source_id: septuagint-catss
     source_name: CATSS Morphologically Analyzed Septuagint and Parallel Hebrew-Greek Module

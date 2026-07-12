@@ -229,9 +229,9 @@ def _acquire_git_sparse(source: SourceManifest, staging: Path) -> list[AcquiredF
         _run_git(["config", "remote.origin.promisor", "true"], cwd=checkout)
         _run_git(["config", "remote.origin.partialclonefilter", "blob:none"], cwd=checkout)
         _run_git(["sparse-checkout", "init", "--cone"], cwd=checkout)
-        sparse_directories = [
-            path for path in spec.include_paths if "/" in path and not Path(path).suffix
-        ]
+        # Suffix-less include paths are sparse-checkout directories; paths
+        # with a file suffix (README.md, LICENSE.md) ride along from the root.
+        sparse_directories = [path for path in spec.include_paths if not Path(path).suffix]
         if not sparse_directories:
             raise AcquisitionError("git_sparse acquisition requires at least one directory")
         _run_git(["sparse-checkout", "set", *sparse_directories], cwd=checkout)

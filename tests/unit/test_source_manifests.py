@@ -108,7 +108,17 @@ def test_production_catalog_contains_the_governed_source_set() -> None:
         "LICENSE.md",
         "Nestle1904/nodes/26-jude.xml",
     }
-    hashed_sources = {"macula-hebrew", "macula-greek"}
+    oshb = catalog.find("oshb-morphhb")
+    assert oshb is not None
+    assert oshb.version_or_commit == "3d15126fb1ef74867fc1434be1942e837932691f"
+    assert oshb.acquisition is not None
+    assert oshb.acquisition.version_label == "master-3d15126"
+    assert set(oshb.file_hashes) == {
+        "README.md",
+        "LICENSE.md",
+        "wlc/2Kgs.xml",
+    }
+    hashed_sources = {"macula-hebrew", "macula-greek", "oshb-morphhb"}
     assert all(
         not source.file_hashes
         for source in catalog.sources
