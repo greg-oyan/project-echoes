@@ -79,4 +79,16 @@
   - Greek identity `9035fea8d73a2b2078ad2adc70f8389040dbe2051ee535b2ce88412f551df6f2`, content `a5ede58d287c2d29d5dacc7adeb07ff5c6a10587e2949875928b2dd935c8c683`, 137,779 tokens.
 - These constants are stop-condition anchors for every later Milestone 4 task.
 
+## 2026-07-11 - Milestone 4 Part 1 OSHB Ketiv/Qere supplement validation
+
+- Purpose: land the first supplementary annotation layer (ADR 0009, ratified) beside the untouched primary corpora and prove the vacant-slot keying premise empirically before implementation.
+- Source: openscriptures/morphhb at pinned commit `3d15126fb1ef74867fc1434be1942e837932691f`, canonical-byte acquisition of 42 files with externally verified anchors; OSHB header confirms WLC 4.20, the same edition MACULA represents.
+- Premise verification (pre-implementation study, reproduced by the shipped adapter): 1,108/1,108 K/Q verses frame-match (MACULA present word numbers equal OSHB slots minus ketiv slots); 0 gap violations; 1,254/1,254 qere surfaces exactly equal MACULA under NFC; 0 MACULA gaps outside K/Q verses; the only structural oddities are non-variant notes inside ketiv runs at Jer 48:44, Job 38:1, and Job 40:6, handled by the adjacency rule.
+- Result: 1,260 loci (1,245 paired, 6 ketiv-only, 9 qere-only) yielding 1,268 `variant_type=ketiv` schema v2 tokens with OSHB provenance and zero token-ID collisions against 475,911 Hebrew and 137,779 Greek IDs; zero conflicts recorded (conflict paths proven on synthetic fixtures); 120 informational language-inferred warnings for Aramaic-passage ketiv tokens; run ID `oshb-kq-c464b2dbc5818b2532f8`.
+- Streams: the supplemented `ketiv` analysis stream substitutes OSHB readings at all paired loci with continuous deterministic positions; the `qere` stream is byte-identical to its pre-supplement state.
+- Digest gate: Hebrew identity `91e923e6…`/content `7fb443c3…` and Greek identity `9035fea8…`/content `a5ede58d…` all unchanged; the content digests were newly baselined this run (SHA-256 over corpus-position-ordered `token_id\0surface_form\0normalized_form\0lemma\n` rows, null lemma as empty string) and are asserted by the opt-in regression.
+- Infrastructure: generalized supplementary annotation-alignment tables (1,254 qere_surface rows, all agreeing) enforcing the beside-not-over contract; first governed versification-crosswalk instance with 39 book mappings; MRK 16:20→16:99 adjacency declared for Milestone 5.
+- Sanity: 1,260 loci sits within the ~1,300–1,600 range commonly cited for the Leningrad tradition given counting-method differences; whether OSHB's encoding exhausts the tradition (perpetual qere is unmarked in both sources) is recorded as an open scholarly question.
+- Boundary: no STEPBible acquisition or licensing resolution, no segmentation enforcement, no candidate work.
+
 Substantive experiments are prohibited until their prerequisite milestones and data-governance gates pass.

@@ -4,6 +4,30 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- Milestone 4 Part 1, OSHB Ketiv/Qere supplement (ADR 0009, ratified):
+  governed canonical-byte acquisition of openscriptures/morphhb at pinned
+  commit `3d15126` (42 files, externally verified anchors); a supplement
+  adapter keying all 1,268 OSHB ketiv words into vacant MACULA word-number
+  slots across 1,260 loci (1,245 paired, 6 ketiv-only, 9 qere-only) with
+  zero gap violations, 1,254/1,254 exact qere-surface agreement, and zero
+  conflicts; `variant_type=ketiv` canonical schema v2 tokens with IDs from
+  the shared identity module and no collisions against either corpus; a
+  queryable K/Q locus registry with per-locus alignment method and
+  confidence (the Milestone 7 `data_quality_status` input); deterministic
+  `analysis_reading=ketiv` stream substitution with the qere stream
+  byte-identical to its pre-supplement state; a content-level corpus digest
+  (`corpus_content_digest`) recorded for both corpora as permanent
+  regression anchors alongside the identity digests; generalized
+  supplementary annotation-alignment tables enforcing the beside-not-over
+  contract with overwrite-attempt failure tests; the first governed
+  versification-crosswalk instance (39 OSHB-to-MACULA book mappings with
+  method and confidence); and a validated segmentation declaration of the
+  MRK 16:20-to-16:99 shorter-ending adjacency for Milestone 5 to enforce.
+  Hebrew and Greek identity digests, content digests, and token counts
+  (475,911 / 137,779) are unchanged throughout.
+
 ### Fixed
 
 - Canonical-byte checksum remediation: the Milestone 2 SHA-256 inventory had been
