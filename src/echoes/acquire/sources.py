@@ -201,6 +201,22 @@ def _acquire_http_files(source: SourceManifest, staging: Path) -> list[AcquiredF
     return acquired_files
 
 
+def _configure_canonical_byte_checkout(checkout: Path) -> None:
+    """Force byte-identical checkouts so hashes always cover canonical blob bytes.
+
+    Windows text-mode Git checkouts rewrite LF to CRLF, silently changing the
+    bytes that reach the hasher.  Disabling ``core.autocrlf`` and declaring
+    ``* -text`` in ``.git/info/attributes`` (the highest-precedence
+    gitattributes source, overriding any upstream ``.gitattributes``) disables
+    every text conversion, so working-tree files carry the pinned commit's
+    exact blob bytes.
+    """
+    _run_git(["config", "core.autocrlf", "false"], cwd=checkout)
+    attributes_path = checkout / ".git" / "info" / "attributes"
+    attributes_path.parent.mkdir(parents=True, exist_ok=True)
+    attributes_path.write_text("* -text\n", encoding="ascii")
+
+
 def _acquire_git_sparse(source: SourceManifest, staging: Path) -> list[AcquiredFile]:
     assert source.acquisition is not None
     spec = source.acquisition
@@ -208,6 +224,7 @@ def _acquire_git_sparse(source: SourceManifest, staging: Path) -> list[AcquiredF
     checkout = staging.parent / f".{staging.name}.checkout-{uuid4().hex}"
     try:
         _run_git(["init", "--quiet", str(checkout)])
+        _configure_canonical_byte_checkout(checkout)
         _run_git(["remote", "add", "origin", spec.repository_url], cwd=checkout)
         _run_git(["config", "remote.origin.promisor", "true"], cwd=checkout)
         _run_git(["config", "remote.origin.partialclonefilter", "blob:none"], cwd=checkout)
@@ -416,3 +433,36 @@ def verify_acquisition(
                 f"SHA-256 mismatch against source manifest for {item.relative_path}"
             )
     return directory, receipt
+
+
+def audit_manifest_hashes(
+    source: SourceManifest,
+    *,
+    data_root: Path = Path("data"),
+) -> list[str] | None:
+    """Recompute canonical SHA-256 values for locally present manifest-hashed files.
+
+    Returns ``None`` when the source declares no acquisition or its raw
+    directory is absent locally, otherwise a list of mismatch findings.  All
+    recorded hashes are canonical-byte SHA-256 values, so any divergence means
+    the local bytes no longer match the pinned upstream bytes (for example,
+    after a text-mode line-ending rewrite).
+    """
+    if source.acquisition is None or not source.file_hashes:
+        return None
+    directory = data_root / "raw" / source.source_id / source.acquisition.version_label
+    if not directory.is_dir():
+        return None
+    findings: list[str] = []
+    for relative_path, expected_hash in sorted(source.file_hashes.items()):
+        path = directory / relative_path
+        if not path.is_file():
+            findings.append(f"{source.source_id}: manifest-hashed file is missing: {relative_path}")
+            continue
+        actual_hash = sha256_file(path)
+        if actual_hash != expected_hash.lower():
+            findings.append(
+                f"{source.source_id}: canonical SHA-256 mismatch for {relative_path}: "
+                f"manifest={expected_hash.lower()}, local={actual_hash}"
+            )
+    return findings

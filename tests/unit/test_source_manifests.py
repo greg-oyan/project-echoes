@@ -80,6 +80,7 @@ def test_production_catalog_contains_the_governed_source_set() -> None:
         "macula-greek",
         "macula-hebrew",
         "openbible-cross-references",
+        "oshb-morphhb",
         "project-echoes-tier1-quotations",
         "septuagint-catss",
         "stepbible-data",
@@ -97,6 +98,19 @@ def test_production_catalog_contains_the_governed_source_set() -> None:
         "LICENSE.md",
         "WLC/nodes/macula-hebrew.xml",
     }
+    greek = catalog.find("macula-greek")
+    assert greek is not None
+    assert greek.version_or_commit == "b5b7ecec0882a3e9a609ecac99e157391e5d9b46"
+    assert greek.acquisition is not None
+    assert greek.acquisition.version_label == "24.06.17"
+    assert set(greek.file_hashes) == {
+        "README.md",
+        "LICENSE.md",
+        "Nestle1904/nodes/26-jude.xml",
+    }
+    hashed_sources = {"macula-hebrew", "macula-greek"}
     assert all(
-        not source.file_hashes for source in catalog.sources if source.source_id != "macula-hebrew"
+        not source.file_hashes
+        for source in catalog.sources
+        if source.source_id not in hashed_sources
     )

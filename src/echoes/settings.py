@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -86,18 +87,41 @@ class KetivQerePolicy(EchoesModel):
     analysis_reading: Literal["qere", "ketiv"] = "qere"
 
 
-class GreekNormalization(EchoesModel):
-    """Deferred Greek normalization policy."""
+class GreekTransformations(EchoesModel):
+    """Explicit transformations used to derive Greek analytical forms.
 
-    status: Literal["planned"]
+    The surface form is immutable.  ``normalized_form`` is the
+    punctuation-separated word core; ``folded_form`` is the case-folded,
+    accent-insensitive comparison form.  Destructive options are pinned off.
+    """
+
+    unicode_normalization: Literal["NFC", "NFD"]
+    collapse_whitespace: bool
+    separate_punctuation: Literal[True]
+    preserve_elision_mark: Literal[True]
+    restore_elided_letters: Literal[False]
+    decompose_crasis: Literal[False]
+    folded_case_fold: Literal[True]
+    folded_remove_accents: bool
+    folded_remove_breathings: bool
+    folded_remove_diaeresis: bool
+    normalize_final_sigma_outside_folding: Literal[False]
+    enclitic_accent_policy: Literal["preserve_source"]
+
+
+class GreekNormalization(EchoesModel):
+    """Active, information-preserving Greek normalization policy."""
+
+    status: Literal["active"]
     preserve_source_form: Literal[True]
-    transformations: dict[str, bool]
+    lemma_namespace: Literal["macula"]
+    transformations: GreekTransformations
 
 
 class NormalizationConfig(EchoesModel):
     """Normalization configuration for the primary source languages."""
 
-    schema_version: Literal[3]
+    schema_version: Literal[4]
     ketiv_qere: KetivQerePolicy
     hebrew: HebrewNormalization
     greek: GreekNormalization
@@ -142,6 +166,58 @@ class HebrewIngestionConfig(EchoesModel):
         references = [item.reference for item in self.spot_checks]
         if len(references) != len(set(references)):
             raise ValueError("Hebrew spot-check references must be unique")
+        return self
+
+
+class GreekSpotCheck(EchoesModel):
+    """One reproducible Greek manual-inspection target and its required facets."""
+
+    reference: str = Field(pattern=r"^[A-Z0-9]{3} [1-9][0-9]*:[1-9][0-9]*$")
+    category: str = Field(min_length=1)
+    check: list[
+        Literal[
+            "token_order",
+            "surface_forms",
+            "lemmas",
+            "morphology",
+            "clause_or_phrase_ids",
+            "canonical_reference",
+            "source_provenance",
+            "normalized_forms",
+            "punctuation_separation",
+            "elision",
+            "enclitics",
+            "disputed_passage",
+            "versification",
+        ]
+    ] = Field(min_length=1)
+
+
+class GreekIngestionConfig(EchoesModel):
+    """Governed full-corpus Greek expectations and manual spot-check registry."""
+
+    schema_version: Literal[1]
+    source_id: Literal["macula-greek"]
+    status: Literal["blocked", "ready"]
+    expected_books: Literal[27]
+    expected_chapters: Literal[260]
+    expected_tokens: Literal[137779]
+    expected_missing_verses: list[str] = Field(min_length=1)
+    expected_out_of_sequence_verses: list[str] = Field(default_factory=list)
+    spot_checks: list[GreekSpotCheck] = Field(min_length=8)
+
+    @model_validator(mode="after")
+    def references_are_well_formed_and_unique(self) -> Self:
+        reference_pattern = r"^[A-Z0-9]{3} [1-9][0-9]*:[1-9][0-9]*$"
+        for values in (self.expected_missing_verses, self.expected_out_of_sequence_verses):
+            for reference in values:
+                if re.fullmatch(reference_pattern, reference) is None:
+                    raise ValueError(f"malformed verse reference: {reference}")
+            if len(values) != len(set(values)):
+                raise ValueError("verse reference lists must be unique")
+        references = [item.reference for item in self.spot_checks]
+        if len(references) != len(set(references)):
+            raise ValueError("Greek spot-check references must be unique")
         return self
 
 
@@ -317,6 +393,7 @@ CONFIG_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "corpora.yaml": CorporaConfig,
     "normalization.yaml": NormalizationConfig,
     "hebrew_ingestion.yaml": HebrewIngestionConfig,
+    "greek_ingestion.yaml": GreekIngestionConfig,
     "segmentation.yaml": SegmentationConfig,
     "scoring.yaml": ScoringConfig,
     "models.yaml": ModelsConfig,

@@ -3,14 +3,14 @@ corpora:
   - corpus_id: macula-hebrew
     role: primary
     languages: [hebrew, aramaic]
-    status: planned
+    status: active
     activation_prerequisites:
       - Milestone 1 provenance and licensing review
       - Pinned source version and reproducible acquisition process
   - corpus_id: macula-greek
     role: primary
     languages: [greek]
-    status: planned
+    status: active
     activation_prerequisites:
       - Milestone 1 provenance and licensing review
       - Pinned source version and reproducible acquisition process

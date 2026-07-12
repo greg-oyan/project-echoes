@@ -1,4 +1,4 @@
-"""Deterministic Parquet output, DuckDB loading, and Hebrew corpus summaries."""
+"""Deterministic Greek Parquet output, DuckDB loading, and unified corpus views."""
 
 from __future__ import annotations
 
@@ -13,106 +13,36 @@ import duckdb
 import polars as pl
 from pydantic import BaseModel, ConfigDict
 
-from echoes.corpus.books import BOOKS
-from echoes.corpus.models import (
-    CANONICAL_TOKEN_COLUMNS,
-    CANONICAL_TOKEN_SCHEMA_VERSION,
+from echoes.corpus.greek_books import GREEK_BOOKS
+from echoes.corpus.greek_models import GREEK_TOKEN_COLUMNS, GREEK_TOKEN_SCHEMA_VERSION
+from echoes.corpus.storage import (
+    CorpusStorageError,
+    logical_frame_hash,
+    refresh_cross_corpus_artifacts,
 )
-from echoes.ingest.macula_hebrew import AdapterResult
+from echoes.ingest.macula_greek import GreekAdapterResult
 from echoes.manifest import sha256_file
 from echoes.manifests.sources import SourceManifest
 
-PARQUET_FILES = {
+GREEK_PARQUET_FILES = {
     "tokens": "tokens.parquet",
-    "analysis_tokens": "analysis_tokens.parquet",
     "books": "books.parquet",
     "source_records": "source_records.parquet",
     "issues": "ingestion_issues.parquet",
     "metadata": "corpus_metadata.parquet",
 }
-TABLE_HASH_FILE = "table-hashes.json"
-# Columns shared by the Hebrew and Greek token tables; the unified view
-# exposes exactly these so both corpora are queryable together while every
-# corpus-specific column remains available in its own table.
-UNIFIED_TOKEN_COLUMNS: tuple[str, ...] = (
-    "token_id",
-    "corpus",
-    "source_id",
-    "source_version",
-    "source_file",
-    "source_record_id",
-    "source_word_id",
-    "source_edition_reference",
-    "source_row_reference",
-    "book",
-    "book_order",
-    "chapter",
-    "verse",
-    "sentence_id",
-    "clause_id",
-    "phrase_id",
-    "position_in_verse",
-    "position_in_clause",
-    "position_in_corpus",
-    "surface_form",
-    "normalized_form",
-    "lemma",
-    "part_of_speech",
-    "morphology_json",
-    "syntactic_function",
-    "semantic_domain",
-    "word_sense",
-    "participant_id",
-    "english_gloss",
-    "language",
-    "is_punctuation",
-    "is_variant",
-    "variant_type",
-    "variant_group_id",
-    "is_default_reading",
-)
+GREEK_TABLE_HASH_FILE = "table-hashes.json"
+GREEK_SORT_COLUMNS = {
+    "tokens": ["position_in_corpus"],
+    "books": ["book_order"],
+    "source_records": ["source_record_id"],
+    "issues": ["severity", "code", "source_record_id"],
+    "metadata": ["ingestion_run_id"],
+}
 
 
-def refresh_cross_corpus_artifacts(connection: duckdb.DuckDBPyConnection) -> None:
-    """Rebuild schema-version and unified-token artifacts from loaded corpora.
-
-    Both corpus loaders call this inside their transactions so the artifacts
-    always reflect whichever corpora are currently present, keeping distinct
-    corpus and provenance values queryable together.
-    """
-    existing = {row[0] for row in connection.execute("SHOW TABLES").fetchall()}
-    metadata_selects = []
-    if "hebrew_corpus_metadata" in existing:
-        metadata_selects.append(
-            "SELECT 'hebrew' AS corpus, schema_version, source_version, "
-            "normalization_config_hash, ingestion_run_id FROM hebrew_corpus_metadata"
-        )
-    if "greek_corpus_metadata" in existing:
-        metadata_selects.append(
-            "SELECT 'greek' AS corpus, schema_version, source_version, "
-            "normalization_config_hash, ingestion_run_id FROM greek_corpus_metadata"
-        )
-    if metadata_selects:
-        connection.execute(
-            "CREATE OR REPLACE TABLE corpus_schema_versions AS "
-            + " UNION ALL ".join(metadata_selects)
-        )
-    if {"hebrew_tokens", "greek_tokens"} <= existing:
-        columns = ", ".join(UNIFIED_TOKEN_COLUMNS)
-        connection.execute(
-            "CREATE OR REPLACE VIEW unified_tokens AS "
-            f"SELECT {columns} FROM hebrew_tokens "
-            "UNION ALL BY NAME "
-            f"SELECT {columns} FROM greek_tokens"
-        )
-
-
-class CorpusStorageError(RuntimeError):
-    """Raised when deterministic corpus storage cannot be completed."""
-
-
-class CorpusSummary(BaseModel):
-    """Required local analytical summary for the Hebrew corpus."""
+class GreekCorpusSummary(BaseModel):
+    """Required local analytical summary for the Greek corpus."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -120,21 +50,20 @@ class CorpusSummary(BaseModel):
     source_version: str
     total_tokens: int
     total_books: int
-    hebrew_tokens: int
-    aramaic_tokens: int
     tokens_by_book: dict[str, int]
     missing_lemma_count: int
     missing_morphology_count: int
     missing_syntax_count: int
-    ketiv_qere_count: int
-    variant_count: int
-    punctuation_count: int
+    missing_gloss_count: int
+    missing_semantic_domain_count: int
+    elided_count: int
+    punctuation_bearing_count: int
     validation_issue_count: int
     ingestion_run_id: str
 
 
 @dataclass(frozen=True, slots=True)
-class ProcessedCorpus:
+class ProcessedGreekCorpus:
     output_dir: Path
     run_id: str
     parquet_paths: dict[str, Path]
@@ -142,32 +71,16 @@ class ProcessedCorpus:
     logical_hashes: dict[str, str]
 
 
-def logical_frame_hash(frame: pl.DataFrame, *, sort_by: list[str]) -> str:
-    """Hash typed logical rows independently of Parquet or DuckDB file layout."""
-    ordered = frame.sort(sort_by) if frame.height and sort_by else frame
-    digest = hashlib.sha256()
-    digest.update("\0".join(ordered.columns).encode("utf-8"))
-    digest.update(b"\0")
-    digest.update("\0".join(str(dtype) for dtype in ordered.dtypes).encode("utf-8"))
-    digest.update(b"\0")
-    if ordered.height:
-        row_hashes = ordered.hash_rows(seed=0, seed_1=1, seed_2=2, seed_3=3)
-        for value in row_hashes:
-            digest.update(int(value).to_bytes(8, byteorder="little", signed=False))
-    return digest.hexdigest()
-
-
 def _frames(
-    result: AdapterResult,
+    result: GreekAdapterResult,
     *,
     source: SourceManifest,
     normalization_config_hash: str,
     raw_file_hashes: dict[str, str],
 ) -> tuple[dict[str, pl.DataFrame], str]:
-    tokens = result.tokens.clone().select(CANONICAL_TOKEN_COLUMNS)
-    analysis_tokens = result.analysis_tokens.clone()
+    tokens = result.tokens.clone().select(GREEK_TOKEN_COLUMNS)
     book_rows = []
-    for book in BOOKS:
+    for book in GREEK_BOOKS:
         book_tokens = tokens.filter(pl.col("book") == book.code)
         if book_tokens.is_empty():
             continue
@@ -215,8 +128,8 @@ def _frames(
     for path, file_hash in sorted(raw_file_hashes.items()):
         run_digest.update(path.encode("utf-8"))
         run_digest.update(file_hash.encode("ascii"))
-    run_digest.update(str(CANONICAL_TOKEN_SCHEMA_VERSION).encode("ascii"))
-    run_id = f"hebrew-{run_digest.hexdigest()[:20]}"
+    run_digest.update(str(GREEK_TOKEN_SCHEMA_VERSION).encode("ascii"))
+    run_id = f"greek-{run_digest.hexdigest()[:20]}"
     metadata = pl.DataFrame(
         [
             {
@@ -228,9 +141,8 @@ def _frames(
                     if source.acquisition is not None
                     else "fixture"
                 ),
-                "schema_version": CANONICAL_TOKEN_SCHEMA_VERSION,
+                "schema_version": GREEK_TOKEN_SCHEMA_VERSION,
                 "normalization_config_hash": normalization_config_hash,
-                "analysis_reading": str(analysis_tokens.item(0, "analysis_reading")),
                 "raw_file_hashes_json": json.dumps(raw_file_hashes, sort_keys=True),
                 "source_record_count": source_records.height,
                 "token_count": tokens.height,
@@ -243,7 +155,6 @@ def _frames(
             "source_version_label": pl.String,
             "schema_version": pl.Int16,
             "normalization_config_hash": pl.String,
-            "analysis_reading": pl.String,
             "raw_file_hashes_json": pl.String,
             "source_record_count": pl.Int64,
             "token_count": pl.Int64,
@@ -252,7 +163,6 @@ def _frames(
     )
     return {
         "tokens": tokens,
-        "analysis_tokens": analysis_tokens,
         "books": books,
         "source_records": source_records,
         "issues": issues,
@@ -260,15 +170,15 @@ def _frames(
     }, run_id
 
 
-def write_processed_corpus(
-    result: AdapterResult,
+def write_processed_greek_corpus(
+    result: GreekAdapterResult,
     *,
     source: SourceManifest,
     normalization_config_hash: str,
     raw_file_hashes: dict[str, str],
     output_dir: Path,
     force: bool = False,
-) -> ProcessedCorpus:
+) -> ProcessedGreekCorpus:
     """Write stable Parquet files through an atomic version-directory replacement."""
     if output_dir.exists() and not force:
         raise CorpusStorageError(
@@ -287,23 +197,15 @@ def write_processed_corpus(
         staging.mkdir()
         for name, frame in frames.items():
             frame.write_parquet(
-                staging / PARQUET_FILES[name],
+                staging / GREEK_PARQUET_FILES[name],
                 compression="zstd",
                 compression_level=6,
                 statistics=True,
             )
-        parquet_paths = {name: staging / filename for name, filename in PARQUET_FILES.items()}
+        parquet_paths = {name: staging / filename for name, filename in GREEK_PARQUET_FILES.items()}
         file_hashes = {path.name: sha256_file(path) for path in sorted(parquet_paths.values())}
-        sort_columns = {
-            "tokens": ["position_in_corpus"],
-            "analysis_tokens": ["analysis_position_in_corpus"],
-            "books": ["book_order"],
-            "source_records": ["source_record_id"],
-            "issues": ["severity", "code", "source_record_id"],
-            "metadata": ["ingestion_run_id"],
-        }
         logical_hashes = {
-            name: logical_frame_hash(frame, sort_by=sort_columns[name])
+            name: logical_frame_hash(frame, sort_by=GREEK_SORT_COLUMNS[name])
             for name, frame in frames.items()
         }
         hash_document = {
@@ -312,7 +214,7 @@ def write_processed_corpus(
             "parquet_sha256": file_hashes,
             "logical_table_sha256": logical_hashes,
         }
-        (staging / TABLE_HASH_FILE).write_text(
+        (staging / GREEK_TABLE_HASH_FILE).write_text(
             json.dumps(hash_document, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
@@ -332,29 +234,30 @@ def write_processed_corpus(
         if backup.exists() and not output_dir.exists():
             backup.replace(output_dir)
         raise
-    return ProcessedCorpus(
+    return ProcessedGreekCorpus(
         output_dir=output_dir,
         run_id=run_id,
-        parquet_paths={name: output_dir / filename for name, filename in PARQUET_FILES.items()},
+        parquet_paths={
+            name: output_dir / filename for name, filename in GREEK_PARQUET_FILES.items()
+        },
         file_hashes=file_hashes,
         logical_hashes=logical_hashes,
     )
 
 
-def load_hebrew_duckdb(processed: ProcessedCorpus, database_path: Path) -> None:
-    """Transactionally replace only the intended Hebrew analytical tables."""
+def load_greek_duckdb(processed: ProcessedGreekCorpus, database_path: Path) -> None:
+    """Transactionally replace only the intended Greek analytical tables and views."""
     database_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         with duckdb.connect(str(database_path)) as connection:
             connection.execute("BEGIN TRANSACTION")
             try:
                 table_sources = {
-                    "hebrew_tokens": processed.parquet_paths["tokens"],
-                    "hebrew_analysis_tokens": processed.parquet_paths["analysis_tokens"],
-                    "hebrew_books": processed.parquet_paths["books"],
-                    "hebrew_source_records": processed.parquet_paths["source_records"],
-                    "hebrew_ingestion_issues": processed.parquet_paths["issues"],
-                    "hebrew_corpus_metadata": processed.parquet_paths["metadata"],
+                    "greek_tokens": processed.parquet_paths["tokens"],
+                    "greek_books": processed.parquet_paths["books"],
+                    "greek_source_records": processed.parquet_paths["source_records"],
+                    "greek_ingestion_issues": processed.parquet_paths["issues"],
+                    "greek_corpus_metadata": processed.parquet_paths["metadata"],
                 }
                 for table, path in table_sources.items():
                     quoted_path = str(path.resolve()).replace("'", "''")
@@ -362,32 +265,18 @@ def load_hebrew_duckdb(processed: ProcessedCorpus, database_path: Path) -> None:
                         f"CREATE OR REPLACE TABLE {table} AS "
                         f"SELECT * FROM read_parquet('{quoted_path}')"
                     )
+                connection.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS greek_token_id_idx ON greek_tokens(token_id)"
+                )
+                connection.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS greek_source_record_idx "
+                    "ON greek_tokens(source_record_id)"
+                )
+                connection.execute(
+                    "CREATE INDEX IF NOT EXISTS greek_reference_idx "
+                    "ON greek_tokens(book_order, chapter, verse, position_in_verse)"
+                )
                 refresh_cross_corpus_artifacts(connection)
-                connection.execute(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS hebrew_token_id_idx "
-                    "ON hebrew_tokens(token_id)"
-                )
-                connection.execute(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS hebrew_source_record_idx "
-                    "ON hebrew_tokens(source_record_id)"
-                )
-                connection.execute(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS hebrew_analysis_token_idx "
-                    "ON hebrew_analysis_tokens(token_id)"
-                )
-                connection.execute(
-                    "CREATE INDEX IF NOT EXISTS hebrew_reference_idx "
-                    "ON hebrew_tokens(book_order, chapter, verse, position_in_verse)"
-                )
-                connection.execute(
-                    "CREATE OR REPLACE VIEW hebrew_analysis_stream AS "
-                    "SELECT tokens.*, analysis.analysis_reading, "
-                    "analysis.analysis_position_in_verse, "
-                    "analysis.analysis_position_in_clause, "
-                    "analysis.analysis_position_in_corpus "
-                    "FROM hebrew_analysis_tokens AS analysis "
-                    "JOIN hebrew_tokens AS tokens USING (token_id)"
-                )
                 connection.execute("COMMIT")
             except Exception:
                 connection.execute("ROLLBACK")
@@ -396,24 +285,22 @@ def load_hebrew_duckdb(processed: ProcessedCorpus, database_path: Path) -> None:
         raise CorpusStorageError(f"could not load DuckDB database {database_path}: {exc}") from exc
 
 
-def corpus_summary(database_path: Path) -> CorpusSummary:
-    """Query the required Hebrew analytical counts from the local DuckDB database."""
+def greek_corpus_summary(database_path: Path) -> GreekCorpusSummary:
+    """Query the required Greek analytical counts from the local DuckDB database."""
     if not database_path.is_file():
         raise CorpusStorageError(f"DuckDB database does not exist: {database_path}")
     try:
         with duckdb.connect(str(database_path), read_only=True) as connection:
             metadata = connection.execute(
-                "SELECT source_id, source_version, ingestion_run_id FROM hebrew_corpus_metadata"
+                "SELECT source_id, source_version, ingestion_run_id FROM greek_corpus_metadata"
             ).fetchone()
             if metadata is None:
-                raise CorpusStorageError("Hebrew corpus metadata table is empty")
+                raise CorpusStorageError("Greek corpus metadata table is empty")
             counts = connection.execute(
                 """
                 SELECT
                     count(*) AS total_tokens,
                     count(DISTINCT book) AS total_books,
-                    count(*) FILTER (WHERE language = 'hebrew') AS hebrew_tokens,
-                    count(*) FILTER (WHERE language = 'aramaic') AS aramaic_tokens,
                     count(*) FILTER (WHERE lemma IS NULL OR lemma = '') AS missing_lemma,
                     count(*) FILTER (
                         WHERE morphology_json IS NULL OR morphology_json = ''
@@ -422,44 +309,46 @@ def corpus_summary(database_path: Path) -> CorpusSummary:
                         WHERE clause_id IS NULL AND phrase_id IS NULL
                     ) AS missing_syntax,
                     count(*) FILTER (
-                        WHERE ketiv_form IS NOT NULL OR qere_form IS NOT NULL
-                    ) AS ketiv_qere,
-                    count(*) FILTER (WHERE is_variant) AS variants,
-                    count(*) FILTER (WHERE is_punctuation) AS punctuation
-                FROM hebrew_tokens
+                        WHERE english_gloss IS NULL OR english_gloss = ''
+                    ) AS missing_gloss,
+                    count(*) FILTER (
+                        WHERE semantic_domain IS NULL OR semantic_domain = ''
+                    ) AS missing_semantic_domain,
+                    count(*) FILTER (WHERE is_elided) AS elided,
+                    count(*) FILTER (
+                        WHERE leading_punctuation <> '' OR trailing_punctuation <> ''
+                    ) AS punctuation_bearing
+                FROM greek_tokens
                 """
             ).fetchone()
             if counts is None:
-                raise CorpusStorageError("Hebrew token table is unavailable")
+                raise CorpusStorageError("Greek token table is unavailable")
             tokens_by_book = {
                 str(book): int(count)
                 for book, count in connection.execute(
-                    "SELECT book, count(*) FROM hebrew_tokens "
+                    "SELECT book, count(*) FROM greek_tokens "
                     "GROUP BY book, book_order ORDER BY book_order"
                 ).fetchall()
             }
-            issue_row = connection.execute(
-                "SELECT count(*) FROM hebrew_ingestion_issues"
-            ).fetchone()
+            issue_row = connection.execute("SELECT count(*) FROM greek_ingestion_issues").fetchone()
             if issue_row is None:
-                raise CorpusStorageError("Hebrew ingestion issue table is unavailable")
+                raise CorpusStorageError("Greek ingestion issue table is unavailable")
             issue_count = int(issue_row[0])
     except duckdb.Error as exc:
-        raise CorpusStorageError(f"could not query Hebrew corpus summary: {exc}") from exc
-    return CorpusSummary(
+        raise CorpusStorageError(f"could not query Greek corpus summary: {exc}") from exc
+    return GreekCorpusSummary(
         source_id=str(metadata[0]),
         source_version=str(metadata[1]),
         total_tokens=int(counts[0]),
         total_books=int(counts[1]),
-        hebrew_tokens=int(counts[2]),
-        aramaic_tokens=int(counts[3]),
         tokens_by_book=tokens_by_book,
-        missing_lemma_count=int(counts[4]),
-        missing_morphology_count=int(counts[5]),
-        missing_syntax_count=int(counts[6]),
-        ketiv_qere_count=int(counts[7]),
-        variant_count=int(counts[8]),
-        punctuation_count=int(counts[9]),
+        missing_lemma_count=int(counts[2]),
+        missing_morphology_count=int(counts[3]),
+        missing_syntax_count=int(counts[4]),
+        missing_gloss_count=int(counts[5]),
+        missing_semantic_domain_count=int(counts[6]),
+        elided_count=int(counts[7]),
+        punctuation_bearing_count=int(counts[8]),
         validation_issue_count=issue_count,
         ingestion_run_id=str(metadata[2]),
     )

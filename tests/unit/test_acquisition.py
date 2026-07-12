@@ -5,12 +5,19 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import subprocess
 import urllib.request
 from pathlib import Path
 
 import pytest
 
-from echoes.acquire import AcquisitionError, acquire_source, verify_acquisition
+from echoes.acquire import (
+    AcquisitionError,
+    acquire_source,
+    audit_manifest_hashes,
+    verify_acquisition,
+)
+from echoes.acquire.sources import _configure_canonical_byte_checkout
 from echoes.manifests.sources import SourceManifest, SourceStatus
 
 
@@ -128,3 +135,93 @@ def test_verification_detects_corruption_and_missing_receipt(
     empty_root = tmp_path / "empty"
     with pytest.raises(AcquisitionError, match="receipt does not exist"):
         verify_acquisition(source, data_root=empty_root)
+
+
+def test_git_checkout_configuration_disables_text_conversion(tmp_path: Path) -> None:
+    checkout = tmp_path / "checkout"
+    subprocess.run(["git", "init", "--quiet", str(checkout)], check=True)
+
+    _configure_canonical_byte_checkout(checkout)
+
+    autocrlf = subprocess.run(
+        ["git", "config", "core.autocrlf"],
+        cwd=checkout,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert autocrlf.stdout.strip() == "false"
+    attributes = (checkout / ".git" / "info" / "attributes").read_text(encoding="ascii")
+    assert "* -text" in attributes
+
+
+def _audited_source(source: SourceManifest, payload: bytes) -> SourceManifest:
+    values = source.model_dump(mode="json")
+    values.update(
+        {
+            "expected_files": ["docs/sample.txt"],
+            "file_hashes": {"docs/sample.txt": hashlib.sha256(payload).hexdigest()},
+            "acquisition": {
+                "method": "git_sparse",
+                "version_label": "audit-v1",
+                "upstream_commit": source.version_or_commit,
+                "repository_url": "https://example.invalid/repo.git",
+                "include_paths": ["docs/sample.txt"],
+                "expected_file_count": 1,
+            },
+            "status": "approved",
+            "download_date": None,
+        }
+    )
+    return SourceManifest.model_validate(values)
+
+
+def test_manifest_hash_audit_passes_on_canonical_bytes(
+    macula_source: SourceManifest, tmp_path: Path
+) -> None:
+    payload = b"canonical\nbytes\n"
+    source = _audited_source(macula_source, payload)
+    target = tmp_path / "raw" / source.source_id / "audit-v1" / "docs" / "sample.txt"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(payload)
+
+    assert audit_manifest_hashes(source, data_root=tmp_path) == []
+
+
+def test_manifest_hash_audit_detects_line_ending_rewrites(
+    macula_source: SourceManifest, tmp_path: Path
+) -> None:
+    payload = b"canonical\nbytes\n"
+    source = _audited_source(macula_source, payload)
+    target = tmp_path / "raw" / source.source_id / "audit-v1" / "docs" / "sample.txt"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(payload.replace(b"\n", b"\r\n"))
+
+    findings = audit_manifest_hashes(source, data_root=tmp_path)
+
+    assert findings is not None
+    assert len(findings) == 1
+    assert "canonical SHA-256 mismatch" in findings[0]
+
+
+def test_manifest_hash_audit_skips_absent_local_data(
+    macula_source: SourceManifest, tmp_path: Path
+) -> None:
+    source = _audited_source(macula_source, b"never acquired")
+
+    assert audit_manifest_hashes(source, data_root=tmp_path) is None
+
+
+def test_manifest_hash_audit_reports_missing_hashed_file(
+    macula_source: SourceManifest, tmp_path: Path
+) -> None:
+    payload = b"canonical\nbytes\n"
+    source = _audited_source(macula_source, payload)
+    directory = tmp_path / "raw" / source.source_id / "audit-v1"
+    directory.mkdir(parents=True)
+
+    findings = audit_manifest_hashes(source, data_root=tmp_path)
+
+    assert findings is not None
+    assert len(findings) == 1
+    assert "missing" in findings[0]

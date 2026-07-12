@@ -1,4 +1,4 @@
-schema_version: 3
+schema_version: 4
 ketiv_qere:
   analysis_reading: qere
 hebrew:
@@ -24,10 +24,28 @@ hebrew:
     collapse_ketiv_qere: false
     normalize_divine_names: false
 greek:
-  status: planned
+  status: active
   preserve_source_form: true
+  lemma_namespace: macula
   transformations:
-    case_fold: false
-    remove_accents: false
-    remove_breathings: false
-    separate_punctuation: false
+    # Derived forms only; the original surface string is immutable.
+    unicode_normalization: NFC
+    collapse_whitespace: true
+    # normalized_form separates attached punctuation from the word core.
+    separate_punctuation: true
+    # The elision mark (U+2019 and variants) is part of the word core.
+    preserve_elision_mark: true
+    # Elided vowels are never restored; crasis forms stay single tokens.
+    restore_elided_letters: false
+    decompose_crasis: false
+    # folded_form: case-folded (final sigma folds to medial sigma) with
+    # accents and breathings removed; diaeresis is phonemic and retained.
+    folded_case_fold: true
+    folded_remove_accents: true
+    folded_remove_breathings: true
+    folded_remove_diaeresis: false
+    normalize_final_sigma_outside_folding: false
+    # Enclitic-driven accent variation is preserved in the surface form; the
+    # source edition's own accent-regularized NormalizedForm is stored as a
+    # separate preserved column, and folded_form is fully accent-insensitive.
+    enclitic_accent_policy: preserve_source

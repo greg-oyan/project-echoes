@@ -11,6 +11,7 @@ import hashlib
 import re
 
 BOOK_IDENTIFIER_PATTERN = re.compile(r"^[A-Z0-9]{3}$")
+CORPUS_PREFIX_PATTERN = re.compile(r"^[A-Z]{2,4}$")
 SOURCE_RECORD_SUFFIX_LENGTH = 12
 
 
@@ -27,14 +28,18 @@ def generate_source_edition_token_id(
     source_subtoken_position: int | None = None,
     source_record_id: str | None = None,
     disambiguate_with_source_record: bool = False,
+    corpus_prefix: str = "HB",
 ) -> str:
     """Return an ID derived exclusively from identity inside one source edition.
 
     ``source_record_id`` contributes only a stable digest and only when the
     caller explicitly requests disambiguation (for example, for two variant
-    records occupying the same source word).  No external mapping is accepted
-    by this API.
+    records occupying the same source word).  ``corpus_prefix`` selects the
+    corpus namespace (``HB`` for Hebrew, ``GNT`` for Greek) and changes no
+    Hebrew identity semantics.  No external mapping is accepted by this API.
     """
+    if CORPUS_PREFIX_PATTERN.fullmatch(corpus_prefix) is None:
+        raise TokenIdentityError("corpus_prefix must contain two to four ASCII capital letters")
     normalized_book = book_identifier.upper()
     if BOOK_IDENTIFIER_PATTERN.fullmatch(normalized_book) is None:
         raise TokenIdentityError(
@@ -51,7 +56,9 @@ def generate_source_edition_token_id(
     if source_subtoken_position is not None and source_subtoken_position < 1:
         raise TokenIdentityError("source_subtoken_position must be at least 1")
 
-    token_id = f"HB_{normalized_book}_{chapter:03d}_{verse:03d}_{source_token_position:04d}"
+    token_id = (
+        f"{corpus_prefix}_{normalized_book}_{chapter:03d}_{verse:03d}_{source_token_position:04d}"
+    )
     if source_subtoken_position is not None:
         token_id = f"{token_id}.{source_subtoken_position:02d}"
     if disambiguate_with_source_record:

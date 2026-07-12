@@ -1,9 +1,9 @@
 # Data sources and provenance
 
-Status: **Milestone 2 MACULA Hebrew validation; other sources preliminary**
+Status: **Milestone 2 MACULA Hebrew and Milestone 3 MACULA Greek validated; other sources preliminary**
 Review date: 2026-07-11
 
-The authoritative machine-readable register is [`data/manifests/sources.yaml`](../data/manifests/sources.yaml). MACULA Hebrew is the first validated source: its pinned snapshot has been acquired, ingested, and checked locally. All other records still document intent and review state rather than activation. Raw biblical data and full processed token tables remain Git-ignored.
+The authoritative machine-readable register is [`data/manifests/sources.yaml`](../data/manifests/sources.yaml). MACULA Hebrew and MACULA Greek are the validated primary sources: their pinned snapshots have been acquired, ingested, and checked locally, and the unified DuckDB tables expose both corpora with distinct corpus and provenance values. All other records still document intent and review state rather than activation. Raw biblical data and full processed token tables remain Git-ignored.
 
 ## Layered corpus strategy
 
@@ -23,7 +23,7 @@ The detailed boundary is fixed in [corpus-scope.md](corpus-scope.md).
 | Source | Purpose | Confirmed at this review | Outstanding boundary |
 |---|---|---|---|
 | MACULA Hebrew | Primary Hebrew/Aramaic tokens and linguistic annotations | Validated `WLC/nodes` snapshot from release `25.08.11`, commit `7ab368fcb14e4ad2e0f784138241a098fb516ec4`; 475,911 records across 39 books and 929 chapters | Full processed-table publication remains unapproved; preferred-Qere representation has no complete parallel Ketiv layer; any source upgrade requires renewed review |
-| MACULA Greek | Primary Greek NT tokens and linguistic annotations | Official repository identifies syntax, morphology, semantic and participant layers, N1904/SBLGNT representations, and a CC BY 4.0 aggregate notice | Confirm provisional SBLGNT v1.2 representation and branch; audit mappings and permission-only components |
+| MACULA Greek | Primary Greek NT tokens and linguistic annotations | Validated `Nestle1904/nodes` snapshot from release `24.06.17`, commit `b5b7ecec0882a3e9a609ecac99e157391e5d9b46`; 137,779 records across 27 books and 260 chapters, matching the upstream test expectation | Full processed-table publication remains unapproved; MARBLE-derived LN/LexDomain fields need a field-level derived-output review; any source upgrade requires renewed review |
 | STEPBible Data | Supplementary glosses, lexical/semantic mappings, names, morphology, versification | Repository states CC BY 4.0, attribution, modifiability, and UTF-8 tabular resources | Select files and fields; audit each upstream derivation; exclude AI-authored descriptions from primary evidence |
 | CATSS Septuagint | Later bridge morphology and Hebrew–Greek alignment | Official CATSS materials describe Rahlfs-based Greek morphology, Stuttgart Hebrew parallel data, and a source-specific user agreement | Confirm current acquisition agreement, exact modules and revisions, redistribution limits, Beta Code handling, variants, and versification |
 | OpenBible cross-references | Broad known-link and weak-supervision layer | Official page describes about 340,000 downloadable links, primarily from TSK, under a CC Attribution notice | Inspect archive contents; ensure no ESV quotations are imported; create stable date/hash snapshot and versification mapping |
@@ -51,6 +51,24 @@ Ingestion maps the 475,911 upstream morpheme records one-to-one to 475,911 canon
 Versioned Parquet tables and the corresponding DuckDB tables are written under Git-ignored `data/processed/`. The corpus validator checks source-to-token identity, ID collisions, duplicate canonical positions, position continuity, book/chapter/verse coverage, language, normalization, annotation completeness, stored hashes, and Parquet/DuckDB row and logical agreement. Independent full builds from the same acquisition receipt and configuration produced run ID `hebrew-7db8035c6ae1c3268074` and identical logical table hashes.
 
 MACULA represents its preferred Qere reading where available and does not provide a complete parallel Ketiv layer in this snapshot. Consequently, zero Ketiv/Qere-marked tokens is a source-representation limitation, not evidence that the underlying text has no variants. The schema nevertheless preserves both records when supplied and exposes a configuration-selected derived Qere/Ketiv analysis stream without changing the base table. Zero-width morphemes supplied by the source are retained explicitly rather than discarded or converted to visible text.
+
+## Validated MACULA Greek snapshot
+
+Milestone 3 selects the official [Clear Bible MACULA Greek repository](https://github.com/Clear-Bible/macula-greek), release `24.06.17`, resolved to immutable commit `b5b7ecec0882a3e9a609ecac99e157391e5d9b46`. The adapter consumes `Nestle1904/nodes` — the release's native, annotation-complete representation — rather than the SBLGNT representation, whose own README documents unmapped nodes with missing Gloss, Louw-Nida, and Domain values. The textual edition is the Nestle 1904 Greek New Testament. The selection decision, superseding the provisional SBLGNT v1.2 intent, is [ADR 0010](decisions/0010-macula-greek-source-selection.md).
+
+The acquisition is a canonical-byte sparse Git checkout of `README.md`, `LICENSE.md`, and `Nestle1904/nodes`: 29 files (two notices plus 27 book node files). The tracked manifest records the immutable revision and three anchor SHA-256 hashes, externally verified against the pinned commit's raw bytes; the Git-ignored receipt records the hash and size of every acquired file.
+
+```bash
+uv run echoes acquire-source macula-greek
+uv run echoes verify-acquisition macula-greek
+uv run echoes ingest-greek
+uv run echoes validate-corpus --corpus greek
+uv run echoes validate-corpus --corpus unified
+```
+
+Ingestion maps the 137,779 upstream leaf word records one-to-one to 137,779 canonical `GNT_` tokens across all 27 books and 260 chapters, matching the count the pinned upstream test suite asserts. Stable project IDs derive exclusively from source-edition book/chapter/verse/word identity through the same source-edition-only identity module as Hebrew. Edition-level versification is recorded exactly: fifteen verses the Nestle 1904 edition omits are declared and verified, the pericope adulterae is present inline (JHN 7:53-8:11, 190 tokens), and the shorter ending of Mark is encoded at out-of-sequence verse MRK 16:99 (33 tokens); the disputed-passage handling is flagged for human interpretation, not decided by ingestion.
+
+Punctuation attached to word text is separated losslessly into derived columns, elision marks remain part of the word core (1,223 elided tokens), crasis forms remain single tokens, and the source's accent-regularized `NormalizedForm` is preserved in a separate column. The unified `unified_tokens` DuckDB view exposes the shared canonical columns of both corpora with distinct corpus and provenance values and no token-ID collisions.
 
 ## Dataset activation requirements
 
@@ -80,6 +98,33 @@ When sources conflict, selection is not resolved by silently choosing the most c
 Git sources use an immutable commit and, when available, a release tag. Mutable web archives use acquisition timestamp, final URL, HTTP metadata when available, archive hash, internal file list, and individual file hashes. Live databases require an authorized snapshot or export; an access date alone is not reproducible enough for activation. Updating a source creates a new manifest version and corpus-processing run. Earlier raw and processed hashes remain in history.
 
 MACULA Hebrew is pinned to the immutable commit above and may be marked validated because its acquisition receipt, inventory, hashes, adapter, and corpus checks exist. `null` version and date fields for every other unacquired source remain deliberate and prevent those records from being marked acquired. A future MACULA Hebrew upgrade is a new source version and must not silently replace 25.08.11; in particular, 2026 releases require a fresh review of the later SILHA integration and licensing terms.
+
+## Canonical-byte hashing policy
+
+All recorded source hashes are canonical-byte SHA-256 values: they are computed over the
+exact bytes of the pinned upstream revision, byte-for-byte as published. Windows
+text-mode Git checkouts (`core.autocrlf=true`) rewrite LF line endings to CRLF in files
+Git classifies as text, silently altering the bytes on disk; such mutated working-tree
+files must never feed the hasher. The governance mechanisms are:
+
+- Git-based acquisitions disable every text conversion: the acquisition checkout sets
+  `core.autocrlf=false` and declares `* -text` in `.git/info/attributes` (the
+  highest-precedence gitattributes source), so working-tree files carry the pinned
+  commit's exact blob bytes.
+- Direct HTTP fetches hash the download stream itself as it is received, before any
+  local filesystem interpretation.
+- `echoes validate-sources` recomputes canonical hashes for every manifest-hashed file
+  whose raw acquisition directory is present locally and fails on any divergence.
+- When an acquisition clone retains its `.git` object store, `git cat-file blob` at the
+  pinned commit provides canonical bytes without re-downloading; a working tree checked
+  out under text-mode settings is never a trustworthy hashing input.
+
+The original Milestone 2 inventory was computed on a text-mode checkout and is
+superseded; it is retained, marked superseded, inside the regenerated Milestone 2
+ingestion report. The corpus identity digest
+`91e923e6f4234e3d1946ad6fb1487f5894ec4e28f2fd3c919bf6ebd1680693b6` and the 475,911
+token count were identical before and after remediation, confirming the line-ending
+rewrite never reached parsed XML content or token identity.
 
 ## Raw-data storage policy
 

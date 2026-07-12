@@ -1,94 +1,27 @@
-"""Automated Hebrew corpus validation and deterministic-output comparison."""
+"""Automated Greek corpus validation and unified cross-corpus checks."""
 
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
-from typing import Self
 
 import duckdb
 import polars as pl
-from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from echoes.corpus.analysis import AnalysisReading, derive_analysis_stream
-from echoes.corpus.books import BOOKS
-from echoes.corpus.models import (
-    CANONICAL_TOKEN_COLUMNS,
-    IngestionIssue,
-    ValidationSeverity,
+from echoes.corpus.greek_books import GREEK_BOOKS
+from echoes.corpus.greek_models import GREEK_TOKEN_COLUMNS
+from echoes.corpus.greek_storage import (
+    GREEK_PARQUET_FILES,
+    GREEK_SORT_COLUMNS,
+    GREEK_TABLE_HASH_FILE,
 )
-from echoes.corpus.storage import (
-    PARQUET_FILES,
-    TABLE_HASH_FILE,
-    ProcessedCorpus,
-    logical_frame_hash,
-)
+from echoes.corpus.models import IngestionIssue, ValidationSeverity
+from echoes.corpus.storage import logical_frame_hash
 from echoes.corpus.token_ids import generate_source_edition_token_id
+from echoes.corpus.validation import CorpusValidationError, CorpusValidationReport
 from echoes.manifest import sha256_file
-from echoes.normalize.hebrew import is_punctuation, normalize_hebrew_token
-from echoes.settings import HebrewNormalization
-
-
-class CorpusValidationError(RuntimeError):
-    """Raised when validation cannot inspect the requested corpus artifacts."""
-
-
-def corpus_identity_digest(tokens: pl.DataFrame) -> str:
-    """Hash every preserved token identity in corpus order.
-
-    The digest is the SHA-256 of the corpus-position-ordered
-    ``token_id\\0source_record_id\\0source_word_id\\n`` triples encoded as
-    UTF-8.  It is the recorded corpus identity fingerprint from the
-    pre-Milestone-3 amendment log and must remain byte-for-byte stable across
-    reruns of the same pinned source, normalization, and schema.
-    """
-    ordered = tokens.sort("position_in_corpus").select(
-        "token_id", "source_record_id", "source_word_id"
-    )
-    digest = hashlib.sha256()
-    for token_id, source_record_id, source_word_id in ordered.iter_rows():
-        digest.update(f"{token_id}\0{source_record_id}\0{source_word_id}\n".encode())
-    return digest.hexdigest()
-
-
-class CorpusValidationReport(BaseModel):
-    """Structured corpus gate result with errors, warnings, and measured absence."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    corpus: str = "hebrew"
-    passed: bool
-    ingestion_run_id: str
-    source_id: str
-    source_version: str
-    schema_version: int
-    normalization_config_hash: str
-    total_tokens: int
-    total_source_records: int
-    book_count: int
-    chapter_count: int
-    verse_count: int
-    completeness: dict[str, float | int]
-    coverage: dict[str, object]
-    parquet_sha256: dict[str, str]
-    logical_table_sha256: dict[str, str]
-    issues: list[IngestionIssue] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def pass_state_matches_issues(self) -> Self:
-        has_errors = any(issue.severity is ValidationSeverity.ERROR for issue in self.issues)
-        if self.passed == has_errors:
-            raise ValueError("passed must be true exactly when no validation errors exist")
-        return self
-
-    @property
-    def error_count(self) -> int:
-        return sum(issue.severity is ValidationSeverity.ERROR for issue in self.issues)
-
-    @property
-    def warning_count(self) -> int:
-        return sum(issue.severity is ValidationSeverity.WARNING for issue in self.issues)
+from echoes.normalize.greek import is_greek_elided, normalize_greek_token
+from echoes.settings import GreekNormalization
 
 
 def _issue(
@@ -102,7 +35,7 @@ def _issue(
 
 def _load_frames(output_dir: Path) -> dict[str, pl.DataFrame]:
     frames: dict[str, pl.DataFrame] = {}
-    for name, filename in PARQUET_FILES.items():
+    for name, filename in GREEK_PARQUET_FILES.items():
         path = output_dir / filename
         if not path.is_file():
             raise CorpusValidationError(f"required processed table does not exist: {path}")
@@ -113,31 +46,24 @@ def _load_frames(output_dir: Path) -> dict[str, pl.DataFrame]:
     return frames
 
 
-def _load_hash_document(output_dir: Path) -> dict[str, object]:
-    path = output_dir / TABLE_HASH_FILE
-    if not path.is_file():
-        raise CorpusValidationError(f"processed table-hash document does not exist: {path}")
-    try:
-        loaded = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise CorpusValidationError(f"invalid processed table-hash document {path}: {exc}") from exc
-    if not isinstance(loaded, dict):
-        raise CorpusValidationError(f"table-hash document root must be an object: {path}")
-    return loaded
-
-
 def _check_hashes(
     output_dir: Path,
     frames: dict[str, pl.DataFrame],
     issues: list[IngestionIssue],
 ) -> tuple[dict[str, str], dict[str, str]]:
-    document = _load_hash_document(output_dir)
+    path = output_dir / GREEK_TABLE_HASH_FILE
+    if not path.is_file():
+        raise CorpusValidationError(f"processed table-hash document does not exist: {path}")
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise CorpusValidationError(f"invalid processed table-hash document {path}: {exc}") from exc
     recorded_files = document.get("parquet_sha256")
     recorded_logical = document.get("logical_table_sha256")
     if not isinstance(recorded_files, dict) or not isinstance(recorded_logical, dict):
         raise CorpusValidationError("table-hash document is missing hash mappings")
     file_hashes = {
-        filename: sha256_file(output_dir / filename) for filename in PARQUET_FILES.values()
+        filename: sha256_file(output_dir / filename) for filename in GREEK_PARQUET_FILES.values()
     }
     for filename, digest in file_hashes.items():
         if recorded_files.get(filename) != digest:
@@ -147,16 +73,8 @@ def _check_hashes(
                 "parquet-hash-mismatch",
                 f"{filename} differs from its recorded SHA-256",
             )
-    sort_columns = {
-        "tokens": ["position_in_corpus"],
-        "analysis_tokens": ["analysis_position_in_corpus"],
-        "books": ["book_order"],
-        "source_records": ["source_record_id"],
-        "issues": ["severity", "code", "source_record_id"],
-        "metadata": ["ingestion_run_id"],
-    }
     logical_hashes = {
-        name: logical_frame_hash(frame, sort_by=sort_columns[name])
+        name: logical_frame_hash(frame, sort_by=GREEK_SORT_COLUMNS[name])
         for name, frame in frames.items()
     }
     for name, digest in logical_hashes.items():
@@ -232,9 +150,6 @@ def _validate_identity(
             "source-version-mismatch",
             "source versions differ across corpus records",
         )
-    word_counts = dict(
-        tokens.group_by("source_word_id").len().select("source_word_id", "len").iter_rows()
-    )
     identity_mismatches = 0
     reference_mismatches = 0
     for row in tokens.select(
@@ -242,11 +157,8 @@ def _validate_identity(
         "book",
         "chapter",
         "verse",
-        "position_in_word",
         "source_word_id",
-        "source_record_id",
         "source_edition_reference",
-        "variant_type",
     ).iter_rows(named=True):
         word_id = str(row["source_word_id"])
         expected_id = generate_source_edition_token_id(
@@ -254,11 +166,7 @@ def _validate_identity(
             chapter=int(row["chapter"]),
             verse=int(row["verse"]),
             source_token_position=int(word_id.rsplit("!", maxsplit=1)[-1]),
-            source_subtoken_position=(
-                int(row["position_in_word"]) if int(word_counts[word_id]) > 1 else None
-            ),
-            source_record_id=str(row["source_record_id"]),
-            disambiguate_with_source_record=row["variant_type"] is not None,
+            corpus_prefix="GNT",
         )
         if row["token_id"] != expected_id:
             identity_mismatches += 1
@@ -285,18 +193,19 @@ def _validate_structure(
     tokens: pl.DataFrame,
     issues: list[IngestionIssue],
     *,
-    require_full_coverage: bool,
+    expected_missing_verses: set[str],
+    expected_out_of_sequence_verses: set[str],
 ) -> None:
-    if set(tokens.columns) != set(CANONICAL_TOKEN_COLUMNS):
-        missing = sorted(set(CANONICAL_TOKEN_COLUMNS) - set(tokens.columns))
-        unexpected = sorted(set(tokens.columns) - set(CANONICAL_TOKEN_COLUMNS))
+    if set(tokens.columns) != set(GREEK_TOKEN_COLUMNS):
+        missing = sorted(set(GREEK_TOKEN_COLUMNS) - set(tokens.columns))
+        unexpected = sorted(set(tokens.columns) - set(GREEK_TOKEN_COLUMNS))
         _issue(
             issues,
             ValidationSeverity.ERROR,
             "canonical-schema-columns",
             f"token columns differ from schema; missing={missing}, unexpected={unexpected}",
         )
-    expected_books = {book.code: book for book in BOOKS}
+    expected_books = {book.code: book for book in GREEK_BOOKS}
     for row in tokens.select("book", "book_order", "chapter").unique().iter_rows(named=True):
         book = expected_books.get(str(row["book"]))
         if book is None:
@@ -322,7 +231,7 @@ def _validate_structure(
                 "invalid-chapter",
                 f"{book.code} chapter {chapter} is outside 1-{book.chapter_count}",
             )
-    if set(tokens["language"].unique().to_list()) - {"hebrew", "aramaic"}:
+    if set(tokens["language"].unique().to_list()) != {"greek"}:
         _issue(
             issues,
             ValidationSeverity.ERROR,
@@ -364,69 +273,101 @@ def _validate_structure(
             "noncontinuous-verse-position",
             f"{invalid_verse_positions.height} verses have noncontinuous token positions",
         )
-    if require_full_coverage:
-        chapter_verses = tokens.group_by("book", "chapter").agg(
-            pl.col("verse").min().alias("minimum"),
-            pl.col("verse").max().alias("maximum"),
-            pl.col("verse").n_unique().alias("unique_count"),
+
+    # Edition-level verse coverage: every verse from 1 through the last
+    # sequential verse must exist unless the pinned edition omits it, and
+    # every declared out-of-sequence verse (for example the shorter ending of
+    # Mark at MRK 16:99) must be present exactly as declared.
+    observed: dict[tuple[str, int], set[int]] = {}
+    for book_code, chapter, verse in tokens.select("book", "chapter", "verse").unique().iter_rows():
+        observed.setdefault((str(book_code), int(chapter)), set()).add(int(verse))
+    special_by_chapter: dict[tuple[str, int], set[int]] = {}
+    for reference in expected_out_of_sequence_verses:
+        book_code, rest = reference.split(" ", maxsplit=1)
+        chapter_text, verse_text = rest.split(":")
+        special_by_chapter.setdefault((book_code, int(chapter_text)), set()).add(int(verse_text))
+    unexpected_gaps: list[str] = []
+    missing_expected_gaps: list[str] = sorted(
+        reference
+        for reference in expected_missing_verses
+        if int(reference.split(":")[1])
+        in observed.get(
+            (reference.split(" ")[0], int(reference.split(" ")[1].split(":")[0])), set()
         )
-        gaps = chapter_verses.filter(
-            (pl.col("minimum") != 1) | (pl.col("maximum") != pl.col("unique_count"))
+    )
+    missing_specials: list[str] = []
+    for (book_code, chapter), verses in sorted(observed.items()):
+        specials = special_by_chapter.get((book_code, chapter), set())
+        for special in sorted(specials):
+            if special not in verses:
+                missing_specials.append(f"{book_code} {chapter}:{special}")
+        sequential = verses - specials
+        top = max(sequential) if sequential else 0
+        for verse in range(1, top + 1):
+            if verse in verses:
+                continue
+            reference = f"{book_code} {chapter}:{verse}"
+            if reference not in expected_missing_verses:
+                unexpected_gaps.append(reference)
+    if unexpected_gaps:
+        _issue(
+            issues,
+            ValidationSeverity.ERROR,
+            "verse-coverage-gap",
+            f"unexpected missing verses: {unexpected_gaps[:10]}",
         )
-        if gaps.height:
-            _issue(
-                issues,
-                ValidationSeverity.ERROR,
-                "verse-coverage-gap",
-                f"{gaps.height} chapters have missing or unexpected verse references",
-            )
+    if missing_expected_gaps:
+        _issue(
+            issues,
+            ValidationSeverity.ERROR,
+            "unexpected-verse-present",
+            f"verses declared edition-omitted are present: {missing_expected_gaps[:10]}",
+        )
+    if missing_specials:
+        _issue(
+            issues,
+            ValidationSeverity.ERROR,
+            "missing-out-of-sequence-verse",
+            f"declared out-of-sequence verses are absent: {missing_specials[:10]}",
+        )
 
 
 def _validate_normalization(
     tokens: pl.DataFrame,
-    normalization: HebrewNormalization,
+    normalization: GreekNormalization,
     issues: list[IngestionIssue],
 ) -> None:
-    empty_surface = tokens.filter(
-        ~pl.col("is_zero_width")
-        & (pl.col("surface_form").is_null() | (pl.col("surface_form") == ""))
-    )
-    empty_normalized = tokens.filter(
-        ~pl.col("is_zero_width")
-        & (pl.col("normalized_form").is_null() | (pl.col("normalized_form") == ""))
-    )
-    if empty_surface.height:
-        _issue(
-            issues,
-            ValidationSeverity.ERROR,
-            "empty-surface-form",
-            f"{empty_surface.height} tokens lost their original surface form",
-        )
-    if empty_normalized.height:
-        _issue(
-            issues,
-            ValidationSeverity.ERROR,
-            "empty-normalized-form",
-            f"{empty_normalized.height} tokens have empty normalized forms",
-        )
     mismatches = 0
-    punctuation_mismatches = 0
-    for surface, normalized, unpointed, punctuation, zero_width in tokens.select(
+    reconstruction_failures = 0
+    elision_mismatches = 0
+    for row in tokens.select(
         "surface_form",
         "normalized_form",
-        "unpointed_form",
+        "folded_form",
+        "leading_punctuation",
+        "trailing_punctuation",
+        "is_elided",
         "is_punctuation",
-        "is_zero_width",
-    ).iter_rows():
-        if zero_width:
-            if surface or normalized or unpointed:
-                mismatches += 1
-            continue
-        expected = normalize_hebrew_token(str(surface), normalization)
-        if expected.normalized_form != normalized or expected.unpointed_form != unpointed:
+    ).iter_rows(named=True):
+        surface = str(row["surface_form"])
+        expected = normalize_greek_token(surface, normalization)
+        if (
+            expected.normalized_form != row["normalized_form"]
+            or expected.folded_form != row["folded_form"]
+            or expected.leading_punctuation != row["leading_punctuation"]
+            or expected.trailing_punctuation != row["trailing_punctuation"]
+        ):
             mismatches += 1
-        if is_punctuation(str(surface)) != punctuation:
-            punctuation_mismatches += 1
+        if not bool(row["is_punctuation"]):
+            reconstructed = (
+                str(row["leading_punctuation"])
+                + str(row["normalized_form"])
+                + str(row["trailing_punctuation"])
+            )
+            if reconstructed != surface:
+                reconstruction_failures += 1
+        if is_greek_elided(surface) != bool(row["is_elided"]):
+            elision_mismatches += 1
     if mismatches:
         _issue(
             issues,
@@ -434,113 +375,19 @@ def _validate_normalization(
             "nondeterministic-normalization",
             f"{mismatches} tokens differ from configured deterministic normalization",
         )
-    if punctuation_mismatches:
+    if reconstruction_failures:
         _issue(
             issues,
             ValidationSeverity.ERROR,
-            "punctuation-policy-mismatch",
-            f"{punctuation_mismatches} punctuation flags differ from configuration",
+            "punctuation-separation-loss",
+            f"{reconstruction_failures} tokens fail lossless punctuation reconstruction",
         )
-    invalid_variant_rows = tokens.filter(
-        (
-            pl.col("is_variant")
-            & (
-                pl.col("variant_type").is_null()
-                | ~pl.col("variant_type").is_in(["ketiv", "qere"])
-                | pl.col("variant_group_id").is_null()
-                | (
-                    (pl.col("variant_type") == "ketiv")
-                    & (
-                        pl.col("ketiv_form").is_null()
-                        | (pl.col("ketiv_form") != pl.col("surface_form"))
-                        | pl.col("qere_form").is_not_null()
-                    )
-                )
-                | (
-                    (pl.col("variant_type") == "qere")
-                    & (
-                        pl.col("qere_form").is_null()
-                        | (pl.col("qere_form") != pl.col("surface_form"))
-                        | pl.col("ketiv_form").is_not_null()
-                    )
-                )
-            )
-        )
-        | (
-            ~pl.col("is_variant")
-            & (
-                pl.col("variant_type").is_not_null()
-                | pl.col("variant_group_id").is_not_null()
-                | pl.col("ketiv_form").is_not_null()
-                | pl.col("qere_form").is_not_null()
-                | ~pl.col("is_default_reading")
-            )
-        )
-    )
-    if invalid_variant_rows.height:
+    if elision_mismatches:
         _issue(
             issues,
             ValidationSeverity.ERROR,
-            "variant-form-loss",
-            f"{invalid_variant_rows.height} tokens have inconsistent variant preservation",
-        )
-    variant_groups = (
-        tokens.filter(pl.col("variant_group_id").is_not_null())
-        .group_by("variant_group_id")
-        .agg(
-            pl.col("variant_type").eq("ketiv").sum().alias("ketiv_count"),
-            pl.col("variant_type").eq("qere").sum().alias("qere_count"),
-            pl.col("is_default_reading").sum().alias("default_count"),
-            pl.col("is_default_reading")
-            .filter(pl.col("variant_type") == "qere")
-            .any()
-            .alias("qere_is_default"),
-        )
-    )
-    invalid_groups = variant_groups.filter(
-        (pl.col("ketiv_count") > 1)
-        | (pl.col("qere_count") > 1)
-        | (pl.col("default_count") != 1)
-        | ((pl.col("ketiv_count") == 1) & (pl.col("qere_count") == 1) & ~pl.col("qere_is_default"))
-    )
-    if invalid_groups.height:
-        _issue(
-            issues,
-            ValidationSeverity.ERROR,
-            "invalid-variant-group",
-            f"{invalid_groups.height} Ketiv/Qere groups are ambiguous or lack one default",
-        )
-
-
-def _validate_analysis_stream(
-    tokens: pl.DataFrame,
-    analysis_tokens: pl.DataFrame,
-    metadata: pl.DataFrame,
-    analysis_reading: AnalysisReading,
-    issues: list[IngestionIssue],
-) -> None:
-    expected = derive_analysis_stream(tokens, analysis_reading=analysis_reading)
-    actual = analysis_tokens.sort("analysis_position_in_corpus")
-    if actual.columns != expected.columns or actual.dtypes != expected.dtypes:
-        _issue(
-            issues,
-            ValidationSeverity.ERROR,
-            "analysis-stream-schema",
-            "derived analysis stream columns or types differ from the governed schema",
-        )
-    elif not actual.equals(expected):
-        _issue(
-            issues,
-            ValidationSeverity.ERROR,
-            "analysis-stream-mismatch",
-            f"derived analysis stream does not match configured {analysis_reading} selection",
-        )
-    if metadata.height == 1 and metadata.item(0, "analysis_reading") != analysis_reading:
-        _issue(
-            issues,
-            ValidationSeverity.ERROR,
-            "analysis-reading-metadata-mismatch",
-            "corpus metadata does not record the configured analysis reading",
+            "elision-policy-mismatch",
+            f"{elision_mismatches} elision flags differ from configuration",
         )
 
 
@@ -551,7 +398,7 @@ def _completeness(tokens: pl.DataFrame, issues: list[IngestionIssue]) -> dict[st
         "morphology": "morphology_json",
         "syntax": "clause_id",
         "semantic_domain": "semantic_domain",
-        "participant": "participant_id",
+        "word_sense": "word_sense",
         "gloss": "english_gloss",
     }
     completeness: dict[str, float | int] = {"total_tokens": total}
@@ -585,21 +432,16 @@ def _validate_duckdb(
         )
         return
     table_map = {
-        "tokens": "hebrew_tokens",
-        "analysis_tokens": "hebrew_analysis_tokens",
-        "books": "hebrew_books",
-        "source_records": "hebrew_source_records",
-        "issues": "hebrew_ingestion_issues",
-        "metadata": "hebrew_corpus_metadata",
+        "tokens": "greek_tokens",
+        "books": "greek_books",
+        "source_records": "greek_source_records",
+        "issues": "greek_ingestion_issues",
+        "metadata": "greek_corpus_metadata",
     }
     try:
         with duckdb.connect(str(database_path), read_only=True) as connection:
             existing = {row[0] for row in connection.execute("SHOW TABLES").fetchall()}
-            required = set(table_map.values()) | {
-                "corpus_schema_versions",
-                "hebrew_analysis_stream",
-            }
-            missing_tables = sorted(required - existing)
+            missing_tables = sorted(set(table_map.values()) - existing)
             if missing_tables:
                 _issue(
                     issues,
@@ -613,7 +455,9 @@ def _validate_duckdb(
                 quoted_columns = ", ".join(
                     f'"{column.replace(chr(34), chr(34) * 2)}"' for column in columns
                 )
-                parquet_path = str((output_dir / PARQUET_FILES[name]).resolve()).replace("'", "''")
+                parquet_path = str((output_dir / GREEK_PARQUET_FILES[name]).resolve()).replace(
+                    "'", "''"
+                )
                 database_fingerprint = connection.execute(
                     f"SELECT count(*), bit_xor(row_hash), sum(row_hash) FROM "
                     f"(SELECT hash({quoted_columns}) AS row_hash FROM {table})"
@@ -646,6 +490,7 @@ def _validate_duckdb(
                         "duckdb-logical-hash-mismatch",
                         f"{table} differs logically from its Parquet source",
                     )
+            _validate_unified_view(connection, frames["tokens"].height, issues)
     except duckdb.Error as exc:
         _issue(
             issues,
@@ -655,18 +500,88 @@ def _validate_duckdb(
         )
 
 
-def validate_hebrew_corpus(
+def _validate_unified_view(
+    connection: duckdb.DuckDBPyConnection,
+    greek_token_count: int,
+    issues: list[IngestionIssue],
+) -> None:
+    existing = {row[0] for row in connection.execute("SHOW TABLES").fetchall()}
+    if "hebrew_tokens" not in existing:
+        _issue(
+            issues,
+            ValidationSeverity.INFORMATIONAL,
+            "unified-view-single-corpus",
+            "hebrew_tokens is absent; unified view checks were skipped",
+        )
+        return
+    if "unified_tokens" not in existing:
+        _issue(
+            issues,
+            ValidationSeverity.ERROR,
+            "missing-unified-view",
+            "both corpora are loaded but the unified_tokens view is absent",
+        )
+        return
+    row = connection.execute(
+        "SELECT count(*), count(DISTINCT token_id), "
+        "count(*) FILTER (WHERE corpus = 'hebrew'), "
+        "count(*) FILTER (WHERE corpus = 'greek'), "
+        "count(DISTINCT source_id) "
+        "FROM unified_tokens"
+    ).fetchone()
+    if row is None:
+        _issue(
+            issues,
+            ValidationSeverity.ERROR,
+            "unified-view-query-failure",
+            "could not query the unified token view",
+        )
+        return
+    total, distinct_ids, hebrew_count, greek_count, distinct_sources = (int(v) for v in row)
+    hebrew_total_row = connection.execute("SELECT count(*) FROM hebrew_tokens").fetchone()
+    hebrew_total = int(hebrew_total_row[0]) if hebrew_total_row else 0
+    if total != hebrew_total + greek_token_count:
+        _issue(
+            issues,
+            ValidationSeverity.ERROR,
+            "unified-count-mismatch",
+            f"unified view has {total} rows; expected {hebrew_total + greek_token_count}",
+        )
+    if distinct_ids != total:
+        _issue(
+            issues,
+            ValidationSeverity.ERROR,
+            "unified-token-id-collision",
+            "token IDs collide across corpora in the unified view",
+        )
+    if hebrew_count != hebrew_total or greek_count != greek_token_count:
+        _issue(
+            issues,
+            ValidationSeverity.ERROR,
+            "unified-corpus-attribution",
+            "unified view corpus attribution does not match the corpus tables",
+        )
+    if distinct_sources < 2:
+        _issue(
+            issues,
+            ValidationSeverity.ERROR,
+            "unified-provenance-collapse",
+            "unified view does not retain distinct source provenance values",
+        )
+
+
+def validate_greek_corpus(
     output_dir: Path,
     *,
     database_path: Path,
-    normalization: HebrewNormalization,
-    analysis_reading: AnalysisReading = "qere",
+    normalization: GreekNormalization,
     expected_books: int,
     expected_chapters: int,
     expected_tokens: int | None,
-    require_full_coverage: bool = True,
+    expected_missing_verses: list[str] | None = None,
+    expected_out_of_sequence_verses: list[str] | None = None,
 ) -> CorpusValidationReport:
-    """Run the complete identity, structure, normalization, coverage, and storage gate."""
+    """Run the complete Greek identity, structure, normalization, and storage gate."""
     frames = _load_frames(output_dir)
     tokens = frames["tokens"]
     source_records = frames["source_records"]
@@ -674,15 +589,13 @@ def validate_hebrew_corpus(
     issues = [IngestionIssue.model_validate(row) for row in frames["issues"].to_dicts()]
     file_hashes, logical_hashes = _check_hashes(output_dir, frames, issues)
     _validate_identity(tokens, source_records, metadata, issues)
-    _validate_structure(tokens, issues, require_full_coverage=require_full_coverage)
-    _validate_normalization(tokens, normalization, issues)
-    _validate_analysis_stream(
+    _validate_structure(
         tokens,
-        frames["analysis_tokens"],
-        metadata,
-        analysis_reading,
         issues,
+        expected_missing_verses=set(expected_missing_verses or []),
+        expected_out_of_sequence_verses=set(expected_out_of_sequence_verses or []),
     )
+    _validate_normalization(tokens, normalization, issues)
     completeness = _completeness(tokens, issues)
 
     book_count = tokens["book"].n_unique()
@@ -724,10 +637,13 @@ def validate_hebrew_corpus(
             .select("book", "count")
             .iter_rows()
         ),
-        "hebrew_tokens": tokens.filter(pl.col("language") == "hebrew").height,
-        "aramaic_tokens": tokens.filter(pl.col("language") == "aramaic").height,
+        "elided_tokens": tokens.filter(pl.col("is_elided")).height,
+        "punctuation_bearing_tokens": tokens.filter(
+            (pl.col("leading_punctuation") != "") | (pl.col("trailing_punctuation") != "")
+        ).height,
     }
     return CorpusValidationReport(
+        corpus="greek",
         passed=errors == 0,
         ingestion_run_id=str(metadata_row["ingestion_run_id"]),
         source_id=str(metadata_row["source_id"]),
@@ -745,15 +661,3 @@ def validate_hebrew_corpus(
         logical_table_sha256=logical_hashes,
         issues=issues,
     )
-
-
-def compare_processed_corpora(first: ProcessedCorpus, second: ProcessedCorpus) -> list[str]:
-    """Return deterministic-output differences between two independent runs."""
-    differences: list[str] = []
-    if first.run_id != second.run_id:
-        differences.append("ingestion run IDs differ")
-    if first.file_hashes != second.file_hashes:
-        differences.append("Parquet file hashes differ")
-    if first.logical_hashes != second.logical_hashes:
-        differences.append("logical table hashes differ")
-    return differences

@@ -4,7 +4,54 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 ## [Unreleased]
 
+### Fixed
+
+- Canonical-byte checksum remediation: the Milestone 2 SHA-256 inventory had been
+  computed on a Windows text-mode (CRLF) checkout. Acquisition checkouts now disable
+  Git text conversion (`core.autocrlf=false` plus a `* -text` attributes rule), the
+  932-file MACULA Hebrew inventory and manifest anchor hashes were recomputed from the
+  pinned commit's canonical bytes and externally verified, `validate-sources`
+  recomputes canonical hashes when raw data is present locally, and the regenerated
+  Milestone 2 report retains the superseded text-mode inventory. The corpus identity
+  digest `91e923e6…` and the 475,911 token count were unchanged, and the opt-in
+  full-corpus regression now asserts both.
+
 ### Added
+
+- Milestone 4 preparation (docs, schema, and tests only): a
+  versification-crosswalk schema and validator with alignment method and
+  confidence fields, cardinality-constrained mapping types (including
+  unmatched, addition, and alternate-structure cases), no data rows, and
+  synthetic-fixture tests proving invalid crosswalks fail;
+  `docs/versification-crosswalk.md` covering the master plan section 10.5
+  hazards; and `docs/milestone-4-execution-plan.md` enumerating the
+  STEPBible subset-audit questions that require human licensing judgment,
+  deliberately unresolved.
+
+- Milestone 3 MACULA Greek ingestion: governed canonical-byte acquisition of
+  release `24.06.17` (commit `b5b7ece`), ADR 0010 selecting the Nestle1904 node
+  dataset over the annotation-incomplete SBLGNT representation, an active typed
+  Greek normalization policy (lossless punctuation separation, preserved
+  elision and crasis, accent-insensitive folded forms, preserved source
+  accent regularization), a `WLC`-pattern Greek adapter emitting 137,779
+  `GNT_` tokens through the shared source-edition-only identity module,
+  Greek Parquet/DuckDB tables with a unified `unified_tokens` cross-corpus
+  view, full GNT validation (27 books, 260 chapters, declared edition verse
+  gaps, MRK 16:99 shorter ending), `ingest-greek`/`validate-corpus
+  --corpus greek|unified`/`corpus-summary --corpus greek` CLI workflows,
+  17 scripted spot checks with recorded expectations, an extended opt-in
+  full-corpus regression, and a Milestone 3 ingestion report whose token
+  count matches the pinned upstream test expectation.
+
+- OSHB Ketiv/Qere governance: a pinned, license-verified `oshb-morphhb`
+  manifest entry (supplementary role, planned lifecycle, CC BY 4.0 with public
+  domain WLC text, no acquisition) and proposed ADR 0009 describing how OSHB
+  ketiv records key into the word-number gaps MACULA preserves (verified at
+  2KI 8:10 slot 6), producing `variant_type=ketiv` tokens per canonical schema
+  v2 with the Qere stream unchanged, an alignment-confidence field, and
+  preserved annotation conflicts. Limitations and review documentation now
+  record the interim qere-only exposure and the rubric question 14
+  textual-variant obligation.
 
 - Approved pre-Milestone-3 methodology amendments: source-edition-only token
   identity, non-destructive Ketiv/Qere analysis streams, tiered benchmark

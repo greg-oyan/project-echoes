@@ -41,7 +41,7 @@ def test_cli_validates_project_configuration() -> None:
     )
 
     assert result.exit_code == 0
-    assert "Validated 13 configuration files" in result.stdout
+    assert "Validated 14 configuration files" in result.stdout
 
 
 def test_cli_reports_invalid_configuration(tmp_path: Path) -> None:

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Sentences>
+  <Sentence ref="JUD 1:1!1-1:1!5">
+    <Trees>
+      <Tree>
+        <Node Cat="S" Head="0" nodeId="990010010010050">
+          <Node Cat="CL" Start="0" End="4" Rule="S-V-O" Head="1" nodeId="990010010010051">
+            <Node Cat="S" Start="0" End="1" Rule="Np2S" Head="0" nodeId="990010010010052">
+              <Node Cat="np" Start="0" End="1" Rule="N2NP" Head="0" nodeId="990010010010053">
+                <Node xml:id="n99001001001" ref="JUD 1:1!1" Cat="noun" Start="0" End="0" StrongNumber="1401" UnicodeLemma="δοῦλος (II)" Gender="Masculine" Number="Singular" FunctionalTag="N-NSM" Type="Common" morphId="99001001001" NormalizedForm="δοῦλος" Unicode="Δοῦλος" Case="Nominative" FormalTag="N-NSM" nodeId="990010010010010" Gloss="servant" LexDomain="087005" LN="87.76">Δοῦλος</Node>
+                <Node xml:id="n99001001002" ref="JUD 1:1!2" Cat="adj" Start="1" End="1" StrongNumber="18" UnicodeLemma="ἀγαθός" Gender="Masculine" Number="Singular" FunctionalTag="A-NSM" Type="Adjective" morphId="99001001002" NormalizedForm="ἀγαθός" Unicode="ἀγαθὸς" Case="Nominative" FormalTag="A-NSM" nodeId="990010010020010" Gloss="good" LexDomain="088001" LN="88.1">ἀγαθὸς</Node>
+              </Node>
+            </Node>
+            <Node Cat="V" Start="2" End="2" Rule="V2VP" Head="0" nodeId="990010010030011">
+              <Node xml:id="n99001001003" ref="JUD 1:1!3" Cat="verb" Start="2" End="2" StrongNumber="991" UnicodeLemma="βλέπω" Number="Singular" Person="Third" FunctionalTag="V-PAI-3S" Type="Verb" morphId="99001001003" NormalizedForm="βλέπει" Unicode="βλέπει" Tense="Present" Voice="Active" Mood="Indicative" FormalTag="V-PAI-3S" nodeId="990010010030010" Gloss="sees" Frame="A0:n99001001001" SubjRef="n99001001001">βλέπει</Node>
+            </Node>
+            <Node Cat="O" Start="3" End="4" Rule="Np2O" Head="0" nodeId="990010010040012">
+              <Node Cat="np" Start="3" End="4" Rule="DetNP" Head="1" nodeId="990010010040013">
+                <Node xml:id="n99001001004" ref="JUD 1:1!4" Cat="prep" Start="3" End="3" StrongNumber="1223" UnicodeLemma="διά" FunctionalTag="PREP" Type="Preposition" morphId="99001001004" NormalizedForm="δι’" Unicode="δι’" FormalTag="PREP" nodeId="990010010040010" Gloss="through">δι’</Node>
+                <Node xml:id="n99001001005" ref="JUD 1:1!5" Cat="noun" Start="4" End="4" StrongNumber="3056" UnicodeLemma="λόγος" Gender="Masculine" Number="Singular" FunctionalTag="N-GSM" Type="Common" morphId="99001001005" NormalizedForm="λόγου" Unicode="λόγου," Case="Genitive" FormalTag="N-GSM" nodeId="990010010050010" Gloss="of word" LexDomain="033006" LN="33.98">λόγου,</Node>
+              </Node>
+            </Node>
+          </Node>
+        </Node>
+      </Tree>
+    </Trees>
+  </Sentence>
+  <Sentence ref="JUD 1:2!1-1:2!2">
+    <Trees>
+      <Tree>
+        <Node Cat="S" Head="0" nodeId="990010020010020">
+          <Node Cat="CL" Start="0" End="1" Rule="V-O" Head="0" nodeId="990010020010021">
+            <Node Cat="V" Start="0" End="0" Rule="V2VP" Head="0" nodeId="990010020010022">
+              <Node xml:id="n99001002001" ref="JUD 1:2!1" Cat="verb" Start="0" End="0" StrongNumber="25" UnicodeLemma="ἀγαπάω" Number="Singular" Person="Third" FunctionalTag="V-PAI-3S" Type="Verb" morphId="99001002001" NormalizedForm="ἀγαπᾷ" Unicode="ἀγαπᾷ" Tense="Present" Voice="Active" Mood="Indicative" FormalTag="V-PAI-3S" nodeId="990010020010010" Gloss="loves">ἀγαπᾷ</Node>
+            </Node>
+            <Node Cat="O" Start="1" End="1" Rule="Np2O" Head="0" nodeId="990010020010023">
+              <Node xml:id="n99001002002" ref="JUD 1:2!2" Cat="pron" Start="1" End="1" StrongNumber="846" UnicodeLemma="αὐτός" Gender="Masculine" Number="Singular" FunctionalTag="P-ASM" Type="Personal" morphId="99001002002" NormalizedForm="αὐτόν" Unicode="αὐτόν." Case="Accusative" FormalTag="P-ASM" nodeId="990010020020010" Gloss="him" LexDomain="092004" LN="92.11">αὐτόν.</Node>
+            </Node>
+          </Node>
+        </Node>
+      </Tree>
+    </Trees>
+  </Sentence>
+</Sentences>

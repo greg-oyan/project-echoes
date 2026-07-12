@@ -6,6 +6,7 @@ from echoes.acquire.sources import (
     AcquisitionReceipt,
     acquire_source,
     acquisition_directory,
+    audit_manifest_hashes,
     verify_acquisition,
 )
 
@@ -15,5 +16,6 @@ __all__ = [
     "AcquisitionReceipt",
     "acquire_source",
     "acquisition_directory",
+    "audit_manifest_hashes",
     "verify_acquisition",
 ]

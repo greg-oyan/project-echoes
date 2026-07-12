@@ -1,0 +1,39 @@
+schema_version: 1
+sources:
+  - source_id: fixture-hash-audit
+    source_name: Synthetic Hash Audit Fixture
+    corpus: Synthetic corpus
+    role: primary_discovery
+    language: [hebrew]
+    edition: Synthetic Edition 1
+    provider: Test suite
+    repository_or_location: https://example.invalid/fixture-hash-audit
+    version_or_commit: "1111111111111111111111111111111111111111"
+    download_date: null
+    license: Synthetic open license
+    license_url: https://example.invalid/license
+    license_review_status: complete
+    required_attribution: Synthetic attribution
+    redistribution_status: acquisition_instructions_only
+    machine_processing_status: permitted
+    raw_data_git_policy: ignored_local_only
+    expected_files:
+      - docs/sample.txt
+    file_hashes:
+      # SHA-256 of the exact bytes "canonical\nbytes\n"
+      docs/sample.txt: d4d5afd6c6004277582ba933e6a3a0085132155a0854d5546f12d3420e1dc479
+    ingest_adapter: null
+    acquisition:
+      method: git_sparse
+      version_label: audit-v1
+      upstream_commit: "1111111111111111111111111111111111111111"
+      repository_url: https://example.invalid/fixture-hash-audit.git
+      include_paths:
+        - docs/sample.txt
+      expected_file_count: 1
+    research_purpose: Exercise local canonical-byte hash auditing without real corpus content.
+    known_limitations: [Synthetic metadata only]
+    notes: []
+    confirmed_information: [Created solely for tests]
+    unresolved_questions: [No external source exists]
+    status: approved

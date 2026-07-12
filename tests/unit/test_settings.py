@@ -18,7 +18,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 def test_project_configuration_files_load() -> None:
     validated = validate_config_directory(PROJECT_ROOT / "config")
 
-    assert len(validated) == 13
+    assert len(validated) == 14
     assert isinstance(validated[PROJECT_ROOT / "config" / "corpora.yaml"], CorporaConfig)
 
 
