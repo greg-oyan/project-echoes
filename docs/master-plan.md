@@ -653,6 +653,7 @@ Fields:
 passage_id
 corpus
 granularity
+analysis_profile
 book
 start_reference
 end_reference
@@ -671,6 +672,9 @@ participant_ids
 semantic_domains
 predicate_argument_sequence
 source_ids
+reference_gap
+contains_disputed_text
+disputed_passage_ids
 ```
 
 ## 9.4 Passage-feature table
@@ -726,6 +730,10 @@ ensemble_score
 candidate_type
 training_exposure_status
 data_quality_status
+disputed_passage_flag
+disputed_passage_ids
+disputed_text_exclusion_status
+textual_criticism_review_status
 created_at
 ```
 
@@ -1163,6 +1171,14 @@ Each generated passage must:
 * Avoid crossing book boundaries.
 * Allow configurable crossing of chapter boundaries.
 * Record overlap with neighboring windows.
+* Distinguish physical source succession from analytical continuity.
+* Never fabricate a verse record or passage unit for an edition-omitted verse number.
+* Allow extant verses around an omitted number to remain source-order adjacent where configured, while setting `reference_gap` on every affected passage.
+* Never concatenate alternate readings or endings merely because they are consecutive in source or file order.
+* Treat `MRK 16:20` to `MRK 16:99` as a physical source successor and a separate analytical boundary break; no two-verse or five-verse window may cross that boundary.
+* Support an `edition_complete` profile containing all text present inline in the pinned edition.
+* Support a `critical_core` profile excluding `MRK 16:9-16:20`, `MRK 16:99`, and `JHN 7:53-8:11` without deleting or renumbering source tokens.
+* Mark passages that contain declared disputed text and retain the applicable disputed-passage identifiers.
 
 ## Validation
 
@@ -1171,6 +1187,9 @@ Each generated passage must:
 * Sliding windows have correct start and end points.
 * No passage contains tokens from two books.
 * Passage generation is deterministic.
+* Source-order windows that span omitted verse numbers retain the extant references and set `reference_gap` rather than fabricating the missing number.
+* No two-verse or five-verse window combines `MRK 16:20` with the alternate ending at `MRK 16:99`.
+* Edition-complete and critical-core passage membership matches the registered disputed-passage policy exactly.
 
 ## Exit gate
 
@@ -1178,6 +1197,7 @@ Each generated passage must:
 * Passage counts are documented.
 * Random samples have been manually checked.
 * Passage reconstruction reproduces source text.
+* Both registered analysis profiles reproduce deterministically without mutating the underlying corpus.
 
 ---
 
@@ -1933,6 +1953,8 @@ A candidate enters human review when:
 
 A shared lemma or root at or below the configured rare-evidence frequency threshold cannot satisfy eligibility alone. It requires ordered sequence similarity, a shared rare phrase, a syntactic match, a second rare lexical item, or another independently defined detector-family co-signal. The configured threshold, evidence fields, and empirical null calibration must be retained with the candidate.
 
+Every candidate whose evidence intersects a declared disputed passage must set `disputed_passage_flag` and record the affected passage identifiers. Such a candidate may retain `strong candidate` status only if it survives exclusion of the disputed text or receives a completed textual-criticism review; source-file adjacency is never evidence that alternate readings form one passage.
+
 ---
 
 # 24. Phase 13: Knownness and Novelty Filtering
@@ -2246,6 +2268,7 @@ A candidate must not be presented as a serious finding unless:
 * The analysis can be reproduced from a run manifest.
 * Any English-supported `strong candidate` survives its registered all-English-feature ablation.
 * Proposed direction and mediation are chronologically possible and independently supported.
+* Any disputed-text-supported `strong candidate` survives exclusion of the disputed text or has a completed textual-criticism review.
 
 ---
 
@@ -2711,11 +2734,18 @@ Build:
 * Two-verse windows
 * Five-verse windows
 * Passage reconstruction
+* Separate source-successor and analytical-boundary declarations
+* Edition-complete and critical-core analysis profiles
+* Reference-gap and disputed-passage metadata
 
 Acceptance:
 
 * Passage boundaries validate.
 * Every token belongs to expected passage units.
+* Edition-omitted verse numbers are never fabricated; source-order windows crossing such a numbering gap set `reference_gap`.
+* `MRK 16:20` physically precedes `MRK 16:99`, but no two-verse or five-verse analytical window combines the longer and alternate endings.
+* `edition_complete` includes all inline edition text, while `critical_core` excludes `MRK 16:9-16:20`, `MRK 16:99`, and `JHN 7:53-8:11` exactly.
+* Disputed-passage membership is retained for future candidate flagging and strong-candidate review gates.
 
 ## Milestone 6: Known-link benchmark
 

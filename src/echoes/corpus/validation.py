@@ -34,6 +34,67 @@ class CorpusValidationError(RuntimeError):
     """Raised when validation cannot inspect the requested corpus artifacts."""
 
 
+# Versioned, explicit union of stable Hebrew and Greek fields used by
+# downstream analysis. Path-bearing fields and the raw ``source_extras_json``
+# preservation envelope are intentionally excluded: they are provenance aids
+# rather than portable analytical values.
+ANALYTICAL_DIGEST_VERSION = 1
+ANALYTICAL_DIGEST_FIELDS: tuple[str, ...] = (
+    "schema_version",
+    "token_id",
+    "corpus",
+    "source_id",
+    "source_version",
+    "source_record_id",
+    "source_word_id",
+    "source_edition_reference",
+    "book",
+    "book_order",
+    "chapter",
+    "verse",
+    "subverse",
+    "sentence_id",
+    "clause_id",
+    "phrase_id",
+    "position_in_verse",
+    "position_in_clause",
+    "position_in_corpus",
+    "position_in_word",
+    "surface_form",
+    "normalized_form",
+    "unpointed_form",
+    "folded_form",
+    "source_normalized_form",
+    "leading_punctuation",
+    "trailing_punctuation",
+    "is_zero_width",
+    "is_elided",
+    "lemma",
+    "lexical_root",
+    "strong_number",
+    "part_of_speech",
+    "morphology_json",
+    "syntactic_function",
+    "syntactic_head_source_id",
+    "semantic_domain",
+    "word_sense",
+    "participant_id",
+    "speaker_id",
+    "entity_id",
+    "frame_json",
+    "english_gloss",
+    "language",
+    "is_punctuation",
+    "is_variant",
+    "variant_type",
+    "variant_group_id",
+    "is_default_reading",
+    "ketiv_form",
+    "qere_form",
+)
+ANALYTICAL_JSON_FIELDS = frozenset({"morphology_json", "frame_json"})
+
+
 def corpus_identity_digest(tokens: pl.DataFrame) -> str:
     """Hash every preserved token identity in corpus order.
 
@@ -49,6 +110,108 @@ def corpus_identity_digest(tokens: pl.DataFrame) -> str:
     digest = hashlib.sha256()
     for token_id, source_record_id, source_word_id in ordered.iter_rows():
         digest.update(f"{token_id}\0{source_record_id}\0{source_word_id}\n".encode())
+    return digest.hexdigest()
+
+
+def corpus_content_digest(tokens: pl.DataFrame) -> str:
+    """Hash the preserved surface, normalized form, and lemma in corpus order.
+
+    This compatibility digest is deliberately limited to the SHA-256 of the
+    corpus-position-ordered ``token_id\\0surface_form\\0normalized_form\\0lemma\\n``
+    rows encoded as UTF-8, with a null lemma encoded as the empty string. Use
+    :func:`corpus_analytical_digest` when all stable downstream fields must be
+    protected.
+    """
+    ordered = tokens.sort("position_in_corpus").select(
+        "token_id", "surface_form", "normalized_form", "lemma"
+    )
+    digest = hashlib.sha256()
+    for token_id, surface_form, normalized_form, lemma in ordered.iter_rows():
+        digest.update(f"{token_id}\0{surface_form}\0{normalized_form}\0{lemma or ''}\n".encode())
+    return digest.hexdigest()
+
+
+def _canonical_digest_json(value: object) -> str:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+
+
+def corpus_analytical_digest(tokens: pl.DataFrame) -> str:
+    """Hash stable downstream token fields independent of input row order.
+
+    The field set is the ordered intersection of
+    :data:`ANALYTICAL_DIGEST_FIELDS` and the corpus-specific schema. Null is
+    encoded as JSON ``null`` (and therefore remains distinct from an empty
+    string), while serialized morphology and frame objects are parsed and
+    re-encoded with sorted keys. Rows are ordered by corpus position and token
+    identity. The versioned field header makes a missing or added governed
+    column change the digest rather than pass silently.
+    """
+    required = {"token_id", "position_in_corpus"}
+    missing = sorted(required - set(tokens.columns))
+    if missing:
+        raise CorpusValidationError("analytical digest requires columns: " + ", ".join(missing))
+
+    fields = [field for field in ANALYTICAL_DIGEST_FIELDS if field in tokens.columns]
+    ordered = tokens.sort("position_in_corpus", "token_id").select(fields)
+    digest = hashlib.sha256()
+    header = {
+        "digest": "project-echoes-analytical-token-digest",
+        "version": ANALYTICAL_DIGEST_VERSION,
+        "fields": fields,
+    }
+    digest.update((_canonical_digest_json(header) + "\n").encode("utf-8"))
+
+    token_id_index = fields.index("token_id")
+    json_indexes = {index for index, field in enumerate(fields) if field in ANALYTICAL_JSON_FIELDS}
+    canonical_json_cache: dict[str, str] = {}
+
+    def encode_value(value: object, *, json_field: bool) -> str:
+        if value is None:
+            return "N"
+        if json_field:
+            serialized = str(value)
+            canonical = canonical_json_cache.get(serialized)
+            if canonical is None:
+                try:
+                    canonical = _canonical_digest_json(json.loads(serialized))
+                except json.JSONDecodeError as exc:
+                    raise CorpusValidationError(
+                        "analytical digest cannot parse a governed JSON field"
+                    ) from exc
+                canonical_json_cache[serialized] = canonical
+            return f"J{len(canonical.encode('utf-8'))}:{canonical}"
+        if isinstance(value, bool):
+            return "B1" if value else "B0"
+        if isinstance(value, int):
+            return f"I{value}"
+        if isinstance(value, float):
+            return f"F{_canonical_digest_json(value)}"
+        serialized = str(value)
+        return f"S{len(serialized.encode('utf-8'))}:{serialized}"
+
+    for raw_values in ordered.iter_rows():
+        try:
+            encoded = [
+                encode_value(value, json_field=index in json_indexes)
+                for index, value in enumerate(raw_values)
+            ]
+        except CorpusValidationError as exc:
+            json_field = next(
+                fields[index]
+                for index in json_indexes
+                if raw_values[index] is not None
+                and str(raw_values[index]) not in canonical_json_cache
+            )
+            raise CorpusValidationError(
+                f"{raw_values[token_id_index]}: analytical digest cannot parse {json_field} as JSON"
+            ) from exc
+        digest.update(("\0".join(encoded) + "\n").encode("utf-8"))
     return digest.hexdigest()
 
 

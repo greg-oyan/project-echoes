@@ -99,6 +99,17 @@ class CrosswalkRow(BaseModel):
         return self
 
 
+class BookMapping(BaseModel):
+    """One scheme-to-scheme book-identifier correspondence."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    source_book: str = Field(min_length=1)
+    target_book: str = Field(pattern=r"^[A-Z0-9]{3}$")
+    alignment_method: AlignmentMethod
+    alignment_confidence: float = Field(ge=0.0, le=1.0)
+
+
 class VersificationCrosswalk(BaseModel):
     """A validated crosswalk document between two named reference schemes."""
 
@@ -108,6 +119,7 @@ class VersificationCrosswalk(BaseModel):
     source_scheme: str = Field(min_length=1)
     target_scheme: str = Field(min_length=1)
     provenance: str = Field(min_length=1)
+    book_mappings: list[BookMapping] = Field(default_factory=list)
     rows: list[CrosswalkRow] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -118,6 +130,10 @@ class VersificationCrosswalk(BaseModel):
         duplicates = sorted(row_id for row_id, count in Counter(row_ids).items() if count > 1)
         if duplicates:
             raise ValueError(f"duplicate crosswalk_id values: {duplicates[:5]}")
+        source_books = [mapping.source_book for mapping in self.book_mappings]
+        duplicate_books = sorted(book for book, count in Counter(source_books).items() if count > 1)
+        if duplicate_books:
+            raise ValueError(f"duplicate book mappings: {duplicate_books[:5]}")
         return self
 
 

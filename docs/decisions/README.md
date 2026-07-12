@@ -42,3 +42,4 @@ Decision records preserve durable methodological, data, licensing, architecture,
 - [0008 — Apply approved methodological amendments](0008-methodology-amendments.md)
 - [0009 — Supply Ketiv readings from OSHB keyed to MACULA word-number gaps](0009-oshb-ketiv-qere-supplementation.md)
 - [0010 — Select pinned MACULA Greek Nestle1904 node data](0010-macula-greek-source-selection.md)
+- [0011 — Separate source order from disputed-passage analysis](0011-disputed-passage-segmentation-policy.md)

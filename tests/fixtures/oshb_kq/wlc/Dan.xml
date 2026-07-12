@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<osis xmlns="http://www.bibletechnologies.net/2003/OSIS/namespace">
+  <osisText xml:lang="he" osisIDWork="OSHB" osisRefWork="Bible">
+    <div type="book" osisID="Dan">
+      <chapter osisID="Dan.3">
+        <verse osisID="Dan.3.12">
+          <w lemma="1400" morph="ANcmpa" id="27aaa">גֻּבְרִין</w>
+          <w type="x-ketiv" lemma="383" morph="APp2ms" id="27kt1">איתיך</w>
+          <note type="variant"><catchWord>איתיך</catchWord><rdg type="x-qere"><w lemma="383" morph="APp2ms" id="27qr1">אִיתָ֑ךְ</w></rdg></note>
+          <w lemma="4430" morph="ANcmsa" id="27aab">מֶלֶךְ</w><seg type="x-sof-pasuq">׃</seg>
+        </verse>
+      </chapter>
+    </div>
+  </osisText>
+</osis>

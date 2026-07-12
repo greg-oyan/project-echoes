@@ -10,13 +10,32 @@ from __future__ import annotations
 import hashlib
 import re
 
-BOOK_IDENTIFIER_PATTERN = re.compile(r"^[A-Z0-9]{3}$")
+SOURCE_BOOK_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9]{1,16}$")
 CORPUS_PREFIX_PATTERN = re.compile(r"^[A-Z]{2,4}$")
 SOURCE_RECORD_SUFFIX_LENGTH = 12
 
 
 class TokenIdentityError(ValueError):
     """Raised when a source-edition identity cannot produce a safe token ID."""
+
+
+def normalize_source_book_identifier(book_identifier: str) -> str:
+    """Normalize one source-native book identifier for use in a token ID.
+
+    Source identifiers are restricted to one through sixteen ASCII
+    alphanumerics and normalized with ASCII uppercasing. The bounded rule
+    supports source schemes such
+    as OSIS (for example, ``2Kgs`` -> ``2KGS`` and ``Ps`` -> ``PS``) while
+    preserving existing three-character MACULA identifiers byte-for-byte.
+    Punctuation and whitespace are rejected instead of being silently
+    rewritten, so two distinct source identifiers cannot normalize through a
+    lossy cleanup step.
+    """
+    if SOURCE_BOOK_IDENTIFIER_PATTERN.fullmatch(book_identifier) is None:
+        raise TokenIdentityError(
+            "book_identifier must contain one to sixteen ASCII letters or digits"
+        )
+    return book_identifier.upper()
 
 
 def generate_source_edition_token_id(
@@ -40,11 +59,7 @@ def generate_source_edition_token_id(
     """
     if CORPUS_PREFIX_PATTERN.fullmatch(corpus_prefix) is None:
         raise TokenIdentityError("corpus_prefix must contain two to four ASCII capital letters")
-    normalized_book = book_identifier.upper()
-    if BOOK_IDENTIFIER_PATTERN.fullmatch(normalized_book) is None:
-        raise TokenIdentityError(
-            "book_identifier must contain exactly three ASCII letters or digits"
-        )
+    normalized_book = normalize_source_book_identifier(book_identifier)
     coordinates = {
         "chapter": chapter,
         "verse": verse,

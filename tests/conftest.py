@@ -22,6 +22,8 @@ from echoes.settings import NormalizationConfig, load_config
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 MACULA_FIXTURE_ROOT = PROJECT_ROOT / "tests" / "fixtures" / "macula_hebrew"
 GREEK_FIXTURE_ROOT = PROJECT_ROOT / "tests" / "fixtures" / "macula_greek"
+MACULA_KQ_FIXTURE_ROOT = PROJECT_ROOT / "tests" / "fixtures" / "macula_kq"
+OSHB_KQ_FIXTURE_ROOT = PROJECT_ROOT / "tests" / "fixtures" / "oshb_kq"
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +90,45 @@ class StoredGreekFixtureCorpus:
     processed: ProcessedGreekCorpus
     database: Path
     output_dir: Path
+
+
+@pytest.fixture(scope="session")
+def oshb_source() -> SourceManifest:
+    source = load_source_catalog(PROJECT_ROOT / "data" / "manifests" / "sources.yaml").find(
+        "oshb-morphhb"
+    )
+    assert source is not None
+    return source
+
+
+@pytest.fixture()
+def kq_primary_tokens(
+    macula_source: SourceManifest,
+    normalization_config: NormalizationConfig,
+):
+    """Synthetic MACULA-style primary frame with vacant ketiv word slots."""
+    return parse_macula_hebrew_nodes(
+        MACULA_KQ_FIXTURE_ROOT,
+        source=macula_source,
+        normalization=normalization_config.hebrew,
+        analysis_reading=normalization_config.ketiv_qere.analysis_reading,
+    ).tokens
+
+
+@pytest.fixture()
+def kq_supplement_result(
+    kq_primary_tokens,
+    oshb_source: SourceManifest,
+    normalization_config: NormalizationConfig,
+):
+    from echoes.ingest.oshb_ketiv_qere import build_kq_supplement
+
+    return build_kq_supplement(
+        OSHB_KQ_FIXTURE_ROOT,
+        kq_primary_tokens,
+        source=oshb_source,
+        normalization=normalization_config.hebrew,
+    )
 
 
 @pytest.fixture(scope="session")
