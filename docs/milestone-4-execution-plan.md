@@ -1,36 +1,60 @@
 # Milestone 4 execution plan
 
-Status: **Preparation only — nothing in this plan is authorized to run yet**
-Date: 2026-07-11
+Status: **Complete — governance closure recorded 2026-07-12**
 
-Milestone 4 (supplementary annotations) builds the STEPBible adapter,
-annotation-alignment tables, conflict-preservation logic, and the separate
-versification-crosswalk mapping layer. This plan enumerates the ordered work
-and, critically, the licensing questions that require human judgment before
-any STEPBible acquisition. It resolves none of them.
+Milestone 4 is complete on the basis of the OSHB Ketiv/Qere supplement and the
+generic supplementary-alignment infrastructure described below. STEPBible was
+not acquired or activated. Its optional future activation is deferred under
+ADR 0012 and is not a Milestone 4 acceptance dependency.
 
-## Ordered work
+## Completed OSHB work
 
-1. Resolve the STEPBible subset-audit questions below (human licensing
-   judgment) and record the outcome in an ADR and the source manifest.
-2. Pin an exact STEPBible-Data commit; design the governed acquisition
-   (canonical-byte pattern, expected files, anchor hashes) for only the
-   approved files.
-3. Implement the OSHB Ketiv/Qere supplement per ADR 0009 (Accepted): keying
-   into MACULA word-number gaps, `variant_type=ketiv` tokens, alignment
-   confidence, conflicts preserved. ADR 0009 is accepted (ratified 2026-07-11); OSHB still
-   needs its own acquisition specification.
-4. Build annotation-alignment tables that store supplementary values beside,
-   never over, primary annotations, with source ID, source version, field
-   name, original value, alignment method, and confidence.
-5. Wire the versification-crosswalk validator (schema already implemented) to
-   CLI and storage, then populate crosswalk rows with per-row provenance.
-6. Extend validation: supplementary data never overwrites primary annotations;
-   annotation conflicts are queryable; crosswalk rows preserve
-   edition-specific references; the corpus identity digest and all token IDs
-   are byte-identical before and after activation.
+- The pinned OSHB source is acquired reproducibly with file-level provenance,
+  licensing metadata, expected-file validation, and checksums.
+- Ketiv readings are preserved as 1,268 supplementary token records spanning
+  1,251 Ketiv-bearing loci; primary MACULA Qere tokens are not overwritten.
+- OSHB/OSIS source book identifiers and canonical MACULA book codes remain
+  separate. Token identity derives from the normalized OSHB source identifier,
+  not from the canonical mapping or a versification crosswalk.
+- Qere and Ketiv analysis streams are deterministic, and primary Hebrew and
+  Greek identity, surface/lemma, and analytical digests remain invariant.
+- Structural mappings record Ketiv token, primary anchor tokens, sentence,
+  clause, and phrase proposals, method, confidence, resolution status, and
+  notes. Unresolved values remain null and are reported rather than fabricated.
 
-## STEPBible subset-audit questions requiring human licensing judgment
+## Completed generic alignment infrastructure
+
+- Supplementary annotation-alignment tables store source values beside primary
+  annotations with source/version provenance, alignment method, confidence,
+  conflict status, and resolution status.
+- Conflict-preservation validation prevents supplementary values from silently
+  replacing primary annotations and keeps disagreements queryable.
+- The separate versification-crosswalk layer preserves edition-native
+  references and cannot participate in token-ID generation.
+- Explicit coverage and unresolved-alignment reports make structural
+  uncertainty inspectable for downstream analysis.
+
+## Deferred STEPBible work
+
+STEPBible remains an eligible but inactive supplementary source. ADR 0012
+records the owner-approved deferral. The deferral is not a rejection, a license
+approval, or a licensing determination. No STEPBible file has been approved,
+acquired, ingested, or validated, and the seven file-level questions below
+remain unresolved.
+
+## Future activation criteria
+
+A later milestone may activate STEPBible only when it records all of the
+following before acquisition:
+
+1. A specific missing field or downstream capability.
+2. The exact STEPBible files required.
+3. A measurable analytical benefit.
+4. Completed file-level licensing and provenance review.
+5. A conflict-preserving integration design using the completed generic
+   supplementary-alignment infrastructure.
+
+## Unresolved STEPBible subset-audit questions
 
 The STEPBible-Data repository states CC BY 4.0 at repository level, but the
 project's activation rule requires file-level provenance review. A human must
@@ -67,9 +91,11 @@ decide each of the following; none is resolvable by automation:
    file's changelog indicate recent upstream corrections that argue for a
    different pin?
 
-## Explicitly out of scope for this document
+## Closure boundary
 
-- Any acquisition or ingestion of STEPBible or OSHB data.
-- Any crosswalk data rows.
-- Any resolution of the questions above; they are recorded for a human
-  decision-maker.
+- No STEPBible acquisition or ingestion is authorized by this closure.
+- None of the seven STEPBible questions is answered by deferral.
+- Milestone 5 passage generation, benchmark work, lexical scoring, embeddings,
+  and discovery analysis have not begun.
+- The Milestone 5 structural-uncertainty handoff is documentation and
+  acceptance-criteria work only; it does not generate passage records.

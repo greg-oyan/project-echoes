@@ -2,7 +2,7 @@
 
 Project Echoes is a reproducible computational biblical-studies research repository for token-level analysis of the Hebrew and Aramaic Old Testament and Greek New Testament. It is designed to recover established relationships as validation and generate traceable lexical, semantic, grammatical, structural, narrative, and intertextual candidates for disciplined human review.
 
-The repository has completed **Milestone 2: MACULA Hebrew acquisition and ingestion**. It can reproducibly acquire and validate a pinned MACULA Hebrew snapshot, build canonical Hebrew/Aramaic token tables, and query them through Parquet and DuckDB. Biblical source data and full processed tables remain local and Git-ignored.
+The repository has completed **Milestone 4: supplementary annotations**. It can reproducibly acquire and validate pinned MACULA Hebrew and Greek primary corpora, query their unified canonical token tables through Parquet and DuckDB, and add the OSHB Ketiv/Qere supplement beside the unchanged primary annotations. Generic conflict-preservation, Ketiv structural-alignment, unresolved-status, and versification-crosswalk infrastructure is in place. STEPBible activation is deferred under [ADR 0012](docs/decisions/0012-defer-stepbible-activation.md) pending a demonstrated analytical need and file-level approval. Milestone 5 passage generation has not begun. Biblical source data and full processed tables remain local and Git-ignored.
 
 ## Governing documents
 
@@ -85,6 +85,6 @@ uv run echoes create-run-manifest --experiment-name governance-smoke
 
 Raw biblical text, external datasets, restricted sources, generated private research outputs, local databases, credentials, and API keys are excluded from Git. Source manifests contain tracked metadata and reviewed determinations, never the raw corpus. A source is not active merely because it is public or listed; it must pass the charter's activation rule, receive an immutable version and checksums, and have a reproducible acquisition and validation process.
 
-MACULA Hebrew is the first source to pass that gate. Its approval covers reproducible local processing of the pinned 25.08.11 snapshot; it does not authorize committing or publicly releasing the raw corpus or complete processed token tables. Other registered sources remain inactive until they independently pass the same gate.
+MACULA Hebrew, MACULA Greek, and the OSHB Ketiv/Qere supplement have passed their applicable source gates for reproducible local processing at their pinned revisions; those approvals do not authorize committing or publicly releasing raw corpora or complete processed token tables. STEPBible remains inactive with manifest status `under_review` under ADR 0012. Its deferral is not a rejection or licensing determination, and the source may be activated only after a later milestone demonstrates a specific need and completes exact-file provenance, licensing, benefit, and conflict-preserving integration review. Other registered sources remain inactive until they independently pass the same gate.
 
 Repository software/documentation licensing remains pending owner selection. External texts, annotations, and reference collections retain their own source-specific licenses and attribution requirements.
