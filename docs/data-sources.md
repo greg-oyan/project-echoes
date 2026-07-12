@@ -126,6 +126,28 @@ ingestion report. The corpus identity digest
 token count were identical before and after remediation, confirming the line-ending
 rewrite never reached parsed XML content or token identity.
 
+### Corpus digests
+
+Two whole-corpus SHA-256 fingerprints guard the processed primary tables; one
+implementation serves both corpora (`echoes.corpus.validation`):
+
+- **Identity digest** (`corpus_identity_digest`): corpus-position-ordered
+  `token_id\0source_record_id\0source_word_id\n` rows, UTF-8.
+- **Content digest** (`corpus_content_digest`): corpus-position-ordered
+  `token_id\0surface_form\0normalized_form\0lemma\n` rows, UTF-8, with a null
+  lemma encoded as the empty string.
+
+Recorded constants, asserted by the opt-in full-corpus regression:
+
+| Corpus | Tokens | Identity digest | Content digest |
+|---|---:|---|---|
+| Hebrew (`macula-hebrew` 25.08.11) | 475,911 | `91e923e6f4234e3d1946ad6fb1487f5894ec4e28f2fd3c919bf6ebd1680693b6` | `7fb443c3f0c42ada5d89f3abad61dd304145863044107ac86277c9f05f76cc82` |
+| Greek (`macula-greek` 24.06.17) | 137,779 | `9035fea8d73a2b2078ad2adc70f8389040dbe2051ee535b2ce88412f551df6f2` | `a5ede58d287c2d29d5dacc7adeb07ff5c6a10587e2949875928b2dd935c8c683` |
+
+These constants are stop-condition anchors for supplementary-annotation work:
+the base MACULA tables must remain byte-identical through all Milestone 4
+layering, and any change is a corpus migration, never a side effect.
+
 ## Raw-data storage policy
 
 Raw biblical and external data live under Git-ignored local paths. Restricted files are never committed, attached to issues, placed in releases, copied into fixtures, or embedded in logs. Manifests, checksums, source URLs, licenses, acquisition instructions, schemas, and synthetic fixtures are trackable. A permissive license does not require raw files to be committed; local-only storage is the conservative default until publication value and component rights are reviewed.

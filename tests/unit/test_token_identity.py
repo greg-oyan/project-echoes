@@ -103,6 +103,39 @@ def test_source_identity_is_stable_and_requires_explicit_variant_disambiguation(
         )
 
 
+def test_corpus_content_digest_covers_forms_and_encodes_null_lemma_as_empty() -> None:
+    from echoes.corpus.validation import corpus_content_digest
+
+    frame = pl.DataFrame(
+        {
+            "position_in_corpus": [1, 2],
+            "token_id": ["HB_GEN_001_001_0001", "HB_GEN_001_001_0002"],
+            "surface_form": ["אָ", "בְּ"],
+            "normalized_form": ["א", "ב"],
+            "lemma": ["למ", None],
+        }
+    )
+    reordered = frame.sort("token_id", descending=True)
+
+    digest = corpus_content_digest(frame)
+    assert digest == corpus_content_digest(reordered)
+
+    # A null lemma hashes identically to an explicit empty string.
+    empty_lemma = frame.with_columns(
+        pl.when(pl.col("lemma").is_null())
+        .then(pl.lit(""))
+        .otherwise(pl.col("lemma"))
+        .alias("lemma")
+    )
+    assert corpus_content_digest(empty_lemma) == digest
+
+    changed_form = frame.with_columns(pl.col("surface_form").str.replace("א", "ג"))
+    assert corpus_content_digest(changed_form) != digest
+
+    changed_lemma = frame.with_columns(pl.lit("אחר").alias("lemma"))
+    assert corpus_content_digest(changed_lemma) != digest
+
+
 def test_corpus_identity_digest_orders_by_corpus_position_and_detects_changes() -> None:
     frame = pl.DataFrame(
         {

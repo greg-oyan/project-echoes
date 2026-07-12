@@ -52,6 +52,25 @@ def corpus_identity_digest(tokens: pl.DataFrame) -> str:
     return digest.hexdigest()
 
 
+def corpus_content_digest(tokens: pl.DataFrame) -> str:
+    """Hash every preserved token's textual content in corpus order.
+
+    The content companion to :func:`corpus_identity_digest`: the SHA-256 of
+    the corpus-position-ordered ``token_id\\0surface_form\\0normalized_form\\0
+    lemma\\n`` rows encoded as UTF-8, with a null lemma encoded as the empty
+    string.  One function serves both corpora; the base MACULA tables must
+    reproduce their recorded values byte-for-byte through all supplementary
+    Milestone 4 work.
+    """
+    ordered = tokens.sort("position_in_corpus").select(
+        "token_id", "surface_form", "normalized_form", "lemma"
+    )
+    digest = hashlib.sha256()
+    for token_id, surface_form, normalized_form, lemma in ordered.iter_rows():
+        digest.update(f"{token_id}\0{surface_form}\0{normalized_form}\0{lemma or ''}\n".encode())
+    return digest.hexdigest()
+
+
 class CorpusValidationReport(BaseModel):
     """Structured corpus gate result with errors, warnings, and measured absence."""
 

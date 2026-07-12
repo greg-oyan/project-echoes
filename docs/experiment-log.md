@@ -70,4 +70,13 @@
 - Scripted spot checks: 17 of 17 assertions passed with expected values recorded in the Milestone 3 ingestion report (Synoptic samples, John, Romans, James, Revelation, enclitic/punctuation/elision cases, and the disputed-passage and versification cases).
 - Boundary: no supplementary annotation, versification-crosswalk data, segmentation, embedding, candidate-generation, or review-console work was performed.
 
+## 2026-07-11 - Milestone 4 Part 1 content-digest baseline
+
+- Purpose: fix whole-corpus content fingerprints for both primary tables before any supplementary layer touches the repository, so Milestone 4 work can prove the base MACULA tables remain byte-identical.
+- Encoding: `corpus_content_digest` is the SHA-256 over corpus-position-ordered `token_id\0surface_form\0normalized_form\0lemma\n` rows encoded UTF-8, with a null lemma encoded as the empty string; one shared implementation serves both corpora alongside the existing `corpus_identity_digest` (`token_id\0source_record_id\0source_word_id\n`).
+- Recorded constants (asserted by the opt-in full-corpus regression):
+  - Hebrew identity `91e923e6f4234e3d1946ad6fb1487f5894ec4e28f2fd3c919bf6ebd1680693b6`, content `7fb443c3f0c42ada5d89f3abad61dd304145863044107ac86277c9f05f76cc82`, 475,911 tokens.
+  - Greek identity `9035fea8d73a2b2078ad2adc70f8389040dbe2051ee535b2ce88412f551df6f2`, content `a5ede58d287c2d29d5dacc7adeb07ff5c6a10587e2949875928b2dd935c8c683`, 137,779 tokens.
+- These constants are stop-condition anchors for every later Milestone 4 task.
+
 Substantive experiments are prohibited until their prerequisite milestones and data-governance gates pass.
