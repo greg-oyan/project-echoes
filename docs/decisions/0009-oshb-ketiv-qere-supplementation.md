@@ -1,8 +1,10 @@
 # 0009 - Supply Ketiv readings from OSHB keyed to MACULA word-number gaps
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-07-11
 - executing_agent: Claude
+
+Ratified by project owner on 2026-07-11; implementation authorized for Milestone 4 Part 1.
 
 ## Context
 
@@ -32,7 +34,7 @@ is `3d15126fb1ef74867fc1434be1942e837932691f` (the repository's default
 `master` branch head observed on 2026-07-11); see the `oshb-morphhb` manifest
 entry.
 
-## Decision (proposed)
+## Decision
 
 Adopt OSHB morphhb as a supplementary Ketiv/Qere layer for Milestone 4, under
 these rules:

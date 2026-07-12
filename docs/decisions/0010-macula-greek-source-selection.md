@@ -4,6 +4,8 @@
 - Date: 2026-07-11
 - executing_agent: Claude
 
+Edition selection reviewed and ratified by project owner on 2026-07-11.
+
 ## Context
 
 Milestone 3 requires a complete Greek New Testament primary corpus with

@@ -16,9 +16,9 @@ any STEPBible acquisition. It resolves none of them.
 2. Pin an exact STEPBible-Data commit; design the governed acquisition
    (canonical-byte pattern, expected files, anchor hashes) for only the
    approved files.
-3. Implement the OSHB Ketiv/Qere supplement per ADR 0009 (Proposed): keying
+3. Implement the OSHB Ketiv/Qere supplement per ADR 0009 (Accepted): keying
    into MACULA word-number gaps, `variant_type=ketiv` tokens, alignment
-   confidence, conflicts preserved. ADR 0009 must be accepted first, and OSHB
+   confidence, conflicts preserved. ADR 0009 is accepted (ratified 2026-07-11); OSHB still
    needs its own acquisition specification.
 4. Build annotation-alignment tables that store supplementary values beside,
    never over, primary annotations, with source ID, source version, field

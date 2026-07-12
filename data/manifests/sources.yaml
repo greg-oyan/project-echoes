@@ -207,7 +207,7 @@ sources:
       - OSHB README guidance warns against NFC normalization of its Hebrew text; derived-form handling must follow the project normalization policy.
     notes:
       - Governance-only record; no acquisition, ingestion, or adapter exists yet. Acquisition is deferred to Milestone 4 and requires an acquisition specification and canonical-byte hashes at that point.
-      - ADR 0009 (Proposed) records the Ketiv/Qere supplementation strategy, including the verified MACULA word-number gap at 2KI 8:10 slot 6.
+      - ADR 0009 (Accepted) records the Ketiv/Qere supplementation strategy, including the verified MACULA word-number gap at 2KI 8:10 slot 6.
       - Ketiv records from this layer must be produced as variant_type=ketiv tokens per canonical schema v2, leaving the existing Qere stream unchanged; annotation conflicts are preserved per master plan section 10.4.
     confirmed_information:
       - The pinned commit resolves the repository's default master branch head as of 2026-07-11.
