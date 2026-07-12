@@ -224,13 +224,50 @@ class GreekIngestionConfig(EchoesModel):
 Granularity = Literal["clause", "sentence", "verse", "two_verse", "five_verse"]
 
 
+class NonContiguousVerseAdjacency(EchoesModel):
+    """Two verses that are numerically distant yet textually adjacent.
+
+    Milestone 5 segmentation must treat the pair as adjacent (or explicitly
+    exclude the span) instead of assuming verse-number continuity; this
+    declaration only records the edition fact.
+    """
+
+    corpus: Literal["hebrew", "greek"]
+    from_reference: str = Field(pattern=r"^[A-Z0-9]{3} [1-9][0-9]*:[1-9][0-9]*$")
+    to_reference: str = Field(pattern=r"^[A-Z0-9]{3} [1-9][0-9]*:[1-9][0-9]*$")
+    reason: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def adjacency_is_within_one_book_and_directed(self) -> Self:
+        from_book = self.from_reference.split(" ", maxsplit=1)[0]
+        to_book = self.to_reference.split(" ", maxsplit=1)[0]
+        if from_book != to_book:
+            raise ValueError("verse adjacency must stay inside one book")
+        if self.from_reference == self.to_reference:
+            raise ValueError("verse adjacency requires two distinct references")
+        return self
+
+
 class SegmentationConfig(EchoesModel):
-    """Planned passage granularities."""
+    """Planned passage granularities and recorded edition adjacency facts."""
 
     schema_version: Literal[1]
     status: Literal["planned"]
     granularities: list[Granularity]
     preserve_token_boundaries: Literal[True]
+    non_contiguous_verse_adjacencies: list[NonContiguousVerseAdjacency] = Field(
+        default_factory=list
+    )
+
+    @model_validator(mode="after")
+    def adjacencies_are_unique(self) -> Self:
+        pairs = [
+            (item.corpus, item.from_reference, item.to_reference)
+            for item in self.non_contiguous_verse_adjacencies
+        ]
+        if len(pairs) != len(set(pairs)):
+            raise ValueError("non_contiguous_verse_adjacencies must be unique")
+        return self
 
 
 class ScoreComponent(EchoesModel):

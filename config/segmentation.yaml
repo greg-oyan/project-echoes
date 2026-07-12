@@ -7,3 +7,16 @@ granularities:
   - two_verse
   - five_verse
 preserve_token_boundaries: true
+# Edition facts Milestone 5 segmentation must honor: these verse pairs are
+# numerically distant but textually adjacent in the pinned edition. Recording
+# only; enforcement is Milestone 5 scope.
+non_contiguous_verse_adjacencies:
+  - corpus: greek
+    from_reference: MRK 16:20
+    to_reference: MRK 16:99
+    reason: >-
+      The pinned Nestle 1904 edition encodes the shorter ending of Mark as the
+      pseudo-verse 16:99 immediately after the inline longer ending (16:9-20).
+      Sliding windows and sentence spans must not treat verses 21-98 as an
+      implicit gap, and whether the shorter ending participates in analysis at
+      all awaits the owner's disputed-passage policy.
