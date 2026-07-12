@@ -140,6 +140,56 @@ def test_missing_alignment_method_fails(tmp_path: Path) -> None:
         load_versification_crosswalk(_write(tmp_path, _document([row])))
 
 
+def test_book_mappings_validate_and_reject_duplicates(tmp_path: Path) -> None:
+    document = _document([])
+    document["book_mappings"] = [
+        {
+            "source_book": "2Kgs",
+            "target_book": "2KI",
+            "alignment_method": "rule_based",
+            "alignment_confidence": 1.0,
+        }
+    ]
+    crosswalk = load_versification_crosswalk(_write(tmp_path, document))
+    assert crosswalk.book_mappings[0].target_book == "2KI"
+
+    document["book_mappings"] = document["book_mappings"] * 2
+    with pytest.raises(CrosswalkValidationError, match="duplicate book mappings"):
+        load_versification_crosswalk(_write(tmp_path, document))
+
+    document["book_mappings"] = [
+        {
+            "source_book": "2Kgs",
+            "target_book": "SecondKings",
+            "alignment_method": "rule_based",
+            "alignment_confidence": 1.0,
+        }
+    ]
+    with pytest.raises(CrosswalkValidationError, match="target_book"):
+        load_versification_crosswalk(_write(tmp_path, document))
+
+
+def test_governed_oshb_macula_instance_matches_the_code_mapping() -> None:
+    from echoes.align.book_codes import OSHB_TO_MACULA_BOOK
+
+    project_root = Path(__file__).resolve().parents[2]
+    crosswalk = load_versification_crosswalk(
+        project_root / "data" / "alignments" / "oshb-macula-crosswalk.yaml"
+    )
+
+    assert crosswalk.source_scheme == "oshb-morphhb-osis"
+    assert crosswalk.target_scheme == "macula-hebrew-wlc"
+    assert crosswalk.rows == []
+    assert len(crosswalk.book_mappings) == 39
+    assert {
+        mapping.source_book: mapping.target_book for mapping in crosswalk.book_mappings
+    } == OSHB_TO_MACULA_BOOK
+    assert all(
+        mapping.alignment_confidence == 1.0 and mapping.alignment_method == "rule_based"
+        for mapping in crosswalk.book_mappings
+    )
+
+
 def test_crosswalk_module_never_touches_token_identity() -> None:
     tree = ast.parse(inspect.getsource(versification))
     imported_modules = {

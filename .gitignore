@@ -36,6 +36,9 @@ data/processed/**
 !data/processed/.gitkeep
 data/alignments/**
 !data/alignments/.gitkeep
+# Tracked exception: the OSHB-to-MACULA book-code crosswalk is governance
+# metadata (scheme identifiers only, no biblical text) and must be reproducible.
+!data/alignments/oshb-macula-crosswalk.yaml
 data/review/**
 !data/review/literature_matrix.csv
 

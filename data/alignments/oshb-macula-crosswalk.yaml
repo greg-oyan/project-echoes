@@ -1,0 +1,174 @@
+# First governed versification-crosswalk instance (Milestone 4 Part 1).
+#
+# Scheme translation only: OSHB OSIS book identifiers to MACULA book codes.
+# Both corpora represent WLC 4.20, so books map one-to-one with published-
+# table confidence; verse-level rows remain empty because per-locus keying
+# and confidence live in the K/Q locus registry. This file contains no
+# biblical text; it is tracked as governance metadata.
+schema_version: 1
+source_scheme: oshb-morphhb-osis
+target_scheme: macula-hebrew-wlc
+provenance: >-
+  Derived from echoes.align.book_codes.OSHB_TO_MACULA_BOOK; both schemes
+  represent Westminster Leningrad Codex 4.20 (OSHB header revision
+  2016.03.03; MACULA Hebrew edition statement). Verified empirically by the
+  Milestone 4 Part 1 K/Q alignment: 1,108 of 1,108 K/Q verses frame-match at
+  book, chapter, and verse.
+book_mappings:
+  - source_book: Gen
+    target_book: GEN
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: Exod
+    target_book: EXO
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: Lev
+    target_book: LEV
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: Num
+    target_book: NUM
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: Deut
+    target_book: DEU
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: Josh
+    target_book: JOS
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: Judg
+    target_book: JDG
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: Ruth
+    target_book: RUT
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: 1Sam
+    target_book: 1SA
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: 2Sam
+    target_book: 2SA
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: 1Kgs
+    target_book: 1KI
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: 2Kgs
+    target_book: 2KI
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: 1Chr
+    target_book: 1CH
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: 2Chr
+    target_book: 2CH
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: Ezra
+    target_book: EZR
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: Neh
+    target_book: NEH
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: Esth
+    target_book: EST
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: Job
+    target_book: JOB
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: Ps
+    target_book: PSA
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: Prov
+    target_book: PRO
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: Eccl
+    target_book: ECC
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: Song
+    target_book: SNG
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: Isa
+    target_book: ISA
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: Jer
+    target_book: JER
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: Lam
+    target_book: LAM
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: Ezek
+    target_book: EZK
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: Dan
+    target_book: DAN
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: Hos
+    target_book: HOS
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: Joel
+    target_book: JOL
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: Amos
+    target_book: AMO
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: Obad
+    target_book: OBA
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: Jonah
+    target_book: JON
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: Mic
+    target_book: MIC
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: Nah
+    target_book: NAM
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: Hab
+    target_book: HAB
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: Zeph
+    target_book: ZEP
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: Hag
+    target_book: HAG
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: Zech
+    target_book: ZEC
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+  - source_book: Mal
+    target_book: MAL
+    alignment_method: rule_based
+    alignment_confidence: 1.0
+rows: []

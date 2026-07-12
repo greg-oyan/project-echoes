@@ -19,6 +19,10 @@ from uuid import uuid4
 import duckdb
 import polars as pl
 
+from echoes.align.supplementary import (
+    build_kq_supplementary_annotations,
+    validate_supplementary_annotations,
+)
 from echoes.corpus.analysis import (
     ANALYSIS_TOKEN_COLUMNS,
     ANALYSIS_TOKEN_POLARS_SCHEMA,
@@ -46,6 +50,7 @@ KQ_PARQUET_FILES = {
     "ketiv_tokens": "kq_ketiv_tokens.parquet",
     "locus_registry": "kq_locus_registry.parquet",
     "conflicts": "kq_conflicts.parquet",
+    "supplementary_annotations": "kq_supplementary_annotations.parquet",
     "issues": "kq_ingestion_issues.parquet",
     "metadata": "kq_metadata.parquet",
 }
@@ -54,6 +59,7 @@ KQ_SORT_COLUMNS = {
     "ketiv_tokens": ["position_in_corpus"],
     "locus_registry": ["locus_id"],
     "conflicts": ["locus_id", "field_name"],
+    "supplementary_annotations": ["annotation_id"],
     "issues": ["severity", "code", "book", "chapter", "verse"],
     "metadata": ["ingestion_run_id"],
 }
@@ -248,6 +254,7 @@ def write_kq_supplement(
         "ketiv_tokens": result.ketiv_tokens,
         "locus_registry": result.locus_registry,
         "conflicts": result.conflicts,
+        "supplementary_annotations": build_kq_supplementary_annotations(result.locus_registry),
         "issues": issues,
         "metadata": metadata,
     }
@@ -315,6 +322,9 @@ def load_kq_duckdb(processed: ProcessedKQSupplement, database_path: Path) -> Non
                     "hebrew_kq_ketiv_tokens": processed.parquet_paths["ketiv_tokens"],
                     "hebrew_kq_locus_registry": processed.parquet_paths["locus_registry"],
                     "hebrew_kq_conflicts": processed.parquet_paths["conflicts"],
+                    "hebrew_kq_supplementary_annotations": processed.parquet_paths[
+                        "supplementary_annotations"
+                    ],
                     "hebrew_kq_ingestion_issues": processed.parquet_paths["issues"],
                     "hebrew_kq_metadata": processed.parquet_paths["metadata"],
                 }
@@ -475,6 +485,17 @@ def validate_kq_supplement(
     flagged_loci = set(registry.filter(pl.col("conflict"))["locus_id"].to_list())
     if conflict_loci != flagged_loci:
         add_issue("conflict-table-mismatch", "conflict rows do not match flagged registry loci")
+
+    # Supplementary annotations obey the beside-not-over contract.
+    annotations = frames["supplementary_annotations"]
+    for finding in validate_supplementary_annotations(primary_tokens, annotations):
+        add_issue("supplementary-annotation-invalid", finding)
+    expected_annotations = build_kq_supplementary_annotations(registry)
+    if not annotations.equals(expected_annotations):
+        add_issue(
+            "supplementary-annotation-drift",
+            "stored annotation rows differ from the registry-derived rows",
+        )
 
     # Derived streams: qere byte-identical; ketiv continuous with substitutions.
     qere_stream = derive_supplemented_analysis_stream(
