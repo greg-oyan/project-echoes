@@ -493,3 +493,24 @@ def build_required_analysis_streams(
                 profile=profile,
             )
     return streams
+
+
+def build_analysis_stream(
+    inputs: SegmentationInputs,
+    *,
+    config: SegmentationConfig,
+    corpus: CorpusName,
+    profile: AnalysisProfileName,
+    reading: AnalysisReadingName,
+) -> pl.DataFrame:
+    """Build one governed stream so production can release it before the next."""
+
+    if corpus == "hebrew":
+        if reading not in {"qere", "ketiv"}:
+            raise SegmentationInputError("Hebrew streams require qere or ketiv reading")
+        base = _hebrew_base_stream(inputs, reading)
+    elif reading == "source":
+        base = _greek_base_stream(inputs)
+    else:
+        raise SegmentationInputError("Greek streams require source reading")
+    return apply_analysis_profile(base, config=config, profile=profile)

@@ -96,9 +96,13 @@ class PassageRow(SegmentationRow):
     start_reference: str = Field(pattern=_REFERENCE_PATTERN)
     end_reference: str = Field(pattern=_REFERENCE_PATTERN)
     reference_sequence_json: str
+    token_ids_json: str
     source_unit_id: str | None = None
+    constituent_verse_passage_ids_json: str
     start_token_id: str = Field(min_length=1)
     end_token_id: str = Field(min_length=1)
+    start_stream_position_in_corpus: int = Field(ge=1)
+    end_stream_position_in_corpus: int = Field(ge=1)
     token_count: int = Field(ge=1)
     visible_token_count: int = Field(ge=0)
     zero_width_token_count: int = Field(ge=0)
@@ -133,6 +137,8 @@ class PassageRow(SegmentationRow):
 
     @field_validator(
         "reference_sequence_json",
+        "token_ids_json",
+        "constituent_verse_passage_ids_json",
         "source_ids_json",
         "source_versions_json",
         "lemma_sequence_json",
@@ -167,6 +173,24 @@ class PassageRow(SegmentationRow):
             raise ValueError("reference_sequence_json requires a nonempty string array")
         if references[0] != self.start_reference or references[-1] != self.end_reference:
             raise ValueError("start/end references must match the ordered reference sequence")
+        token_ids = _json_array(self.token_ids_json)
+        if len(token_ids) != self.token_count or not all(
+            isinstance(item, str) and item for item in token_ids
+        ):
+            raise ValueError("token_ids_json must contain one nonempty ID per token")
+        if token_ids[0] != self.start_token_id or token_ids[-1] != self.end_token_id:
+            raise ValueError("start/end token IDs must match token_ids_json")
+        constituents = _json_array(self.constituent_verse_passage_ids_json)
+        if not all(isinstance(item, str) and item for item in constituents):
+            raise ValueError("constituent verse passage IDs must be nonempty strings")
+        expected_constituents = 2 if self.granularity == "two_verse" else 5
+        if self.granularity in {"two_verse", "five_verse"}:
+            if len(constituents) != expected_constituents:
+                raise ValueError("window passages require their exact constituent verse IDs")
+        elif constituents:
+            raise ValueError("non-window passages cannot declare constituent verse IDs")
+        if self.start_stream_position_in_corpus > self.end_stream_position_in_corpus:
+            raise ValueError("passage stream positions must be ordered")
         for field_name in (
             "lemma_sequence_json",
             "root_sequence_json",
@@ -216,9 +240,13 @@ PASSAGE_POLARS_SCHEMA = pl.Schema(
         "start_reference": pl.String,
         "end_reference": pl.String,
         "reference_sequence_json": pl.String,
+        "token_ids_json": pl.String,
         "source_unit_id": pl.String,
+        "constituent_verse_passage_ids_json": pl.String,
         "start_token_id": pl.String,
         "end_token_id": pl.String,
+        "start_stream_position_in_corpus": pl.Int64,
+        "end_stream_position_in_corpus": pl.Int64,
         "token_count": pl.Int64,
         "visible_token_count": pl.Int64,
         "zero_width_token_count": pl.Int64,
@@ -477,6 +505,7 @@ class SegmentationMetadataRow(SegmentationRow):
     processing_environment_json: str
     runtime_seconds: float = Field(ge=0)
     approximate_peak_memory_bytes: int | None = Field(default=None, ge=0)
+    output_size_bytes: int = Field(ge=0)
 
     @field_validator(
         "input_source_versions_json",
@@ -527,6 +556,7 @@ SEGMENTATION_METADATA_POLARS_SCHEMA = pl.Schema(
         "processing_environment_json": pl.String,
         "runtime_seconds": pl.Float64,
         "approximate_peak_memory_bytes": pl.Int64,
+        "output_size_bytes": pl.Int64,
     }
 )
 SEGMENTATION_METADATA_COLUMNS: tuple[str, ...] = tuple(SEGMENTATION_METADATA_POLARS_SCHEMA)

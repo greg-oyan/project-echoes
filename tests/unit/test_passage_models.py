@@ -63,9 +63,13 @@ def _passage_values() -> dict[str, object]:
         "start_reference": "GEN 1:1",
         "end_reference": "GEN 1:1",
         "reference_sequence_json": '["GEN 1:1"]',
+        "token_ids_json": '["HB_GEN_001_001_0001"]',
         "source_unit_id": None,
+        "constituent_verse_passage_ids_json": "[]",
         "start_token_id": "HB_GEN_001_001_0001",
         "end_token_id": "HB_GEN_001_001_0001",
+        "start_stream_position_in_corpus": 1,
+        "end_stream_position_in_corpus": 1,
         "token_count": 1,
         "visible_token_count": 1,
         "zero_width_token_count": 0,
@@ -253,6 +257,7 @@ def test_exclusion_issue_and_metadata_json_contracts() -> None:
         table_physical_hashes_json="{}",
         processing_environment_json="{}",
         runtime_seconds=0.1,
+        output_size_bytes=0,
     )
 
     assert exclusion.related_passage_ids_json == json.dumps([passage_id])
