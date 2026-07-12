@@ -1,8 +1,8 @@
 # Milestone 4 Part 1 summary: OSHB Ketiv/Qere supplement
 
-Date: 2026-07-11
+Date: 2026-07-11; PR repair completed 2026-07-12
 Branch: `feature/m4-part1-oshb-ketiv-qere` (cut from post-merge main after PR #3)
-Executing agent: Claude (delegated run)
+Executing agents: Claude (initial delegated run); Codex (PR #4 repair)
 
 All tasks completed with green gates; no blocker report was needed and no stop
 condition fired. Every commit passed `uv run ruff check .`,
@@ -15,7 +15,8 @@ full-corpus work additionally passed
 
 ## Digest table (stop-condition anchors)
 
-Both digests, both corpora, identical before and after every task in this run:
+All recorded digests for both primary corpora remain identical before and
+after the supplement repair:
 
 | Corpus | Tokens | Digest | Before (recorded baseline) | After (post-supplement) |
 |---|---:|---|---|---|
@@ -23,12 +24,98 @@ Both digests, both corpora, identical before and after every task in this run:
 | Hebrew | 475,911 | content | `7fb443c3f0c42ada5d89f3abad61dd304145863044107ac86277c9f05f76cc82` | identical |
 | Greek | 137,779 | identity | `9035fea8d73a2b2078ad2adc70f8389040dbe2051ee535b2ce88412f551df6f2` | identical |
 | Greek | 137,779 | content | `a5ede58d287c2d29d5dacc7adeb07ff5c6a10587e2949875928b2dd935c8c683` | identical |
+| Hebrew | 475,911 | analytical | `9464a106684b63ff57bcd9dd754bcd0c875d7ea8157fc7bfe643d7eb66dab173` | identical |
+| Greek | 137,779 | analytical | `31404eb29a1f71855f3670f6f895e3fadc3ab0b39e2685c3cf672620df08a2a1` | identical |
 
 The content digest (`corpus_content_digest`) was introduced by Task 1 of this
 run: SHA-256 over corpus-position-ordered
 `token_id\0surface_form\0normalized_form\0lemma\n` rows encoded UTF-8, null
 lemma as the empty string. All four values are asserted permanently by the
 opt-in full-corpus regression.
+
+The historical `corpus_content_digest` is now documented accurately as a
+surface/normalized-form/lemma compatibility digest. The separate versioned
+`corpus_analytical_digest` covers stable source identity, source and normalized
+forms, lexical, morphological, sentence/clause/phrase, syntactic, semantic,
+participant, language, and variant fields. It canonicalizes null and serialized
+JSON, excludes environment-dependent values, and is invariant to input row
+order.
+
+## PR #4 repair addendum (2026-07-12)
+
+### Source-native OSHB identity
+
+OSHB loci now preserve both the exact OSIS `source_book_identifier` and the
+mapped `canonical_book`. Token IDs normalize only the source identifier to
+bounded uppercase ASCII alphanumerics; source references retain the exact OSIS
+casing, while `book` and all MACULA joins use the canonical code. The corrected
+2 Kings example is:
+
+```text
+token_id:                 HB_2KGS_008_010_0006~94c99d606560
+source_edition_reference: 2Kgs 8:10
+source_word_id:            2Kgs 8:10!6
+book / canonical_book:     2KI
+source_book_identifier:    2Kgs
+```
+
+Changing the `2Kgs -> 2KI` mapping cannot change that token ID. Of the 1,268
+supplement IDs, 813 changed because their source OSIS book identifier differs
+from the former canonical namespace; all 1,268 corrected IDs remain unique and
+collision-free. No primary Hebrew or Greek token ID changed.
+
+### Corrected supplement hashes and determinism
+
+The corrected K/Q schema version is 2 and run ID is
+`oshb-kq-0fed79a1841208ff4d77`. Two consecutive full `ingest-oshb-kq --force`
+runs produced a byte-identical `table-hashes.json`, proving both physical
+Parquet and logical-table determinism.
+
+| Table | Parquet SHA-256 | Logical SHA-256 |
+|---|---|---|
+| Ketiv tokens | `c14187ed7cdcfa03367c2fbc1a2630e08f0dc51258626d78d95e96967d9cf7da` | `7bb67cebc45c06943a7f1fc2e241202f100a19cf7ad6dd6b0933d999ac01d238` |
+| Locus registry | `61d3bb76c218537dfc401864685100285308367aa5f2020a2101a97d3c696304` | `ae6e70a8d1dd75cccfef85bb5535051134104f03d57490976d4e30f93c60f022` |
+| Structural alignments | `ce59933c69da553f1b74a26296606fc141bdc46c9b9efc399926be9f2e654b58` | `ac0c9ebffe971ef9178ef47edbf868d9f904a189133dccf907f815651b867df9` |
+
+### Explicit Ketiv analytical structure
+
+`kq_structural_alignments.parquet` contains one row for every Ketiv token,
+with a first-class locus ID, separate sentence/clause/phrase memberships,
+ordered structural anchors, method, confidence, resolution status, and
+field-level notes. Paired loci use unanimous replaced-Qere anchors. Ketiv-only
+loci use the nearest primary token on each side within the same verse and only
+when both agree. No inherited value is written into an OSHB source-native
+annotation field.
+
+| Measure | Resolved | Total | Rate |
+|---|---:|---:|---:|
+| Sentence membership, loci | 1,251 | 1,251 | 100.00% |
+| Clause membership, loci | 998 | 1,251 | 79.78% |
+| Phrase membership, loci | 449 | 1,251 | 35.89% |
+| Fully resolved structure, loci | 448 | 1,251 | 35.81% |
+| Partially resolved structure, loci | 803 | 1,251 | 64.19% |
+| Wholly unresolved structure, loci | 0 | 1,251 | 0.00% |
+
+At token level, 449 of 1,268 rows are fully resolved and 819 are partially
+resolved; sentence/clause/phrase memberships resolve for 1,268/1,013/450
+tokens respectively. Every partial full-corpus locus and every field-level
+reason is enumerated in
+[`m4-part1-structural-unresolved.csv`](m4-part1-structural-unresolved.csv).
+The enriched Ketiv stream exposes the resolved IDs and computes clause
+positions from them; null membership always carries an explicit partial or
+unresolved status and reason.
+
+### Approved disputed-passage policy
+
+`MRK 16:20 -> MRK 16:99` is now modeled as a physical source successor and a
+separate mandatory analytical boundary. No two- or five-verse window may cross
+it. `edition_complete` retains every inline edition token;
+`critical_core` excludes `MRK 16:9-20`, `MRK 16:99`, and `JHN 7:53-8:11`.
+Omitted verse numbers are never fabricated; source-order windows across an
+edition omission must record `reference_gap`; alternate readings are never
+concatenated because of file order. Future disputed-text candidates require a
+data-quality flag and cannot remain unqualified strong candidates without the
+registered exclusion survival or textual-critical review.
 
 ## Task 0 — Ratify and merge PR #3: COMPLETED
 
@@ -91,7 +178,9 @@ conditions cleared with enormous margin):
   type="x-qere">`), emits 1,268 `variant_type=ketiv` canonical schema v2
   tokens with OSHB provenance. Token IDs are generated through the existing
   identity module at the vacant source word positions with source-record
-  disambiguation (e.g. `HB_2KI_008_010_0006~94c99d606560`); zero collisions
+  disambiguation. The initial canonical-book example
+  `HB_2KI_008_010_0006~94c99d606560` is superseded by the corrected
+  source-native `HB_2KGS_008_010_0006~94c99d606560`; zero collisions
   proven against both corpora (475,911 Hebrew + 137,779 Greek IDs).
 - Book-code mapping `src/echoes/align/book_codes.py`: 39-book bijection with
   tests (2Kgs→2KI, Ps→PSA, Song→SNG, Nah→NAM, Joel→JOL, …).
@@ -117,7 +206,8 @@ conditions cleared with enormous margin):
   `HB_2KI_008_010_0007.01/.02`); plus GEN 8:17, DEU 5:10 (Torah), ISA 3:16
   (Prophets), PSA 5:9 and RUT 2:1 (Writings), all paired/exact/1.0. No
   conflict example exists to record.
-- Run ID `oshb-kq-c464b2dbc5818b2532f8`; validation: 0 errors, 120 warnings
+- Superseded run ID `oshb-kq-c464b2dbc5818b2532f8`; corrected schema-v2 run
+  ID `oshb-kq-0fed79a1841208ff4d77`; validation: 0 errors, 120 warnings
   (all `language-inferred` for ketiv tokens inside documented Aramaic
   passages of Daniel and Ezra).
 
@@ -170,15 +260,17 @@ scholarly question in the manifest, not decided here.
   side licensing questions untouched). A narrowly scoped `.gitignore`
   exception tracks this one metadata file, with the reason recorded inline.
 
-## Task 5 — Segmentation contiguity constraint: COMPLETED
+## Task 5 — Disputed-passage segmentation policy: CORRECTED
 
-- `config/segmentation.yaml` declares `non_contiguous_verse_adjacencies`
-  with MRK 16:20 → MRK 16:99 (shorter-ending pseudo-verse), schema-validated
-  (same book, distinct, well-formed, unique) with unit tests per failure
-  path.
-- `docs/segmentation.md` documents the pseudo-verse, the inline pericope
-  adulterae, and the fifteen edition-omitted verses as facts awaiting the
-  owner's analysis policy. Milestone 5 must enforce; this run only records.
+- The initial `non_contiguous_verse_adjacencies` declaration was removed
+  because it conflated source order with analytical continuity.
+- Schema version 2 records `MRK 16:20 -> MRK 16:99` separately as an
+  alternate-ending source successor and as an analytical boundary prohibiting
+  both two-verse and five-verse windows.
+- The owner-approved `edition_complete`/`critical_core`, reference-gap,
+  no-fabrication, alternate-reading, and disputed-candidate rules are now
+  schema-validated. ADR 0011 records the decision. Passage generation remains
+  Milestone 5 scope.
 
 ## Superseded artifacts
 
@@ -196,9 +288,10 @@ scholarly question in the manifest, not decided here.
    perpetual qere forms as variants; whether the 1,260 encoded loci exhaust
    the Leningrad K/Q tradition needs a scholarly cross-check (manifest
    unresolved question).
-2. **Disputed-passage analysis policy** (owner): treatment of MRK 16:99, the
-   inline pericope adulterae, and window behavior at edition-omitted verses
-   for Milestone 5 segmentation.
+2. **Disputed-passage implementation:** the owner policy is resolved and
+   validated declaratively in this PR. Materializing both profiles, enforcing
+   boundaries/reference gaps in passage output, and applying candidate flags
+   remain their registered future-milestone work.
 3. **Milestone 7 obligation:** candidates whose evidence tokens intersect a
    registry locus must set `data_quality_status`; the registry is ready, the
    flagging is not yet implemented.
@@ -209,6 +302,24 @@ scholarly question in the manifest, not decided here.
    Strong-style lemmas into a comparable namespace is future supplementary
    work, not attempted here.
 
+## Repair verification
+
+- `uv sync`: 39 packages resolved and checked.
+- Ruff lint and format check: passed; 77 files formatted.
+- Mypy: passed; 49 source files.
+- Default pytest suite: 207 passed, 8 opt-in full-corpus tests skipped by
+  design.
+- Opt-in full-corpus regression: 8 passed.
+- Configuration validation: 14 files passed.
+- Source governance and canonical-hash audit: 12 records and all three locally
+  present acquired sources passed.
+- Corpus validation: Hebrew 475,911 tokens / 39 books / 929 chapters / zero
+  errors; Greek 137,779 / 27 / 260 / zero errors; unified validation passed
+  both.
+- Full supplement validation: 1,268 Ketiv tokens, zero errors, 120 documented
+  Aramaic-language inference warnings; two consecutive physical and logical
+  builds identical.
+
 ## Commits on this branch
 
 1. `4973ac8` Add content-level corpus digest baseline
@@ -216,4 +327,6 @@ scholarly question in the manifest, not decided here.
 3. `fb1ba19` Implement the OSHB Ketiv/Qere supplement per ADR 0009
 4. `e3c6b2d` Add supplementary annotation-alignment infrastructure
 5. `8a4affa` Record the Mark-ending segmentation contiguity constraint
-6. (this commit) Milestone 4 Part 1 summary, changelog, and experiment log
+6. `4445020` Milestone 4 Part 1 summary, changelog, and experiment log
+7. (this repair commit) Correct source identity, Ketiv structure, disputed
+   passage policy, and analytical digests

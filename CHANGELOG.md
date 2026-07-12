@@ -17,18 +17,33 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
   queryable K/Q locus registry with per-locus alignment method and
   confidence (the Milestone 7 `data_quality_status` input); deterministic
   `analysis_reading=ketiv` stream substitution with the qere stream
-  byte-identical to its pre-supplement state; a content-level corpus digest
+  byte-identical to its pre-supplement state; a surface/lemma compatibility digest
   (`corpus_content_digest`) recorded for both corpora as permanent
   regression anchors alongside the identity digests; generalized
   supplementary annotation-alignment tables enforcing the beside-not-over
   contract with overwrite-attempt failure tests; the first governed
   versification-crosswalk instance (39 OSHB-to-MACULA book mappings with
   method and confidence); and a validated segmentation declaration of the
-  MRK 16:20-to-16:99 shorter-ending adjacency for Milestone 5 to enforce.
-  Hebrew and Greek identity digests, content digests, and token counts
+  initial MRK 16:20-to-16:99 source-order declaration, now superseded by the
+  separate source-successor and forbidden analytical-boundary policy below.
+  Hebrew and Greek identity digests, surface/lemma digests, and token counts
   (475,911 / 137,779) are unchanged throughout.
 
 ### Fixed
+
+- PR #4 repair: OSHB Ketiv token identity now derives from the normalized
+  source-native OSIS book identifier (`2Kgs` → `2KGS`) while canonical MACULA
+  codes remain separate join keys; the supplement retains both reference
+  schemes. A deterministic supplementary structural table maps Ketiv tokens
+  to MACULA sentence, clause, and phrase units only through explicit Qere or
+  two-sided adjacency consensus, preserving every boundary disagreement and
+  leaving OSHB source-native syntax null. A versioned comprehensive analytical
+  digest now protects stable Hebrew and Greek downstream fields beside the
+  historical surface/lemma compatibility digest. The disputed-passage policy
+  now separates source succession from analytical continuity, forbids Mark
+  16:20/16:99 multi-verse windows, registers `edition_complete` and
+  `critical_core` profiles, and pins reference-gap and future-candidate review
+  rules without implementing Milestone 5 passage generation.
 
 - Canonical-byte checksum remediation: the Milestone 2 SHA-256 inventory had been
   computed on a Windows text-mode (CRLF) checkout. Acquisition checkouts now disable

@@ -86,9 +86,52 @@
 - Premise verification (pre-implementation study, reproduced by the shipped adapter): 1,108/1,108 K/Q verses frame-match (MACULA present word numbers equal OSHB slots minus ketiv slots); 0 gap violations; 1,254/1,254 qere surfaces exactly equal MACULA under NFC; 0 MACULA gaps outside K/Q verses; the only structural oddities are non-variant notes inside ketiv runs at Jer 48:44, Job 38:1, and Job 40:6, handled by the adjacency rule.
 - Result: 1,260 loci (1,245 paired, 6 ketiv-only, 9 qere-only) yielding 1,268 `variant_type=ketiv` schema v2 tokens with OSHB provenance and zero token-ID collisions against 475,911 Hebrew and 137,779 Greek IDs; zero conflicts recorded (conflict paths proven on synthetic fixtures); 120 informational language-inferred warnings for Aramaic-passage ketiv tokens; run ID `oshb-kq-c464b2dbc5818b2532f8`.
 - Streams: the supplemented `ketiv` analysis stream substitutes OSHB readings at all paired loci with continuous deterministic positions; the `qere` stream is byte-identical to its pre-supplement state.
-- Digest gate: Hebrew identity `91e923e6…`/content `7fb443c3…` and Greek identity `9035fea8…`/content `a5ede58d…` all unchanged; the content digests were newly baselined this run (SHA-256 over corpus-position-ordered `token_id\0surface_form\0normalized_form\0lemma\n` rows, null lemma as empty string) and are asserted by the opt-in regression.
-- Infrastructure: generalized supplementary annotation-alignment tables (1,254 qere_surface rows, all agreeing) enforcing the beside-not-over contract; first governed versification-crosswalk instance with 39 book mappings; MRK 16:20→16:99 adjacency declared for Milestone 5.
+- Digest gate: Hebrew identity `91e923e6…`/surface-lemma `7fb443c3…` and Greek identity `9035fea8…`/surface-lemma `a5ede58d…` all unchanged; these compatibility digests were newly baselined this run (SHA-256 over corpus-position-ordered `token_id\0surface_form\0normalized_form\0lemma\n` rows, null lemma as empty string) and are asserted by the opt-in regression.
+- Infrastructure: generalized supplementary annotation-alignment tables (1,254 qere_surface rows, all agreeing) enforcing the beside-not-over contract; first governed versification-crosswalk instance with 39 book mappings; the initial MRK 16:20→16:99 source-order declaration was later superseded by the explicit source-successor and forbidden analytical-boundary policy recorded in the 2026-07-12 repair entry.
 - Sanity: 1,260 loci sits within the ~1,300–1,600 range commonly cited for the Leningrad tradition given counting-method differences; whether OSHB's encoding exhausts the tradition (perpetual qere is unmarked in both sources) is recorded as an open scholarly question.
 - Boundary: no STEPBible acquisition or licensing resolution, no segmentation enforcement, no candidate work.
+
+## 2026-07-12 - PR #4 source-identity, structural, and policy repair
+
+- Purpose: repair Milestone 4 Part 1 before merge without beginning STEPBible,
+  passage generation, benchmark, or discovery work.
+- OSHB identity: every locus now retains the OSIS source book identifier and
+  canonical MACULA code separately. The corrected 2 Kings token namespace is
+  `HB_2KGS_...`; exact source references remain `2Kgs ...`, while canonical
+  joins and `book` remain `2KI`. Of 1,268 Ketiv IDs, 813 changed namespace;
+  all remain unique and collision-free.
+- Structural alignment: one deterministic supplementary row per Ketiv token;
+  paired rows use unanimous replaced-Qere anchors and Ketiv-only rows use
+  agreeing two-sided same-verse neighbors. No OSHB source-native syntax field
+  is populated. Across 1,251 Ketiv-bearing loci, sentence/clause/phrase
+  membership resolves for 1,251/998/449; 448 loci are fully resolved, 803 are
+  explicitly partial, and none are wholly unresolved. Every partial locus is
+  recorded in `outputs/reports/m4-part1-structural-unresolved.csv`.
+- Primary digest gate: Hebrew identity
+  `91e923e6f4234e3d1946ad6fb1487f5894ec4e28f2fd3c919bf6ebd1680693b6`
+  and surface/lemma
+  `7fb443c3f0c42ada5d89f3abad61dd304145863044107ac86277c9f05f76cc82`
+  remain unchanged; Greek identity
+  `9035fea8d73a2b2078ad2adc70f8389040dbe2051ee535b2ce88412f551df6f2`
+  and surface/lemma
+  `a5ede58d287c2d29d5dacc7adeb07ff5c6a10587e2949875928b2dd935c8c683`
+  remain unchanged. New comprehensive analytical digests are Hebrew
+  `9464a106684b63ff57bcd9dd754bcd0c875d7ea8157fc7bfe643d7eb66dab173`
+  and Greek
+  `31404eb29a1f71855f3670f6f895e3fadc3ab0b39e2685c3cf672620df08a2a1`.
+- Supplement determinism: corrected run ID
+  `oshb-kq-0fed79a1841208ff4d77`; Ketiv-token logical SHA-256
+  `7bb67cebc45c06943a7f1fc2e241202f100a19cf7ad6dd6b0933d999ac01d238`;
+  locus-registry logical SHA-256
+  `ae6e70a8d1dd75cccfef85bb5535051134104f03d57490976d4e30f93c60f022`;
+  structural logical SHA-256
+  `ac0c9ebffe971ef9178ef47edbf868d9f904a189133dccf907f815651b867df9`.
+  Two consecutive full rebuilds produced identical physical and logical hash
+  documents.
+- Segmentation policy: ADR 0011 separates the `MRK 16:20 -> MRK 16:99`
+  source successor from a mandatory analytical boundary, registers
+  `edition_complete` and `critical_core`, forbids fabricated omitted verses
+  and alternate-ending concatenation, and pins reference-gap and future
+  disputed-candidate rules. No passage was generated.
 
 Substantive experiments are prohibited until their prerequisite milestones and data-governance gates pass.

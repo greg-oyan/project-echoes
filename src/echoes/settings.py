@@ -222,51 +222,198 @@ class GreekIngestionConfig(EchoesModel):
 
 
 Granularity = Literal["clause", "sentence", "verse", "two_verse", "five_verse"]
+WindowGranularity = Literal["two_verse", "five_verse"]
+_VERSE_REFERENCE_PATTERN = r"^[A-Z0-9]{3} [1-9][0-9]*:[1-9][0-9]*$"
 
 
-class NonContiguousVerseAdjacency(EchoesModel):
-    """Two verses that are numerically distant yet textually adjacent.
+def _reference_coordinates(reference: str) -> tuple[str, int, int]:
+    """Return the book, chapter, and verse from a validated verse reference."""
 
-    Milestone 5 segmentation must treat the pair as adjacent (or explicitly
-    exclude the span) instead of assuming verse-number continuity; this
-    declaration only records the edition fact.
+    book, location = reference.split(" ", maxsplit=1)
+    chapter, verse = location.split(":", maxsplit=1)
+    return book, int(chapter), int(verse)
+
+
+class SourceVerseSuccessor(EchoesModel):
+    """A physical verse-to-verse succession in a pinned source edition.
+
+    Source succession records file or edition order only. It does not grant
+    permission for an analytical passage to cross the same boundary.
     """
 
+    source_id: str = Field(min_length=1)
     corpus: Literal["hebrew", "greek"]
-    from_reference: str = Field(pattern=r"^[A-Z0-9]{3} [1-9][0-9]*:[1-9][0-9]*$")
-    to_reference: str = Field(pattern=r"^[A-Z0-9]{3} [1-9][0-9]*:[1-9][0-9]*$")
+    from_reference: str = Field(pattern=_VERSE_REFERENCE_PATTERN)
+    to_reference: str = Field(pattern=_VERSE_REFERENCE_PATTERN)
+    relation: Literal["edition_sequence", "alternate_ending"]
+    reference_gap: bool
     reason: str = Field(min_length=1)
 
     @model_validator(mode="after")
-    def adjacency_is_within_one_book_and_directed(self) -> Self:
-        from_book = self.from_reference.split(" ", maxsplit=1)[0]
-        to_book = self.to_reference.split(" ", maxsplit=1)[0]
+    def successor_is_within_one_book_and_directed(self) -> Self:
+        from_book = _reference_coordinates(self.from_reference)[0]
+        to_book = _reference_coordinates(self.to_reference)[0]
         if from_book != to_book:
-            raise ValueError("verse adjacency must stay inside one book")
+            raise ValueError("source successor must stay inside one book")
         if self.from_reference == self.to_reference:
-            raise ValueError("verse adjacency requires two distinct references")
+            raise ValueError("source successor requires two distinct references")
         return self
 
 
-class SegmentationConfig(EchoesModel):
-    """Planned passage granularities and recorded edition adjacency facts."""
+class AnalyticalBoundaryBreak(EchoesModel):
+    """A source boundary that configured verse windows may not cross."""
 
-    schema_version: Literal[1]
+    corpus: Literal["hebrew", "greek"]
+    from_reference: str = Field(pattern=_VERSE_REFERENCE_PATTERN)
+    to_reference: str = Field(pattern=_VERSE_REFERENCE_PATTERN)
+    prohibited_window_granularities: list[WindowGranularity] = Field(min_length=1)
+    reason: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def boundary_is_within_one_book_and_directed(self) -> Self:
+        from_book = _reference_coordinates(self.from_reference)[0]
+        to_book = _reference_coordinates(self.to_reference)[0]
+        if from_book != to_book:
+            raise ValueError("analytical boundary must stay inside one book")
+        if self.from_reference == self.to_reference:
+            raise ValueError("analytical boundary requires two distinct references")
+        if len(self.prohibited_window_granularities) != len(
+            set(self.prohibited_window_granularities)
+        ):
+            raise ValueError("prohibited window granularities must be unique")
+        return self
+
+
+class DisputedPassage(EchoesModel):
+    """An inline source range requiring explicit analytical treatment."""
+
+    passage_id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    corpus: Literal["hebrew", "greek"]
+    start_reference: str = Field(pattern=_VERSE_REFERENCE_PATTERN)
+    end_reference: str = Field(pattern=_VERSE_REFERENCE_PATTERN)
+    classification: Literal["longer_ending", "alternate_ending", "pericope_adulterae"]
+    source_presence: Literal["inline"]
+    reason: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def range_is_ordered_inside_one_book(self) -> Self:
+        start = _reference_coordinates(self.start_reference)
+        end = _reference_coordinates(self.end_reference)
+        if start[0] != end[0]:
+            raise ValueError("disputed passage must stay inside one book")
+        if start[1:] > end[1:]:
+            raise ValueError("disputed passage references must be ordered")
+        return self
+
+
+class AnalysisProfile(EchoesModel):
+    """A named selection of the source edition's inline token stream."""
+
+    name: Literal["edition_complete", "critical_core"]
+    base_stream: Literal["source_inline"]
+    excluded_disputed_passage_ids: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def exclusions_are_unique(self) -> Self:
+        if len(self.excluded_disputed_passage_ids) != len(set(self.excluded_disputed_passage_ids)):
+            raise ValueError("profile exclusions must be unique")
+        return self
+
+
+class ReferenceGapPolicy(EchoesModel):
+    """How future passage generation handles edition-level numbering gaps."""
+
+    fabricate_omitted_references: Literal[False]
+    allow_source_order_adjacency_across_numbering_gaps: Literal[True]
+    mark_reference_gap: Literal[True]
+    concatenate_alternate_readings_from_source_order: Literal[False]
+
+
+class DisputedCandidatePolicy(EchoesModel):
+    """Future candidate safeguards for evidence intersecting disputed text."""
+
+    flag_candidates: Literal[True]
+    candidate_flag_field: Literal["disputed_passage_flag"]
+    strong_candidate_requires: Literal[
+        "survives_disputed_text_exclusion_or_completed_textual_criticism_review"
+    ]
+
+
+class SegmentationConfig(EchoesModel):
+    """Planned passage units and their source-order and analysis policies."""
+
+    schema_version: Literal[2]
     status: Literal["planned"]
     granularities: list[Granularity]
     preserve_token_boundaries: Literal[True]
-    non_contiguous_verse_adjacencies: list[NonContiguousVerseAdjacency] = Field(
-        default_factory=list
-    )
+    default_analysis_profile: Literal["edition_complete", "critical_core"]
+    source_successors: list[SourceVerseSuccessor] = Field(default_factory=list)
+    analytical_boundary_breaks: list[AnalyticalBoundaryBreak] = Field(default_factory=list)
+    disputed_passages: list[DisputedPassage] = Field(default_factory=list)
+    analysis_profiles: list[AnalysisProfile] = Field(min_length=2)
+    reference_gap_policy: ReferenceGapPolicy
+    disputed_candidate_policy: DisputedCandidatePolicy
 
     @model_validator(mode="after")
-    def adjacencies_are_unique(self) -> Self:
-        pairs = [
-            (item.corpus, item.from_reference, item.to_reference)
-            for item in self.non_contiguous_verse_adjacencies
+    def declarations_are_consistent(self) -> Self:
+        if len(self.granularities) != len(set(self.granularities)):
+            raise ValueError("segmentation granularities must be unique")
+
+        successor_pairs = [
+            (item.source_id, item.corpus, item.from_reference, item.to_reference)
+            for item in self.source_successors
         ]
-        if len(pairs) != len(set(pairs)):
-            raise ValueError("non_contiguous_verse_adjacencies must be unique")
+        if len(successor_pairs) != len(set(successor_pairs)):
+            raise ValueError("source_successors must be unique")
+
+        boundary_pairs = [
+            (item.corpus, item.from_reference, item.to_reference)
+            for item in self.analytical_boundary_breaks
+        ]
+        if len(boundary_pairs) != len(set(boundary_pairs)):
+            raise ValueError("analytical_boundary_breaks must be unique")
+
+        disputed_ids = [item.passage_id for item in self.disputed_passages]
+        if len(disputed_ids) != len(set(disputed_ids)):
+            raise ValueError("disputed passage IDs must be unique")
+        declared_disputed_ids = set(disputed_ids)
+
+        profile_names = [profile.name for profile in self.analysis_profiles]
+        if len(profile_names) != len(set(profile_names)):
+            raise ValueError("analysis profile names must be unique")
+        profiles = {profile.name: profile for profile in self.analysis_profiles}
+        if self.default_analysis_profile not in profiles:
+            raise ValueError("default analysis profile must be declared")
+        if set(profiles) != {"edition_complete", "critical_core"}:
+            raise ValueError("edition_complete and critical_core profiles are required")
+
+        for profile in self.analysis_profiles:
+            unknown = set(profile.excluded_disputed_passage_ids) - declared_disputed_ids
+            if unknown:
+                raise ValueError(
+                    f"profile excludes unknown disputed passage IDs: {sorted(unknown)}"
+                )
+        if profiles["edition_complete"].excluded_disputed_passage_ids:
+            raise ValueError("edition_complete must include all inline disputed passages")
+        if set(profiles["critical_core"].excluded_disputed_passage_ids) != declared_disputed_ids:
+            raise ValueError("critical_core must exclude every declared disputed passage")
+
+        blocked_windows = {"two_verse", "five_verse"}
+        boundary_windows = {
+            (item.corpus, item.from_reference, item.to_reference): set(
+                item.prohibited_window_granularities
+            )
+            for item in self.analytical_boundary_breaks
+        }
+        for successor in self.source_successors:
+            if successor.relation != "alternate_ending":
+                continue
+            key = (successor.corpus, successor.from_reference, successor.to_reference)
+            if boundary_windows.get(key) != blocked_windows:
+                raise ValueError(
+                    "alternate-ending source successors must prohibit two-verse "
+                    "and five-verse windows at a matching analytical boundary"
+                )
         return self
 
 

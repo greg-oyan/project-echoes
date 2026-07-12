@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import polars as pl
 import pytest
 
+from echoes.align.supplementary import build_kq_structural_alignments
 from echoes.corpus.models import CanonicalToken
 from echoes.ingest.oshb_ketiv_qere import build_kq_supplement
 from echoes.manifests.sources import SourceManifest
@@ -50,6 +52,23 @@ def test_paired_locus_keys_into_vacant_slot_with_stable_identity(
     assert qere_ids == ["HB_GEN_001_001_0003"]
 
 
+def test_source_and_canonical_book_references_are_both_preserved(
+    kq_supplement_result,
+) -> None:
+    locus = _registry_by_id(kq_supplement_result)["KQL_GEN_001_001_0002"]
+    token_id = json.loads(locus["ketiv_token_ids_json"])[0]
+    token = kq_supplement_result.ketiv_tokens.filter(pl.col("token_id") == token_id).row(
+        0, named=True
+    )
+
+    assert locus["source_book_identifier"] == "Gen"
+    assert locus["canonical_book"] == "GEN"
+    assert locus["book"] == "GEN"
+    assert token["source_edition_reference"] == "Gen 1:1"
+    assert token["source_word_id"] == "Gen 1:1!2"
+    assert token["book"] == "GEN"
+
+
 def test_ketiv_tokens_satisfy_canonical_schema_v2(kq_supplement_result) -> None:
     rows = kq_supplement_result.ketiv_tokens.to_dicts()
 
@@ -63,6 +82,96 @@ def test_ketiv_tokens_satisfy_canonical_schema_v2(kq_supplement_result) -> None:
         assert token.ketiv_form == token.surface_form
         assert token.qere_form is None
         assert token.source_id == "oshb-morphhb"
+        assert token.sentence_id is None
+        assert token.clause_id is None
+        assert token.phrase_id is None
+
+
+def test_structural_map_resolves_paired_single_multi_and_ketiv_only(
+    kq_supplement_result,
+) -> None:
+    rows = {
+        json.loads(row["notes"])["locus_id"]: row
+        for row in kq_supplement_result.structural_alignments.to_dicts()
+    }
+
+    paired_single = rows["KQL_GEN_001_001_0002"]
+    assert paired_single["structural_anchor_token_ids"] == ["HB_GEN_001_001_0003"]
+    assert paired_single["alignment_method"] == "paired_qere_consensus"
+    assert paired_single["resolution_status"] == "resolved"
+    assert paired_single["analysis_clause_id"].endswith("#kq-cl-1")
+    assert paired_single["analysis_sentence_id"] is not None
+    assert paired_single["analysis_phrase_id"].endswith("#kq-ph-1")
+
+    paired_multi = rows["KQL_GEN_001_005_0002"]
+    assert paired_multi["structural_anchor_token_ids"] == [
+        "HB_GEN_001_005_0004",
+        "HB_GEN_001_005_0005",
+    ]
+    assert paired_multi["resolution_status"] == "resolved"
+    assert paired_multi["analysis_phrase_id"].endswith("#kq-ph-5")
+
+    ketiv_only = rows["KQL_GEN_001_002_0002"]
+    assert ketiv_only["structural_anchor_token_ids"] == [
+        "HB_GEN_001_002_0001",
+        "HB_GEN_001_002_0003",
+    ]
+    assert ketiv_only["alignment_method"] == "adjacent_primary_consensus"
+    assert ketiv_only["alignment_confidence"] == 0.75
+    assert ketiv_only["resolution_status"] == "resolved"
+    assert ketiv_only["analysis_phrase_id"].endswith("#kq-ph-2")
+
+
+def test_paired_boundary_disagreement_is_explicit(
+    kq_primary_tokens,
+    kq_supplement_result,
+) -> None:
+    mutated = kq_primary_tokens.with_columns(
+        pl.when(pl.col("token_id") == "HB_GEN_001_005_0005")
+        .then(pl.lit("synthetic-other-clause"))
+        .otherwise(pl.col("clause_id"))
+        .alias("clause_id")
+    )
+
+    mappings = build_kq_structural_alignments(
+        mutated,
+        kq_supplement_result.ketiv_tokens,
+        kq_supplement_result.locus_registry,
+    )
+    rows = mappings.filter(pl.col("notes").str.contains("KQL_GEN_001_005_0002")).to_dicts()
+
+    assert len(rows) == 2
+    assert all(row["analysis_clause_id"] is None for row in rows)
+    assert all(row["resolution_status"] == "partially_resolved" for row in rows)
+    assert all(
+        json.loads(row["notes"])["field_status"]["analysis_clause_id"] == "boundary_disagreement"
+        for row in rows
+    )
+
+
+def test_ketiv_only_ambiguous_flanks_leave_field_unresolved(
+    kq_primary_tokens,
+    kq_supplement_result,
+) -> None:
+    mutated = kq_primary_tokens.with_columns(
+        pl.when(pl.col("token_id") == "HB_GEN_001_002_0003")
+        .then(pl.lit("synthetic-other-clause"))
+        .otherwise(pl.col("clause_id"))
+        .alias("clause_id")
+    )
+
+    mappings = build_kq_structural_alignments(
+        mutated,
+        kq_supplement_result.ketiv_tokens,
+        kq_supplement_result.locus_registry,
+    )
+    row = mappings.filter(pl.col("notes").str.contains("KQL_GEN_001_002_0002")).row(0, named=True)
+
+    assert row["analysis_clause_id"] is None
+    assert row["analysis_sentence_id"] is not None
+    assert row["analysis_phrase_id"] is not None
+    assert row["resolution_status"] == "partially_resolved"
+    assert json.loads(row["notes"])["field_status"]["analysis_clause_id"] == "boundary_disagreement"
 
 
 def test_exegesis_and_masora_notes_do_not_break_adjacency(kq_supplement_result) -> None:
@@ -155,6 +264,7 @@ def test_supplement_build_is_deterministic(
 
     assert first.ketiv_tokens.equals(second.ketiv_tokens)
     assert first.locus_registry.equals(second.locus_registry)
+    assert first.structural_alignments.equals(second.structural_alignments)
     assert first.conflicts.equals(second.conflicts)
     assert first.summary == second.summary
 

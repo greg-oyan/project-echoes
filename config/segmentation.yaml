@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 2
 status: planned
 granularities:
   - clause
@@ -7,16 +7,75 @@ granularities:
   - two_verse
   - five_verse
 preserve_token_boundaries: true
-# Edition facts Milestone 5 segmentation must honor: these verse pairs are
-# numerically distant but textually adjacent in the pinned edition. Recording
-# only; enforcement is Milestone 5 scope.
-non_contiguous_verse_adjacencies:
+default_analysis_profile: edition_complete
+
+# Physical source order is not analytical continuity. The pinned MACULA Greek
+# files place the alternate ending after the longer ending, but no multi-verse
+# analytical unit may cross this source successor.
+source_successors:
+  - source_id: macula-greek
+    corpus: greek
+    from_reference: MRK 16:20
+    to_reference: MRK 16:99
+    relation: alternate_ending
+    reference_gap: true
+    reason: >-
+      The pinned Nestle 1904 source places its alternate ending at pseudo-verse
+      16:99 immediately after the inline longer ending at 16:20.
+
+analytical_boundary_breaks:
   - corpus: greek
     from_reference: MRK 16:20
     to_reference: MRK 16:99
+    prohibited_window_granularities:
+      - two_verse
+      - five_verse
     reason: >-
-      The pinned Nestle 1904 edition encodes the shorter ending of Mark as the
-      pseudo-verse 16:99 immediately after the inline longer ending (16:9-20).
-      Sliding windows and sentence spans must not treat verses 21-98 as an
-      implicit gap, and whether the shorter ending participates in analysis at
-      all awaits the owner's disputed-passage policy.
+      MRK 16:99 is an alternate ending, not a continuation of MRK 16:20;
+      two-verse and five-verse windows must never combine the readings.
+
+disputed_passages:
+  - passage_id: mark_longer_ending
+    corpus: greek
+    start_reference: MRK 16:9
+    end_reference: MRK 16:20
+    classification: longer_ending
+    source_presence: inline
+    reason: The longer ending is present inline in the pinned Nestle 1904 source.
+  - passage_id: mark_alternate_ending
+    corpus: greek
+    start_reference: MRK 16:99
+    end_reference: MRK 16:99
+    classification: alternate_ending
+    source_presence: inline
+    reason: The alternate ending is present inline at the source pseudo-verse 16:99.
+  - passage_id: pericope_adulterae
+    corpus: greek
+    start_reference: JHN 7:53
+    end_reference: JHN 8:11
+    classification: pericope_adulterae
+    source_presence: inline
+    reason: The pericope adulterae is present inline in the pinned Nestle 1904 source.
+
+analysis_profiles:
+  - name: edition_complete
+    base_stream: source_inline
+    excluded_disputed_passage_ids: []
+  - name: critical_core
+    base_stream: source_inline
+    excluded_disputed_passage_ids:
+      - mark_longer_ending
+      - mark_alternate_ending
+      - pericope_adulterae
+
+reference_gap_policy:
+  fabricate_omitted_references: false
+  allow_source_order_adjacency_across_numbering_gaps: true
+  mark_reference_gap: true
+  concatenate_alternate_readings_from_source_order: false
+
+disputed_candidate_policy:
+  flag_candidates: true
+  candidate_flag_field: disputed_passage_flag
+  strong_candidate_requires: >-
+    survives_disputed_text_exclusion_or_completed_textual_criticism_review

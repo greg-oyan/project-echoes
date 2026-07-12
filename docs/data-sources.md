@@ -70,6 +70,27 @@ Ingestion maps the 137,779 upstream leaf word records one-to-one to 137,779 cano
 
 Punctuation attached to word text is separated losslessly into derived columns, elision marks remain part of the word core (1,223 elided tokens), crasis forms remain single tokens, and the source's accent-regularized `NormalizedForm` is preserved in a separate column. The unified `unified_tokens` DuckDB view exposes the shared canonical columns of both corpora with distinct corpus and provenance values and no token-ID collisions.
 
+## OSHB Ketiv/Qere supplementary layer
+
+The pinned Open Scriptures Hebrew Bible (`oshb-morphhb`, commit
+`3d15126fb1ef74867fc1434be1942e837932691f`) supplies the separate Ketiv
+records missing from the primary MACULA representation. Every locus preserves
+the exact OSIS `source_book_identifier` and the mapped Project Echoes/MACULA
+`canonical_book` as distinct values. Source-native identifiers drive only
+identity and source references: for example, OSHB `2Kgs` normalizes to `2KGS`
+inside `HB_2KGS_008_010_0006~94c99d606560`, while
+`source_edition_reference` remains `2Kgs 8:10` and the analytical `book`/join
+key remains `2KI`. Normalization accepts one through sixteen ASCII
+alphanumerics, applies uppercase only inside the token namespace, and rejects
+punctuation or whitespace rather than collapsing it. Existing three-character
+MACULA Hebrew and Greek namespaces are byte-identical under this rule.
+
+Inherited MACULA sentence, clause, and phrase membership is never written into
+OSHB source-native fields. It resides in a separate structural-alignment table
+with ordered anchors, method, confidence, status, and field-level resolution
+notes. Paired loci require unanimous replaced-Qere anchors; Ketiv-only loci
+require agreeing nearest primary tokens on both sides within the same verse.
+
 ## Dataset activation requirements
 
 A source remains inactive until it has:
@@ -128,21 +149,31 @@ rewrite never reached parsed XML content or token identity.
 
 ### Corpus digests
 
-Two whole-corpus SHA-256 fingerprints guard the processed primary tables; one
-implementation serves both corpora (`echoes.corpus.validation`):
+Three whole-corpus SHA-256 fingerprints guard the processed primary tables;
+one implementation serves both corpora (`echoes.corpus.validation`):
 
 - **Identity digest** (`corpus_identity_digest`): corpus-position-ordered
   `token_id\0source_record_id\0source_word_id\n` rows, UTF-8.
-- **Content digest** (`corpus_content_digest`): corpus-position-ordered
+- **Surface/lemma compatibility digest** (`corpus_content_digest`):
+  corpus-position-ordered
   `token_id\0surface_form\0normalized_form\0lemma\n` rows, UTF-8, with a null
-  lemma encoded as the empty string.
+  lemma encoded as the empty string. The historical function name is retained
+  for compatibility; it is not a comprehensive annotation digest.
+- **Analytical digest** (`corpus_analytical_digest`): a versioned canonical
+  serialization of every stable, downstream-relevant field present in the
+  Hebrew or Greek primary schema, including source identity, all forms,
+  lexical, morphological, structural, syntactic, semantic, participant,
+  language, and variant fields. Rows are ordered by preserved corpus position
+  and token identity, JSON objects are parsed and key-sorted, and null remains
+  distinct from an empty string. Relative/local path fields, timestamps, and
+  raw preservation envelopes are excluded.
 
 Recorded constants, asserted by the opt-in full-corpus regression:
 
-| Corpus | Tokens | Identity digest | Content digest |
-|---|---:|---|---|
-| Hebrew (`macula-hebrew` 25.08.11) | 475,911 | `91e923e6f4234e3d1946ad6fb1487f5894ec4e28f2fd3c919bf6ebd1680693b6` | `7fb443c3f0c42ada5d89f3abad61dd304145863044107ac86277c9f05f76cc82` |
-| Greek (`macula-greek` 24.06.17) | 137,779 | `9035fea8d73a2b2078ad2adc70f8389040dbe2051ee535b2ce88412f551df6f2` | `a5ede58d287c2d29d5dacc7adeb07ff5c6a10587e2949875928b2dd935c8c683` |
+| Corpus | Tokens | Identity digest | Surface/lemma digest | Analytical digest |
+|---|---:|---|---|---|
+| Hebrew (`macula-hebrew` 25.08.11) | 475,911 | `91e923e6f4234e3d1946ad6fb1487f5894ec4e28f2fd3c919bf6ebd1680693b6` | `7fb443c3f0c42ada5d89f3abad61dd304145863044107ac86277c9f05f76cc82` | `9464a106684b63ff57bcd9dd754bcd0c875d7ea8157fc7bfe643d7eb66dab173` |
+| Greek (`macula-greek` 24.06.17) | 137,779 | `9035fea8d73a2b2078ad2adc70f8389040dbe2051ee535b2ce88412f551df6f2` | `a5ede58d287c2d29d5dacc7adeb07ff5c6a10587e2949875928b2dd935c8c683` | `31404eb29a1f71855f3670f6f895e3fadc3ab0b39e2685c3cf672620df08a2a1` |
 
 These constants are stop-condition anchors for supplementary-annotation work:
 the base MACULA tables must remain byte-identical through all Milestone 4

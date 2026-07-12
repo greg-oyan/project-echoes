@@ -4,9 +4,11 @@
     <Trees>
       <Tree>
         <Node nodeId="kq-cl-1" Cat="CL" Rule="S-V">
+          <Node nodeId="kq-ph-1" Cat="NP">
           <m xml:id="m010010010011" word="GEN 1:1!1" lang="H" pos="noun" morph="HNcmsa" lemma="מלך">מֶלֶךְ</m>
           <m xml:id="m010010010031" word="GEN 1:1!3" lang="H" pos="prep" morph="HR/Sp3ms" lemma="ל">ל֖וֹ</m>
           <m xml:id="m010010010041" word="GEN 1:1!4" lang="H" pos="noun" morph="HNcbsa" lemma="אור">אוֹר</m>
+          </Node>
         </Node>
       </Tree>
     </Trees>
@@ -15,8 +17,10 @@
     <Trees>
       <Tree>
         <Node nodeId="kq-cl-2" Cat="CL" Rule="S-V">
+          <Node nodeId="kq-ph-2" Cat="NP">
           <m xml:id="m010010020011" word="GEN 1:2!1" lang="H" pos="noun" morph="HNcmsa" lemma="דבר">דָּבָר</m>
           <m xml:id="m010010020031" word="GEN 1:2!3" lang="H" pos="noun" morph="HNcbsa" lemma="שׁלום">שָׁלוֹם</m>
+          </Node>
         </Node>
       </Tree>
     </Trees>
@@ -47,10 +51,12 @@
     <Trees>
       <Tree>
         <Node nodeId="kq-cl-5" Cat="CL" Rule="S-V">
+          <Node nodeId="kq-ph-5" Cat="NP">
           <m xml:id="m010010050011" word="GEN 1:5!1" lang="H" pos="noun" morph="HNcmsa" lemma="ראשׁ">רֹאשׁ</m>
           <m xml:id="m010010050041" word="GEN 1:5!4" lang="H" pos="prep" morph="HR" lemma="מן">מִן</m>
           <m xml:id="m010010050051" word="GEN 1:5!5" lang="H" pos="noun" morph="HNcfsa" lemma="סערה">הַסְּעָרָה</m>
           <m xml:id="m010010050061" word="GEN 1:5!6" lang="H" pos="noun" morph="HNcmsa" lemma="קול">קוֹל</m>
+          </Node>
         </Node>
       </Tree>
     </Trees>

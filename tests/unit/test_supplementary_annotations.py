@@ -5,6 +5,7 @@ from __future__ import annotations
 import polars as pl
 
 from echoes.align.supplementary import (
+    STRUCTURAL_ALIGNMENT_COLUMNS,
     SUPPLEMENTARY_ANNOTATION_SCHEMA,
     build_kq_supplementary_annotations,
     validate_supplementary_annotations,
@@ -110,3 +111,14 @@ def test_kq_registry_rows_translate_into_annotations(kq_supplement_result) -> No
     disagreeing = annotations.filter(~pl.col("agrees"))
     assert disagreeing.height == 2  # the synthetic mismatch and consonantal loci
     assert set(annotations["alignment_method"].to_list()) == {"vacant_slot_adjacency"}
+
+
+def test_kq_structural_map_has_governed_schema_and_one_row_per_ketiv(
+    kq_supplement_result,
+) -> None:
+    structure = kq_supplement_result.structural_alignments
+
+    assert tuple(structure.columns) == STRUCTURAL_ALIGNMENT_COLUMNS
+    assert structure.height == kq_supplement_result.ketiv_tokens.height
+    assert structure["ketiv_token_id"].n_unique() == structure.height
+    assert structure["structural_anchor_token_ids"].dtype == pl.List(pl.String)

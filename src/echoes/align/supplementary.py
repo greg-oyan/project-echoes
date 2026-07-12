@@ -12,6 +12,8 @@ the first tenant.
 from __future__ import annotations
 
 import json
+from collections import defaultdict
+from typing import Literal
 
 import polars as pl
 
@@ -31,9 +33,266 @@ SUPPLEMENTARY_ANNOTATION_SCHEMA = {
 }
 SUPPLEMENTARY_ANNOTATION_COLUMNS: tuple[str, ...] = tuple(SUPPLEMENTARY_ANNOTATION_SCHEMA)
 
+STRUCTURAL_ALIGNMENT_SCHEMA = pl.Schema(
+    {  # type: ignore[arg-type]  # Polars List stub rejects its own nested dtype
+        "ketiv_token_id": pl.String,
+        "locus_id": pl.String,
+        "analysis_clause_id": pl.String,
+        "analysis_sentence_id": pl.String,
+        "analysis_phrase_id": pl.String,
+        "structural_anchor_token_ids": pl.List(pl.String),
+        "alignment_method": pl.String,
+        "alignment_confidence": pl.Float64,
+        "resolution_status": pl.String,
+        "notes": pl.String,
+    }
+)
+STRUCTURAL_ALIGNMENT_COLUMNS: tuple[str, ...] = tuple(STRUCTURAL_ALIGNMENT_SCHEMA)
+
+StructuralFieldStatus = Literal[
+    "resolved",
+    "missing_anchor",
+    "missing_primary_structure",
+    "boundary_disagreement",
+]
+
 
 class SupplementaryAnnotationError(ValueError):
     """Raised when a supplementary annotation table violates the beside-not-over rule."""
+
+
+class StructuralAlignmentError(ValueError):
+    """Raised when Ketiv analytical structure cannot be mapped deterministically."""
+
+
+def _canonical_json(value: object) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _source_word_slot(source_word_id: object) -> int:
+    try:
+        return int(str(source_word_id).rsplit("!", maxsplit=1)[-1])
+    except ValueError as exc:
+        raise StructuralAlignmentError(
+            f"source_word_id does not end in an integer word slot: {source_word_id}"
+        ) from exc
+
+
+def _field_consensus(
+    anchors: list[dict[str, object]], field_name: str
+) -> tuple[str | None, StructuralFieldStatus]:
+    if not anchors:
+        return None, "missing_anchor"
+    values = [anchor[field_name] for anchor in anchors]
+    if any(value is None for value in values):
+        return None, "missing_primary_structure"
+    unique_values = {str(value) for value in values}
+    if len(unique_values) != 1:
+        return None, "boundary_disagreement"
+    return unique_values.pop(), "resolved"
+
+
+def build_kq_structural_alignments(
+    primary_tokens: pl.DataFrame,
+    ketiv_tokens: pl.DataFrame,
+    locus_registry: pl.DataFrame,
+) -> pl.DataFrame:
+    """Map MACULA analytical structure onto OSHB Ketiv tokens without fabrication.
+
+    Paired loci use all MACULA Qere tokens replaced by the Ketiv stream.  A
+    sentence, clause, or phrase identifier is assigned only when every anchor
+    supplies the same non-null value for that field.  Ketiv-only loci use the
+    nearest primary token on each side of the complete Ketiv run, within the
+    same verse, and apply the same field-level consensus rule.  Source-native
+    structural fields on the OSHB token records remain null.
+    """
+    primary_required = {
+        "token_id",
+        "book",
+        "chapter",
+        "verse",
+        "source_word_id",
+        "position_in_corpus",
+        "sentence_id",
+        "clause_id",
+        "phrase_id",
+    }
+    ketiv_required = {"token_id"}
+    registry_required = {
+        "locus_id",
+        "kind",
+        "book",
+        "chapter",
+        "verse",
+        "ketiv_word_slots_json",
+        "ketiv_token_ids_json",
+        "macula_qere_token_ids_json",
+        "alignment_confidence",
+    }
+    for label, frame, required in (
+        ("primary token", primary_tokens, primary_required),
+        ("Ketiv token", ketiv_tokens, ketiv_required),
+        ("locus registry", locus_registry, registry_required),
+    ):
+        missing = sorted(required - set(frame.columns))
+        if missing:
+            raise StructuralAlignmentError(f"{label} frame lacks required columns: {missing}")
+
+    paired_anchor_ids: set[str] = set()
+    ketiv_only_verse_keys: set[tuple[str, int, int]] = set()
+    for registry_row in locus_registry.iter_rows(named=True):
+        kind = str(registry_row["kind"])
+        if kind == "paired":
+            paired_anchor_ids.update(
+                str(value) for value in json.loads(registry_row["macula_qere_token_ids_json"])
+            )
+        elif kind == "ketiv_only":
+            ketiv_only_verse_keys.add(
+                (
+                    str(registry_row["book"]),
+                    int(registry_row["chapter"]),
+                    int(registry_row["verse"]),
+                )
+            )
+
+    # Only Qere anchors and the six full-corpus Ketiv-only verses can
+    # participate. Filtering in Polars avoids materializing every primary row
+    # into Python dictionaries twice during build and validation.
+    primary_filter = pl.col("token_id").is_in(sorted(paired_anchor_ids))
+    for book, chapter, verse in sorted(ketiv_only_verse_keys):
+        primary_filter = primary_filter | (
+            (pl.col("book") == book) & (pl.col("chapter") == chapter) & (pl.col("verse") == verse)
+        )
+    primary_rows = (
+        primary_tokens.filter(primary_filter)
+        .select(sorted(primary_required))
+        .sort("position_in_corpus")
+    )
+    primary_by_id = {str(row["token_id"]): row for row in primary_rows.iter_rows(named=True)}
+    primary_by_verse: dict[tuple[str, int, int], list[dict[str, object]]] = defaultdict(list)
+    for row in primary_rows.iter_rows(named=True):
+        item = dict(row)
+        item["_word_slot"] = _source_word_slot(item["source_word_id"])
+        key = (str(item["book"]), int(item["chapter"]), int(item["verse"]))
+        primary_by_verse[key].append(item)
+
+    expected_ketiv_ids = set(str(value) for value in ketiv_tokens["token_id"].to_list())
+    mapped_ketiv_ids: set[str] = set()
+    rows: list[dict[str, object]] = []
+    for registry_row in locus_registry.sort("book", "chapter", "verse", "locus_id").iter_rows(
+        named=True
+    ):
+        ketiv_ids = [str(value) for value in json.loads(registry_row["ketiv_token_ids_json"])]
+        if not ketiv_ids:
+            continue
+        duplicate_ids = mapped_ketiv_ids.intersection(ketiv_ids)
+        if duplicate_ids:
+            raise StructuralAlignmentError(
+                f"Ketiv tokens occur in more than one locus: {sorted(duplicate_ids)}"
+            )
+        mapped_ketiv_ids.update(ketiv_ids)
+
+        kind = str(registry_row["kind"])
+        anchor_ids: list[str]
+        if kind == "paired":
+            anchor_ids = [
+                str(value) for value in json.loads(registry_row["macula_qere_token_ids_json"])
+            ]
+            method = "paired_qere_consensus"
+        elif kind == "ketiv_only":
+            method = "adjacent_primary_consensus"
+            slots = [int(value) for value in json.loads(registry_row["ketiv_word_slots_json"])]
+            if not slots:
+                raise StructuralAlignmentError(
+                    f"{registry_row['locus_id']}: ketiv-only locus has no word slots"
+                )
+            key = (
+                str(registry_row["book"]),
+                int(registry_row["chapter"]),
+                int(registry_row["verse"]),
+            )
+            verse_rows = primary_by_verse.get(key, [])
+            before = [row for row in verse_rows if int(str(row["_word_slot"])) < min(slots)]
+            after = [row for row in verse_rows if int(str(row["_word_slot"])) > max(slots)]
+            anchor_ids = []
+            if before:
+                anchor_ids.append(str(before[-1]["token_id"]))
+            if after:
+                anchor_ids.append(str(after[0]["token_id"]))
+            # A one-sided inference is forbidden.  Preserve the available ID
+            # for audit, but treat every structural field as unresolved.
+            if not before or not after:
+                anchor_rows: list[dict[str, object]] = []
+            else:
+                anchor_rows = [primary_by_id[token_id] for token_id in anchor_ids]
+        else:
+            raise StructuralAlignmentError(
+                f"{registry_row['locus_id']}: Ketiv tokens have unsupported locus kind {kind}"
+            )
+
+        unknown_anchor_ids = sorted(set(anchor_ids) - set(primary_by_id))
+        if unknown_anchor_ids:
+            raise StructuralAlignmentError(
+                f"{registry_row['locus_id']}: unknown structural anchors {unknown_anchor_ids}"
+            )
+        anchor_ids = sorted(
+            anchor_ids, key=lambda token_id: int(primary_by_id[token_id]["position_in_corpus"])
+        )
+        if kind == "paired":
+            anchor_rows = [primary_by_id[token_id] for token_id in anchor_ids]
+
+        clause_id, clause_status = _field_consensus(anchor_rows, "clause_id")
+        sentence_id, sentence_status = _field_consensus(anchor_rows, "sentence_id")
+        phrase_id, phrase_status = _field_consensus(anchor_rows, "phrase_id")
+        field_statuses: dict[str, StructuralFieldStatus] = {
+            "analysis_clause_id": clause_status,
+            "analysis_sentence_id": sentence_status,
+            "analysis_phrase_id": phrase_status,
+        }
+        resolved_count = sum(status == "resolved" for status in field_statuses.values())
+        if resolved_count == len(field_statuses):
+            status = "resolved"
+        elif resolved_count:
+            status = "partially_resolved"
+        else:
+            status = "unresolved"
+        confidence = 0.0
+        if resolved_count:
+            confidence = float(registry_row["alignment_confidence"])
+            if kind == "ketiv_only":
+                confidence = min(confidence, 0.75)
+        notes = _canonical_json(
+            {
+                "field_status": field_statuses,
+                "locus_id": str(registry_row["locus_id"]),
+            }
+        )
+        for ketiv_id in ketiv_ids:
+            rows.append(
+                {
+                    "ketiv_token_id": ketiv_id,
+                    "locus_id": str(registry_row["locus_id"]),
+                    "analysis_clause_id": clause_id,
+                    "analysis_sentence_id": sentence_id,
+                    "analysis_phrase_id": phrase_id,
+                    "structural_anchor_token_ids": anchor_ids,
+                    "alignment_method": method,
+                    "alignment_confidence": confidence,
+                    "resolution_status": status,
+                    "notes": notes,
+                }
+            )
+
+    if mapped_ketiv_ids != expected_ketiv_ids:
+        missing = sorted(expected_ketiv_ids - mapped_ketiv_ids)
+        unexpected = sorted(mapped_ketiv_ids - expected_ketiv_ids)
+        raise StructuralAlignmentError(
+            f"structural map differs from Ketiv token set; missing={missing[:5]}, "
+            f"unexpected={unexpected[:5]}"
+        )
+    return pl.DataFrame(rows, schema=STRUCTURAL_ALIGNMENT_SCHEMA, orient="row").sort(
+        "ketiv_token_id"
+    )
 
 
 def build_kq_supplementary_annotations(locus_registry: pl.DataFrame) -> pl.DataFrame:

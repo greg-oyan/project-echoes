@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import duckdb
@@ -17,7 +18,11 @@ from echoes.corpus.kq_supplement import (
     write_kq_supplement,
 )
 from echoes.corpus.storage import CorpusStorageError, load_hebrew_duckdb, write_processed_corpus
-from echoes.corpus.validation import corpus_content_digest, corpus_identity_digest
+from echoes.corpus.validation import (
+    corpus_analytical_digest,
+    corpus_content_digest,
+    corpus_identity_digest,
+)
 from echoes.manifest import sha256_file
 from echoes.manifests.sources import SourceManifest
 
@@ -33,6 +38,7 @@ def _write(tmp_path: Path, kq_supplement_result, kq_primary_tokens, oshb_source,
         raw_file_hashes={"wlc/Gen.xml": "0" * 64, "wlc/Dan.xml": "1" * 64},
         primary_identity_digest=corpus_identity_digest(kq_primary_tokens),
         primary_content_digest=corpus_content_digest(kq_primary_tokens),
+        primary_analytical_digest=corpus_analytical_digest(kq_primary_tokens),
         output_dir=tmp_path / "kq",
         **kwargs,
     )
@@ -51,6 +57,7 @@ def test_supplement_roundtrip_validates(
         kq_primary_tokens,
         expected_primary_identity_digest=corpus_identity_digest(kq_primary_tokens),
         expected_primary_content_digest=corpus_content_digest(kq_primary_tokens),
+        expected_primary_analytical_digest=corpus_analytical_digest(kq_primary_tokens),
     )
 
     assert report.corpus == "hebrew-kq-supplement"
@@ -104,6 +111,7 @@ def test_duckdb_pairing_view_is_queryable(
         assert {
             "hebrew_kq_ketiv_tokens",
             "hebrew_kq_locus_registry",
+            "hebrew_kq_structural_alignments",
             "hebrew_kq_conflicts",
             "hebrew_kq_metadata",
         } <= tables
@@ -113,6 +121,10 @@ def test_duckdb_pairing_view_is_queryable(
         assert row is not None and int(row[0]) >= 5
         conflict_row = connection.execute("SELECT count(*) FROM hebrew_kq_conflicts").fetchone()
         assert conflict_row is not None and int(conflict_row[0]) == 2
+        structure_row = connection.execute(
+            "SELECT count(*), count(DISTINCT ketiv_token_id) FROM hebrew_kq_structural_alignments"
+        ).fetchone()
+        assert structure_row == (7, 7)
         # Primary tables remain untouched by the supplement load.
         count_row = connection.execute("SELECT count(*) FROM hebrew_tokens").fetchone()
         assert count_row is not None and int(count_row[0]) == adapter_result.tokens.height
@@ -127,10 +139,11 @@ def test_qere_stream_is_byte_identical_to_pre_supplement_state(
         kq_primary_tokens,
         kq_supplement_result.ketiv_tokens,
         kq_supplement_result.locus_registry,
+        kq_supplement_result.structural_alignments,
         analysis_reading="qere",
     )
 
-    assert supplemented.equals(base)
+    assert supplemented.select(base.columns).equals(base)
 
 
 def test_ketiv_stream_substitutes_paired_loci_deterministically(
@@ -141,12 +154,14 @@ def test_ketiv_stream_substitutes_paired_loci_deterministically(
         kq_primary_tokens,
         kq_supplement_result.ketiv_tokens,
         kq_supplement_result.locus_registry,
+        kq_supplement_result.structural_alignments,
         analysis_reading="ketiv",
     )
     second = derive_supplemented_analysis_stream(
         kq_primary_tokens,
         kq_supplement_result.ketiv_tokens,
         kq_supplement_result.locus_registry,
+        kq_supplement_result.structural_alignments,
         analysis_reading="ketiv",
     )
 
@@ -167,10 +182,19 @@ def test_ketiv_stream_substitutes_paired_loci_deterministically(
         for ketiv_id in json.loads(row["ketiv_token_ids_json"]):
             assert ketiv_id in stream_ids
     # Verse positions are continuous inside a substituted verse.
-    gen11 = first.filter(pl.col("source_edition_reference") == "GEN 1:1").sort(
+    gen11 = first.filter(pl.col("source_edition_reference").str.to_uppercase() == "GEN 1:1").sort(
         "analysis_position_in_corpus"
     )
     assert gen11["analysis_position_in_verse"].to_list() == list(range(1, gen11.height + 1))
+    mapped = kq_supplement_result.structural_alignments.filter(
+        pl.col("ketiv_token_id").str.contains("HB_GEN_001_001_0002")
+    ).row(0, named=True)
+    stream_row = first.filter(pl.col("token_id") == mapped["ketiv_token_id"]).row(0, named=True)
+    assert stream_row["analysis_clause_id"] == mapped["analysis_clause_id"]
+    assert stream_row["analysis_sentence_id"] == mapped["analysis_sentence_id"]
+    assert stream_row["analysis_phrase_id"] == mapped["analysis_phrase_id"]
+    assert stream_row["structural_status"] == "resolved"
+    assert stream_row["analysis_position_in_clause"] is not None
 
 
 def test_validation_detects_primary_mutation(
@@ -196,3 +220,55 @@ def test_validation_detects_primary_mutation(
     assert not report.passed
     codes = {issue.code for issue in report.issues}
     assert "primary-content-changed" in codes
+
+
+def test_validation_recomputes_and_rejects_structural_mapping_drift(
+    tmp_path: Path,
+    kq_supplement_result,
+    kq_primary_tokens,
+    oshb_source: SourceManifest,
+) -> None:
+    first_id = kq_supplement_result.structural_alignments.item(0, "ketiv_token_id")
+    altered_structure = kq_supplement_result.structural_alignments.with_columns(
+        pl.when(pl.col("ketiv_token_id") == first_id)
+        .then(pl.lit("fabricated-clause"))
+        .otherwise(pl.col("analysis_clause_id"))
+        .alias("analysis_clause_id")
+    )
+    tampered_result = replace(
+        kq_supplement_result,
+        structural_alignments=altered_structure,
+    )
+    processed = _write(tmp_path, tampered_result, kq_primary_tokens, oshb_source)
+
+    report = validate_kq_supplement(processed.output_dir, kq_primary_tokens)
+
+    assert not report.passed
+    assert "structural-alignment-drift" in {issue.code for issue in report.issues}
+
+
+def test_primary_syntax_change_invalidates_analytical_digest_and_structural_map(
+    tmp_path: Path,
+    kq_supplement_result,
+    kq_primary_tokens,
+    oshb_source: SourceManifest,
+) -> None:
+    processed = _write(tmp_path, kq_supplement_result, kq_primary_tokens, oshb_source)
+    mutated = kq_primary_tokens.with_columns(
+        pl.when(pl.col("token_id") == "HB_GEN_001_001_0003")
+        .then(pl.lit("changed-primary-clause"))
+        .otherwise(pl.col("clause_id"))
+        .alias("clause_id")
+    )
+
+    report = validate_kq_supplement(
+        processed.output_dir,
+        mutated,
+        expected_primary_analytical_digest=corpus_analytical_digest(kq_primary_tokens),
+    )
+
+    codes = {issue.code for issue in report.issues}
+    assert not report.passed
+    assert "primary-analytical-changed" in codes
+    assert "primary-analytical-drift" in codes
+    assert "structural-alignment-drift" in codes

@@ -26,7 +26,7 @@ class CanonicalGreekToken(BaseModel):
 
     schema_version: Literal[1] = 1
     token_id: str = Field(
-        pattern=r"^GNT_[A-Z0-9]{3}_\d{3}_\d{3}_\d{4}(?:\.\d{2})?(?:~[a-f0-9]{12})?$"
+        pattern=r"^GNT_[A-Z0-9]{1,16}_\d{3}_\d{3}_\d{4}(?:\.\d{2})?(?:~[a-f0-9]{12})?$"
     )
     corpus: Literal["greek"] = "greek"
     source_id: str = Field(min_length=1)
@@ -34,7 +34,7 @@ class CanonicalGreekToken(BaseModel):
     source_file: str = Field(min_length=1)
     source_record_id: str = Field(min_length=1)
     source_word_id: str = Field(min_length=1)
-    source_edition_reference: str = Field(pattern=r"^[A-Z0-9]{3} [1-9][0-9]*:[1-9][0-9]*$")
+    source_edition_reference: str = Field(pattern=r"^[A-Za-z0-9]{1,16} [1-9][0-9]*:[1-9][0-9]*$")
     source_row_reference: str = Field(min_length=1)
     book: str = Field(pattern=r"^[A-Z0-9]{3}$")
     book_order: int = Field(ge=1, le=27)

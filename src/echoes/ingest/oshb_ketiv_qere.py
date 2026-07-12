@@ -31,6 +31,7 @@ import polars as pl
 from pydantic import BaseModel, ConfigDict
 
 from echoes.align.book_codes import OSHB_TO_MACULA_BOOK
+from echoes.align.supplementary import build_kq_structural_alignments
 from echoes.corpus.books import book_by_code
 from echoes.corpus.models import (
     CANONICAL_TOKEN_COLUMNS,
@@ -87,7 +88,8 @@ class OshbWord:
 
 @dataclass(slots=True)
 class RawLocus:
-    book: str  # MACULA code
+    source_book_identifier: str  # OSHB/OSIS identifier, for source identity
+    canonical_book: str  # Project Echoes/MACULA code, for joins and analysis
     chapter: int
     verse: int
     kind: LocusKind
@@ -101,6 +103,7 @@ class RawLocus:
 class KQSupplementResult:
     ketiv_tokens: pl.DataFrame
     locus_registry: pl.DataFrame
+    structural_alignments: pl.DataFrame
     conflicts: pl.DataFrame
     issues: list[IngestionIssue]
     summary: KQSupplementSummary
@@ -110,6 +113,8 @@ REGISTRY_SCHEMA = {
     "locus_id": pl.String,
     "variant_group_id": pl.String,
     "kind": pl.String,
+    "source_book_identifier": pl.String,
+    "canonical_book": pl.String,
     "book": pl.String,
     "chapter": pl.Int16,
     "verse": pl.Int16,
@@ -189,7 +194,8 @@ def _word_from_element(element: ET.Element, slot: int) -> OshbWord:
 def _parse_verse(
     verse: ET.Element,
     *,
-    book: str,
+    source_book_identifier: str,
+    canonical_book: str,
     chapter: int,
     verse_number: int,
     source_file: str,
@@ -211,7 +217,8 @@ def _parse_verse(
                 # forced onto a later note).
                 loci.append(
                     RawLocus(
-                        book=book,
+                        source_book_identifier=source_book_identifier,
+                        canonical_book=canonical_book,
                         chapter=chapter,
                         verse=verse_number,
                         kind="ketiv_only",
@@ -238,12 +245,14 @@ def _parse_verse(
                 kind = "qere_only"
             else:
                 raise KQIngestionError(
-                    f"variant note without ketiv or qere at {book} {chapter}:{verse_number}"
+                    "variant note without ketiv or qere at "
+                    f"{source_book_identifier} {chapter}:{verse_number}"
                 )
             catchword = child.find(OSIS + "catchWord")
             loci.append(
                 RawLocus(
-                    book=book,
+                    source_book_identifier=source_book_identifier,
+                    canonical_book=canonical_book,
                     chapter=chapter,
                     verse=verse_number,
                     kind=kind,
@@ -259,7 +268,8 @@ def _parse_verse(
     if pending_ketiv:
         loci.append(
             RawLocus(
-                book=book,
+                source_book_identifier=source_book_identifier,
+                canonical_book=canonical_book,
                 chapter=chapter,
                 verse=verse_number,
                 kind="ketiv_only",
@@ -284,7 +294,7 @@ def parse_oshb_loci(oshb_root: Path) -> tuple[list[RawLocus], dict[tuple[str, in
         oshb_book = path.stem
         if oshb_book not in OSHB_TO_MACULA_BOOK:
             raise KQIngestionError(f"unknown OSHB book file: {path.name}")
-        book = OSHB_TO_MACULA_BOOK[oshb_book]
+        canonical_book = OSHB_TO_MACULA_BOOK[oshb_book]
         source_file = f"wlc/{path.name}"
         try:
             root = ET.parse(path).getroot()
@@ -300,12 +310,13 @@ def parse_oshb_loci(oshb_root: Path) -> tuple[list[RawLocus], dict[tuple[str, in
             chapter, verse_number = int(match.group(2)), int(match.group(3))
             verse_loci, total_slots = _parse_verse(
                 verse,
-                book=book,
+                source_book_identifier=oshb_book,
+                canonical_book=canonical_book,
                 chapter=chapter,
                 verse_number=verse_number,
                 source_file=source_file,
             )
-            verse_slots[(book, chapter, verse_number)] = total_slots
+            verse_slots[(canonical_book, chapter, verse_number)] = total_slots
             loci.extend(verse_loci)
     return loci, verse_slots
 
@@ -313,7 +324,10 @@ def parse_oshb_loci(oshb_root: Path) -> tuple[list[RawLocus], dict[tuple[str, in
 def _variant_group_id(locus: RawLocus, anchor_slot: int) -> str:
     identity = "\0".join(sorted(word.oshb_id for word in (*locus.ketiv_words, *locus.qere_words)))
     digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:12]
-    return f"KQ_{locus.book}_{locus.chapter:03d}_{locus.verse:03d}_{anchor_slot:04d}~{digest}"
+    return (
+        f"KQ_{locus.canonical_book}_{locus.chapter:03d}_{locus.verse:03d}_"
+        f"{anchor_slot:04d}~{digest}"
+    )
 
 
 def _confidence(locus: RawLocus, *, tier: SurfaceTier, gap_ok: bool, frame_ok: bool) -> float:
@@ -372,13 +386,13 @@ def build_kq_supplement(
     for locus in sorted(
         loci,
         key=lambda item: (
-            book_by_code(item.book).order,
+            book_by_code(item.canonical_book).order,
             item.chapter,
             item.verse,
             (item.ketiv_words or item.qere_words)[0].slot,
         ),
     ):
-        verse_key = (locus.book, locus.chapter, locus.verse)
+        verse_key = (locus.canonical_book, locus.chapter, locus.verse)
         macula_verse = verse_words.get(verse_key, {})
         present = set(macula_verse)
         total_slots = verse_slots[verse_key]
@@ -391,7 +405,9 @@ def build_kq_supplement(
 
         anchor_slot = (locus.ketiv_words or locus.qere_words)[0].slot
         group_id = _variant_group_id(locus, anchor_slot) if locus.ketiv_words else None
-        locus_id = f"KQL_{locus.book}_{locus.chapter:03d}_{locus.verse:03d}_{anchor_slot:04d}"
+        locus_id = (
+            f"KQL_{locus.canonical_book}_{locus.chapter:03d}_{locus.verse:03d}_{anchor_slot:04d}"
+        )
 
         oshb_qere_surface = _nfc(
             strip_oshb_separators("".join(word.text for word in locus.qere_words))
@@ -435,7 +451,7 @@ def build_kq_supplement(
                     severity=ValidationSeverity.WARNING,
                     code="kq-alignment-conflict",
                     message=f"{locus_id}: surface tier {tier}, gap_ok={gap_ok}",
-                    book=locus.book,
+                    book=locus.canonical_book,
                     chapter=locus.chapter,
                     verse=locus.verse,
                 )
@@ -444,7 +460,7 @@ def build_kq_supplement(
         ketiv_token_ids: list[str] = []
         language = (
             Language.ARAMAIC
-            if is_aramaic_reference(locus.book, locus.chapter, locus.verse)
+            if is_aramaic_reference(locus.canonical_book, locus.chapter, locus.verse)
             else Language.HEBREW
         )
         for word in locus.ketiv_words:
@@ -454,7 +470,7 @@ def build_kq_supplement(
                 raise KQIngestionError(f"empty ketiv surface at {locus_id}")
             forms = normalize_hebrew_token(surface, normalization)
             token_id = generate_source_edition_token_id(
-                book_identifier=locus.book,
+                book_identifier=locus.source_book_identifier,
                 chapter=locus.chapter,
                 verse=locus.verse,
                 source_token_position=word.slot,
@@ -470,6 +486,8 @@ def build_kq_supplement(
                 "locus_kind": locus.kind,
                 "alignment_method": ALIGNMENT_METHOD,
                 "alignment_confidence": confidence,
+                "source_book_identifier": locus.source_book_identifier,
+                "canonical_book": locus.canonical_book,
             }
             morphology = {
                 key: value
@@ -486,11 +504,15 @@ def build_kq_supplement(
                     source_version=source.version_or_commit or "UNPINNED",
                     source_file=locus.source_file,
                     source_record_id=word.oshb_id,
-                    source_word_id=f"{locus.book} {locus.chapter}:{locus.verse}!{word.slot}",
-                    source_edition_reference=f"{locus.book} {locus.chapter}:{locus.verse}",
+                    source_word_id=(
+                        f"{locus.source_book_identifier} {locus.chapter}:{locus.verse}!{word.slot}"
+                    ),
+                    source_edition_reference=(
+                        f"{locus.source_book_identifier} {locus.chapter}:{locus.verse}"
+                    ),
                     source_row_reference=f"{locus.source_file}#{word.oshb_id}",
-                    book=locus.book,
-                    book_order=book_by_code(locus.book).order,
+                    book=locus.canonical_book,
+                    book_order=book_by_code(locus.canonical_book).order,
                     chapter=locus.chapter,
                     verse=locus.verse,
                     position_in_verse=word.slot,
@@ -516,19 +538,21 @@ def build_kq_supplement(
                     severity=ValidationSeverity.WARNING,
                     code="language-inferred",
                     message="ketiv language inferred from documented Aramaic passage",
-                    book=locus.book,
+                    book=locus.canonical_book,
                     chapter=locus.chapter,
                     verse=locus.verse,
                 )
             )
 
-        loci_by_book[locus.book] += 1
+        loci_by_book[locus.canonical_book] += 1
         registry_rows.append(
             {
                 "locus_id": locus_id,
                 "variant_group_id": group_id,
                 "kind": locus.kind,
-                "book": locus.book,
+                "source_book_identifier": locus.source_book_identifier,
+                "canonical_book": locus.canonical_book,
+                "book": locus.canonical_book,
                 "chapter": locus.chapter,
                 "verse": locus.verse,
                 "ketiv_word_slots_json": _canonical_json([word.slot for word in locus.ketiv_words]),
@@ -571,6 +595,11 @@ def build_kq_supplement(
     ).select(CANONICAL_TOKEN_COLUMNS)
     registry_frame = pl.DataFrame(registry_rows, schema=REGISTRY_SCHEMA, orient="row")
     conflict_frame = pl.DataFrame(conflict_rows, schema=CONFLICT_SCHEMA, orient="row")
+    structural_alignment_frame = build_kq_structural_alignments(
+        primary_tokens,
+        ketiv_frame,
+        registry_frame,
+    )
 
     from collections import Counter as _Counter
 
@@ -590,6 +619,7 @@ def build_kq_supplement(
     return KQSupplementResult(
         ketiv_tokens=ketiv_frame,
         locus_registry=registry_frame,
+        structural_alignments=structural_alignment_frame,
         conflicts=conflict_frame,
         issues=issues,
         summary=summary,
