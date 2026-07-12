@@ -134,4 +134,45 @@
   and alternate-ending concatenation, and pins reference-gap and future
   disputed-candidate rules. No passage was generated.
 
+## 2026-07-12 - Milestone 4 governance closure
+
+- Purpose: verify the merged Milestone 4 implementation, record its acceptance
+  basis, and defer unneeded STEPBible activation without beginning Milestone 5.
+- Merge basis: PR #4 head `7fa8e80e5723017f1ca11b4ce00069c8cb5ca473`
+  merged to `main` as merge commit
+  `0eb04697eb2c3d6cb70a96e85ff25c4d0a44a27b`.
+- Completion basis: the OSHB Ketiv/Qere supplement, generic supplementary
+  annotation and conflict-preservation tables, explicit Ketiv structural
+  mappings with queryable unresolved states, the separate versification
+  crosswalk, source-native identity preservation, deterministic analysis
+  streams, and primary-corpus digest invariance satisfy the amended Milestone
+  4 gate.
+- Governance decision: owner-authorized ADR 0012 defers STEPBible. It remains
+  an eligible future source in an inactive `under_review` state, but no file
+  is activated and no licensing answer is inferred. Later activation requires
+  a named missing field or capability,
+  exact files, measurable benefit, completed file-level provenance and
+  licensing review, and a conflict-preserving integration design.
+- Post-merge quality verification: `uv sync` completed with 39 packages; Ruff lint
+  passed; Ruff format check passed for 77 files; mypy passed for 49 source
+  files; the default suite passed 207 tests with 8 opt-in tests skipped;
+  configuration validation covered 14 files; and source validation covered 12
+  records plus the canonical-hash audit of all three locally present sources.
+- Full-corpus verification: all 8 opt-in regression tests passed. Hebrew
+  validation covered 475,911 tokens, 39 books, 929 chapters, and 23,213 verses
+  with zero errors or warnings; Greek covered 137,779 tokens, 27 books, 260
+  chapters, and 7,943 verses with zero errors or warnings; unified validation
+  reran both corpora cleanly.
+- Digest gate: the established Hebrew and Greek identity, surface/lemma, and
+  analytical digests, plus the OSHB Ketiv-token, locus-registry, and structural
+  supplement digests, remained unchanged.
+- Unresolved governance: STEPBible's file-level provenance, licensing,
+  namespace, annotation-conflict, and redistribution questions remain open
+  until an exact future source subset is proposed. Repository
+  software/documentation licensing and the other source-specific issues in
+  `docs/limitations.md` also remain unresolved.
+- Boundary: this closure changed governance and documentation only. No passage
+  generation, STEPBible acquisition, benchmark work, lexical scoring,
+  embedding, or discovery analysis was performed.
+
 Substantive experiments are prohibited until their prerequisite milestones and data-governance gates pass.

@@ -187,7 +187,9 @@ Version 1 aligns the Hebrew and Septuagint corpora at passage or verse level thr
 
 ## 3.3 Supplementary annotation layers
 
-STEPBible and comparable permissively licensed datasets may supplement the primary corpus with:
+STEPBible and comparable datasets may be evaluated as future supplementary
+sources. If activated under Section 3.6 after the required licensing and
+provenance review, they may supplement the primary corpus with:
 
 * English glosses
 * Lexical information
@@ -203,6 +205,15 @@ STEPBible and comparable permissively licensed datasets may supplement the prima
 These resources enrich analysis but do not automatically constitute independent textual witnesses.
 
 Conflicts between annotations must be preserved and documented rather than silently reconciled.
+
+STEPBible activation is deferred under ADR 0012 and is not required to close
+Milestone 4. This deferral is neither a rejection of STEPBible nor a licensing
+determination. A later milestone may activate an exact, approved subset only
+after it identifies a specific missing field or capability, names the exact
+files required, demonstrates a measurable benefit, completes file-level
+licensing and provenance review, and defines a conflict-preserving integration
+design. Until then, STEPBible remains optional future supplementary work and
+its unresolved file-level licensing questions remain open.
 
 ## 3.4 Later textual-validation layers
 
@@ -675,6 +686,7 @@ source_ids
 reference_gap
 contains_disputed_text
 disputed_passage_ids
+ketiv_structural_uncertainty
 ```
 
 ## 9.4 Passage-feature table
@@ -867,6 +879,20 @@ Where MACULA and supplementary datasets disagree:
 * Never silently choose one source.
 * Allow experiments to specify which annotation source they use.
 
+Supplementary annotation-alignment tables store source values beside primary
+annotations with their source identity, version, alignment method, confidence,
+conflict status, and resolution status. OSHB Ketiv/Qere supplementation must
+preserve the OSHB/OSIS source book identifier separately from the canonical
+MACULA book code. Neither canonical-book mapping nor a versification crosswalk
+may participate in an OSHB token ID.
+
+Ketiv structural mappings are derived, queryable alignment records rather than
+source-native structure. They must identify the Ketiv token, the primary
+structural anchor tokens, each proposed sentence, clause, and phrase unit, the
+alignment method and confidence, and the resolution status. An unresolved
+mapping remains explicitly unresolved; it must never be replaced with a
+fabricated clause or phrase value.
+
 ## 10.5 Versification
 
 Create a versification-crosswalk table.
@@ -1053,8 +1079,11 @@ Implement separate adapters:
 ```text
 ingest_macula_hebrew.py
 ingest_macula_greek.py
-ingest_stepbible.py
 ```
+
+Supplementary-source adapters are governed separately by the activation rule
+in Section 3.6 and the applicable milestone decision record. They are not part
+of primary-corpus ingestion merely because a source is available.
 
 Each adapter must:
 
@@ -1179,6 +1208,13 @@ Each generated passage must:
 * Support an `edition_complete` profile containing all text present inline in the pinned edition.
 * Support a `critical_core` profile excluding `MRK 16:9-16:20`, `MRK 16:99`, and `JHN 7:53-8:11` without deleting or renumbering source tokens.
 * Mark passages that contain declared disputed text and retain the applicable disputed-passage identifiers.
+* Retain complete primary MACULA structure in the default Qere stream.
+* Include every Ketiv token in verse-level Ketiv analysis.
+* Sentence-level Ketiv analysis may use the completed Ketiv sentence mappings.
+* Never fabricate clause or phrase membership where a Ketiv structural mapping is unresolved.
+* Set `ketiv_structural_uncertainty` on every passage that intersects an unresolved Ketiv clause or phrase mapping.
+* If an unresolved Ketiv mapping is excluded from that granularity's sensitivity analysis, record the exclusion explicitly while retaining the token in the corpus and verse-level analysis; no token may disappear silently.
+* Treat the disputed-passage and reference-gap policy in ADR 0011 as binding.
 
 ## Validation
 
@@ -1189,7 +1225,12 @@ Each generated passage must:
 * Passage generation is deterministic.
 * Source-order windows that span omitted verse numbers retain the extant references and set `reference_gap` rather than fabricating the missing number.
 * No two-verse or five-verse window combines `MRK 16:20` with the alternate ending at `MRK 16:99`.
+* No multi-verse passage at any granularity contains both `MRK 16:20` and `MRK 16:99`.
 * Edition-complete and critical-core passage membership matches the registered disputed-passage policy exactly.
+* The default Qere stream retains complete primary sentence, clause, and phrase membership.
+* Verse-level Ketiv passages contain every Ketiv token, and sentence-level Ketiv passages may use the completed sentence mappings.
+* Unresolved Ketiv clause and phrase mappings are never assigned fabricated membership; every intersecting passage carries `ketiv_structural_uncertainty`.
+* Every granularity-specific sensitivity exclusion is explicit and traceable, and excluded tokens remain present in verse-level analysis.
 
 ## Exit gate
 
@@ -1198,6 +1239,7 @@ Each generated passage must:
 * Random samples have been manually checked.
 * Passage reconstruction reproduces source text.
 * Both registered analysis profiles reproduce deterministically without mutating the underlying corpus.
+* Both Qere and Ketiv passage handling satisfy the structural-uncertainty contract without deleting or re-identifying tokens.
 
 ---
 
@@ -2709,18 +2751,31 @@ Acceptance:
 
 time_budget:
 
+Status: **Complete as of 2026-07-12** on the acceptance basis below; STEPBible
+activation is deferred under ADR 0012 and is not a closure dependency.
+
 Build:
 
-* STEPBible adapter
-* Annotation-alignment tables
-* Conflict-preservation logic
+* OSHB Ketiv/Qere supplementary tokens and deterministic Qere/Ketiv streams
+* Supplementary annotation-alignment tables that store source values beside primary annotations
+* Conflict-preservation and uncertainty-query logic
+* Ketiv structural-alignment mappings with explicit anchors, methods, confidence, and resolution status
 * Separate versification-crosswalk mapping layer
+* Source-native identity preservation, including separate OSHB/OSIS and canonical book identifiers
+* Explicit unresolved-alignment reporting
+* Deferred optional STEPBible activation governed by ADR 0012 and the source-activation rule
 
 Acceptance:
 
 * Supplementary data never overwrites primary annotations.
-* Annotation conflicts are queryable.
-* Crosswalk rows preserve edition-specific references and cannot change primary token IDs or source-edition verse identifiers.
+* Annotation conflicts and uncertainty are queryable.
+* Crosswalk rows preserve edition-specific references and cannot change token identity or source-edition verse identifiers.
+* OSHB source-native and canonical book identifiers remain separate, and canonical mapping changes cannot change OSHB token IDs.
+* Qere and Ketiv derived streams are deterministic and preserve all underlying reading records.
+* Ketiv structural mappings expose resolution status instead of fabricating sentence, clause, or phrase values.
+* Primary Hebrew and Greek identity, surface/lemma, and analytical digests remain unchanged by supplementary activation.
+* Every unresolved structural alignment is explicitly reportable.
+* Any future supplementary source requires a demonstrated downstream need, exact source approval, completed licensing and provenance review, and a conflict-preserving integration design.
 
 ## Milestone 5: Passage segmentation
 
@@ -2737,6 +2792,7 @@ Build:
 * Separate source-successor and analytical-boundary declarations
 * Edition-complete and critical-core analysis profiles
 * Reference-gap and disputed-passage metadata
+* Ketiv structural-uncertainty metadata and explicit granularity-specific sensitivity exclusions
 
 Acceptance:
 
@@ -2744,8 +2800,14 @@ Acceptance:
 * Every token belongs to expected passage units.
 * Edition-omitted verse numbers are never fabricated; source-order windows crossing such a numbering gap set `reference_gap`.
 * `MRK 16:20` physically precedes `MRK 16:99`, but no two-verse or five-verse analytical window combines the longer and alternate endings.
+* No multi-verse passage at any granularity contains both `MRK 16:20` and `MRK 16:99`.
 * `edition_complete` includes all inline edition text, while `critical_core` excludes `MRK 16:9-16:20`, `MRK 16:99`, and `JHN 7:53-8:11` exactly.
 * Disputed-passage membership is retained for future candidate flagging and strong-candidate review gates.
+* The default Qere stream retains complete primary MACULA sentence, clause, and phrase structure.
+* Verse-level Ketiv analysis includes every Ketiv token; sentence-level Ketiv analysis may use the completed sentence mappings.
+* Clause- and phrase-level Ketiv passages never fabricate membership for unresolved mappings, and every passage intersecting an unresolved Ketiv clause or phrase mapping carries `ketiv_structural_uncertainty`.
+* A sensitivity analysis may exclude unresolved Ketiv mappings only at the affected granularity, with an explicit exclusion record; tokens remain visible in the corpus and verse-level analysis.
+* ADR 0011 remains binding for disputed passages, reference gaps, and the `MRK 16:20` to `MRK 16:99` analytical boundary.
 
 ## Milestone 6: Known-link benchmark
 
@@ -2986,9 +3048,9 @@ Codex must begin in this order:
 11. Implement Greek ingestion.
 12. Implement Greek validation.
 13. Create the unified token table.
-14. Add STEPBible supplementary annotations.
-15. Build the annotation-conflict layer.
-16. Build the separate versification crosswalk without changing primary token identity.
+14. Add OSHB Ketiv/Qere supplementary tokens and structural mappings without changing primary token identity.
+15. Build the generic supplementary annotation-alignment and conflict-preservation layers.
+16. Build the separate versification crosswalk without changing primary token identity; defer STEPBible unless ADR 0012's future activation criteria are satisfied.
 17. Generate clause, sentence, verse, two-verse, and five-verse passages.
 18. Create benchmark schemas, including the empty project-curated Tier 1 quotation schema.
 19. Verify the OpenBible Tier 3 manifest and import permitted known relationships without copying restricted appendices.

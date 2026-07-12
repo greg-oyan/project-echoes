@@ -164,12 +164,41 @@ sources:
       - AI-authored descriptions in some resources are not primary linguistic evidence.
     notes:
       - Supplementary values must be stored in parallel and must never silently overwrite MACULA annotations.
+      - >-
+        Activation is deferred under ADR 0012. This owner-approved deferral closes
+        Milestone 4 without selecting, approving, blocking, acquiring, validating,
+        or ingesting any STEPBible file; it is neither source rejection nor a
+        licensing determination.
+      - >-
+        Future activation requires a specific missing field or capability, the exact
+        files required, measurable benefit, completed file-level licensing and
+        provenance review, and a conflict-preserving integration design.
     confirmed_information:
       - The official repository states CC BY 4.0 and requests credit to STEP Bible.
       - The repository publishes UTF-8 tab-separated datasets including tagged texts, lexicons, names, and versification data.
     unresolved_questions:
-      - Which individual files measurably improve the core pipeline and satisfy item-level provenance review?
-      - Which upstream text-edition restrictions apply to fields derived from commercial editions?
+      - >-
+        Which exact tagged-text, lexicon, name, semantic, or versification files
+        measurably improve the core pipeline, and is each individually cleared?
+      - >-
+        Do any selected files or fields derive from commercial or restricted
+        editions, and which upstream restrictions constrain derived exposure?
+      - >-
+        Which versification tables may seed a redistributable crosswalk, is each
+        provenance chain compatible, and what attribution does each require?
+      - >-
+        May AI-authored or partially generated descriptions be stored at all, how
+        must they be labeled, and how will they remain excluded from primary
+        linguistic evidence?
+      - >-
+        What attribution satisfies STEPBible and every named upstream contributor
+        for the exact selected files, and where must it appear in derived outputs?
+      - >-
+        Which supplementary-derived columns, if any, may be published when the
+        primary corpus tables remain unpublished pending field-level review?
+      - >-
+        Which immutable commit should be pinned, and do selected-file changelogs
+        contain corrections that justify a different snapshot?
     status: under_review
 
   - source_id: oshb-morphhb

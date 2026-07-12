@@ -1,9 +1,9 @@
 # Data sources and provenance
 
-Status: **Milestone 2 MACULA Hebrew and Milestone 3 MACULA Greek validated; other sources preliminary**
-Review date: 2026-07-11
+Status: **Milestone 4 supplementary-data foundation complete; unactivated sources remain preliminary**
+Review date: 2026-07-12
 
-The authoritative machine-readable register is [`data/manifests/sources.yaml`](../data/manifests/sources.yaml). MACULA Hebrew and MACULA Greek are the validated primary sources: their pinned snapshots have been acquired, ingested, and checked locally, and the unified DuckDB tables expose both corpora with distinct corpus and provenance values. All other records still document intent and review state rather than activation. Raw biblical data and full processed token tables remain Git-ignored.
+The authoritative machine-readable register is [`data/manifests/sources.yaml`](../data/manifests/sources.yaml). MACULA Hebrew and MACULA Greek are the validated primary sources: their pinned snapshots have been acquired, ingested, and checked locally, and the unified DuckDB tables expose both corpora with distinct corpus and provenance values. OSHB is the validated Ketiv/Qere supplementary source. Other records document intent and review state rather than activation. Raw biblical data and full processed token tables remain Git-ignored.
 
 ## Layered corpus strategy
 
@@ -11,7 +11,7 @@ Project Echoes treats datasets as governed layers with distinct research functio
 
 1. **Primary discovery** — MACULA Hebrew and Greek, subject to edition, component, license, acquisition, and corpus validation.
 2. **Bridge** — a later Septuagint source for controlled Hebrew–Greek–New Testament triangulation.
-3. **Supplementary annotation** — selected STEPBible fields or comparable resources stored alongside, never over, primary annotations.
+3. **Supplementary annotation** — future selected STEPBible fields or comparable resources, if activated, stored alongside, never over, primary annotations.
 4. **Benchmark/reference** — known cross-references and curated parallels for held-out recovery, leakage control, and knownness.
 5. **Textual validation** — DSS, variants, and apparatuses used only to test wording behind existing candidates.
 6. **Reception history** — Targums and later interpretive corpora, excluded from primary discovery.
@@ -24,7 +24,7 @@ The detailed boundary is fixed in [corpus-scope.md](corpus-scope.md).
 |---|---|---|---|
 | MACULA Hebrew | Primary Hebrew/Aramaic tokens and linguistic annotations | Validated `WLC/nodes` snapshot from release `25.08.11`, commit `7ab368fcb14e4ad2e0f784138241a098fb516ec4`; 475,911 records across 39 books and 929 chapters | Full processed-table publication remains unapproved; preferred-Qere representation has no complete parallel Ketiv layer; any source upgrade requires renewed review |
 | MACULA Greek | Primary Greek NT tokens and linguistic annotations | Validated `Nestle1904/nodes` snapshot from release `24.06.17`, commit `b5b7ecec0882a3e9a609ecac99e157391e5d9b46`; 137,779 records across 27 books and 260 chapters, matching the upstream test expectation | Full processed-table publication remains unapproved; MARBLE-derived LN/LexDomain fields need a field-level derived-output review; any source upgrade requires renewed review |
-| STEPBible Data | Supplementary glosses, lexical/semantic mappings, names, morphology, versification | Repository states CC BY 4.0, attribution, modifiability, and UTF-8 tabular resources | Select files and fields; audit each upstream derivation; exclude AI-authored descriptions from primary evidence |
+| STEPBible Data | Eligible future supplementary glosses, lexical/semantic mappings, names, morphology, or versification | Repository-level CC BY 4.0 statement and UTF-8 tabular-resource availability are recorded; activation is deferred under [ADR 0012](decisions/0012-defer-stepbible-activation.md) | No file is selected, approved, blocked, acquired, or validated; all seven file-level provenance and licensing questions remain unresolved |
 | CATSS Septuagint | Later bridge morphology and Hebrew–Greek alignment | Official CATSS materials describe Rahlfs-based Greek morphology, Stuttgart Hebrew parallel data, and a source-specific user agreement | Confirm current acquisition agreement, exact modules and revisions, redistribution limits, Beta Code handling, variants, and versification |
 | OpenBible cross-references | Broad known-link and weak-supervision layer | Official page describes about 340,000 downloadable links, primarily from TSK, under a CC Attribution notice | Inspect archive contents; ensure no ESV quotations are imported; create stable date/hash snapshot and versification mapping |
 | UBS Parallel Passages | Curated parallels and OT-in-NT benchmark/reference | UBS publishes structured data with a dedicated CC BY-SA 4.0 license | Pin commit; map labels/token numbering; separate training, evaluation, and knownness uses; propagate ShareAlike obligations |
@@ -90,6 +90,28 @@ OSHB source-native fields. It resides in a separate structural-alignment table
 with ordered anchors, method, confidence, status, and field-level resolution
 notes. Paired loci require unanimous replaced-Qere anchors; Ketiv-only loci
 require agreeing nearest primary tokens on both sides within the same verse.
+
+## STEPBible activation deferral
+
+[ADR 0012](decisions/0012-defer-stepbible-activation.md) records the
+owner-approved decision to defer STEPBible rather than require it for
+Milestone 4 closure. MACULA Hebrew and Greek already supply the primary
+linguistic foundation, OSHB supplies the required Ketiv/Qere supplement, and
+the repository now has generic supplementary-annotation,
+conflict-preservation, structural-alignment, and versification-crosswalk
+infrastructure. No current downstream capability identifies a STEPBible file
+that it needs. Acquiring one now would add file-level provenance, licensing,
+namespace, and annotation-conflict work without a demonstrated analytical
+benefit.
+
+STEPBible remains an eligible future supplementary source. Activation requires
+all of the following: a specific missing field or capability, the exact files
+required, a measurable benefit, completed file-level licensing and provenance
+review, and a conflict-preserving integration design. Deferral is neither
+rejection nor a licensing determination. The manifest therefore remains
+`under_review`, with no version, download date, expected files, hashes,
+acquisition specification, or adapter, and preserves all seven unresolved
+questions documented in [data-licensing.md](data-licensing.md).
 
 ## Dataset activation requirements
 

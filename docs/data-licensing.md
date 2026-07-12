@@ -1,7 +1,7 @@
 # Data licensing and publication governance
 
-Status: **Milestone 2 MACULA Hebrew determination; other sources preliminary**
-Review date: 2026-07-11
+Status: **Milestone 4 source determinations recorded; unactivated sources remain preliminary**
+Review date: 2026-07-12
 
 This document records operational governance, not legal advice. Technical accessibility, a public Git repository, or an online reading interface does not by itself grant permission to copy, process in bulk, redistribute, or publish derived data. Uncertainty blocks source approval.
 
@@ -86,6 +86,48 @@ The downloadable link graph is therefore classified as CC BY 4.0 with redistribu
 
 This completed license review does not activate the source. OpenBible remains planned until an immutable snapshot, archive schema, reference convention, expected-file inventory, and checksums are recorded. Methodologically it is Tier 3 weak supervision and broad knownness filtering only: its heterogeneous thematic, verbal, event, and person links are not scholarly ground truth and cannot serve as the sole positive benchmark or populate Tier 1 automatically.
 
+## STEPBible activation deferral
+
+[ADR 0012](decisions/0012-defer-stepbible-activation.md) defers STEPBible
+activation because MACULA Hebrew and Greek already provide the required
+primary linguistic foundation, OSHB provides the required Ketiv/Qere
+supplement, generic supplementary-annotation and conflict-preservation
+infrastructure exists, and structural-alignment and versification-crosswalk
+layers are implemented. No specific downstream capability currently requires
+a STEPBible file. Acquisition now would create file-level provenance,
+licensing, namespace, and annotation-conflict work without a demonstrated
+analytical benefit.
+
+This is a scheduling and evidence decision, not rejection of STEPBible or a
+licensing determination. STEPBible remains eligible for future supplementary
+use and retains its current `under_review` manifest state. No file is selected,
+approved, blocked, acquired, validated, or covered by a completed file-level
+review. Later activation requires all five of the following:
+
+1. A specific missing field or capability.
+2. The exact STEPBible files required.
+3. A measurable benefit.
+4. Completed file-level licensing and provenance review.
+5. A conflict-preserving integration design.
+
+The seven subset-audit questions remain unresolved:
+
+1. Which exact tagged-text, lexicon, name, semantic, or versification files
+   measurably improve the core pipeline, and is each individually cleared?
+2. Do any selected files or fields derive from commercial or restricted
+   editions, and which upstream restrictions constrain derived exposure?
+3. Which versification tables may seed a redistributable crosswalk, is each
+   provenance chain compatible, and what attribution does each require?
+4. May AI-authored or partially generated descriptions be stored at all, how
+   must they be labeled, and how will they remain excluded from primary
+   linguistic evidence?
+5. What attribution satisfies STEPBible and every named upstream contributor
+   for the exact selected files, and where must it appear in derived outputs?
+6. Which supplementary-derived columns, if any, may be published when the
+   primary corpus tables remain unpublished pending field-level review?
+7. Which immutable commit should be pinned, and do selected-file changelogs
+   contain corrections that justify a different snapshot?
+
 ## Septuagint edition and component gate
 
 Before any Septuagint acquisition, the project must select an exact edition and separately determine:
@@ -105,8 +147,9 @@ No blanket conclusion may be inferred across layers. Swete's printed edition may
 | Source ID | License review | License/terms recorded | Redistribution | Machine processing | Raw Git policy | Lifecycle |
 |---|---|---|---|---|---|---|
 | `macula-hebrew` | Complete for 25.08.11 | Composite notices reviewed; CC BY 4.0 aggregate, public-domain/unrestricted WLC, and named component terms | Acquisition instructions only by project policy | Permitted | Ignored local only | Validated |
-| `macula-greek` | In progress | CC BY 4.0 aggregate; component notices require audit | Acquisition instructions only pending component audit | Permitted | Ignored local only | Under review |
-| `stepbible-data` | In progress | CC BY 4.0 repository statement; selected-file audit pending | Acquisition instructions only pending subset audit | Permitted | Ignored local only | Under review |
+| `macula-greek` | Complete for 24.06.17 | CC BY 4.0 aggregate and pinned component notices reviewed; permission-only derived-output caveat retained | Acquisition instructions only by project policy | Permitted | Ignored local only | Validated |
+| `oshb-morphhb` | Complete for commit `3d15126` | CC BY 4.0 lemma/morphology data; public-domain WLC text; exact attribution recorded | Permitted with attribution, subject to project publication review | Permitted | Ignored local only | Validated |
+| `stepbible-data` | In progress; activation deferred by ADR 0012 | CC BY 4.0 repository statement only; seven selected-file questions remain unresolved | Acquisition instructions only pending subset audit | Permitted at repository-statement level; no file activated | Ignored local only | Under review; not approved, blocked, acquired, or validated |
 | `septuagint-catss` | In progress | Component-specific CCAT/CATSS terms require separate review | Acquisition instructions only | Restricted | Ignored local only | Blocked |
 | `openbible-cross-references` | Complete | CC BY 4.0 official page notice; ESV quotations excluded | Permitted with attribution | Permitted | Ignored local only | Planned |
 | `project-echoes-tier1-quotations` | Complete for project-authored metadata | CC BY 4.0; third-party rights remain separate | Permitted with attribution | Permitted | Trackable | Planned, header only |
@@ -116,4 +159,4 @@ No blanket conclusion may be inferred across layers. Swete's printed edition may
 | `greek-critical-apparatus` | Not started | Proprietary; publisher rights page recorded | Prohibited absent permission | Unknown | Prohibited | Planned |
 | `targum-corpus` | Not started | No general bulk-reuse license found | Unknown | Unknown | Prohibited | Planned |
 
-These are operational classifications as of the review date. MACULA Hebrew, OpenBible.info cross references, UBS Parallel Passages, and the future Project Echoes-authored Tier 1 metadata have completed the stated licensing reviews; only the pinned MACULA Hebrew snapshot is acquired and validated. Source-specific unresolved questions and publication boundaries are preserved in the machine-readable manifest.
+These are operational classifications as of the review date. The pinned MACULA Hebrew, MACULA Greek, and OSHB snapshots are acquired and validated for their approved local roles. OpenBible.info cross references, UBS Parallel Passages, and the future Project Echoes-authored Tier 1 metadata have also completed their stated licensing reviews but remain inactive. Source-specific unresolved questions and publication boundaries, including the MACULA Greek permission-only derived-output question, are preserved in the machine-readable manifest.

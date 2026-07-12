@@ -6,6 +6,20 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 ### Added
 
+- Milestone 4 governance closure after PR #4 merged to `main` as
+  `0eb04697eb2c3d6cb70a96e85ff25c4d0a44a27b`: the completed OSHB
+  Ketiv/Qere supplement, generic beside-not-over annotation and
+  conflict-preservation infrastructure, explicit Ketiv structural mappings,
+  unresolved-alignment reporting, separate versification crosswalk,
+  source-native identities, deterministic analysis streams, and unchanged
+  primary-corpus digests now form the acceptance basis. ADR 0012 records the
+  owner-approved deferral of STEPBible activation pending a demonstrated
+  missing capability, exact-file selection, measurable benefit, file-level
+  provenance and licensing review, and a conflict-preserving integration
+  design. The deferral is neither rejection nor a licensing determination.
+  Milestone 5 structural-uncertainty constraints are documented without
+  implementing passage generation.
+
 - Milestone 4 Part 1, OSHB Ketiv/Qere supplement (ADR 0009, ratified):
   governed canonical-byte acquisition of openscriptures/morphhb at pinned
   commit `3d15126` (42 files, externally verified anchors); a supplement
@@ -131,5 +145,5 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 - MACULA Hebrew normally supplies its preferred Qere reading rather than complete parallel Ketiv material, so the pinned representation cannot support exhaustive Ketiv/Qere comparison.
 - Raw MACULA files and full processed token tables remain local and Git-ignored; public redistribution requires a separate field-level rights and attribution review.
-- MACULA Greek and every downstream source remain inactive, and no segmentation, embedding, semantic-analysis, candidate-generation, or review-console milestone has begun.
+- STEPBible and every downstream source remain inactive, and no segmentation, embedding, semantic-analysis, candidate-generation, or review-console milestone has begun.
 - Most registered sources still have incomplete licensing or acquisition reviews, as recorded explicitly in `data/manifests/sources.yaml`.
