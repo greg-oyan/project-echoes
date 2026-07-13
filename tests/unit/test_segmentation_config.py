@@ -29,6 +29,79 @@ def _project_payload() -> dict[str, Any]:
     return deepcopy(_project_config().model_dump(mode="python"))
 
 
+def test_active_schema_v3_enables_every_required_stream_and_granularity() -> None:
+    config = _project_config()
+
+    assert config.schema_version == 3
+    assert config.status == "active"
+    assert set(config.enabled_corpora) == {"hebrew", "greek"}
+    assert set(config.enabled_analysis_profiles) == {"edition_complete", "critical_core"}
+    assert set(config.enabled_analysis_readings.hebrew) == {"qere", "ketiv"}
+    assert config.enabled_analysis_readings.greek == ["source"]
+    assert set(config.granularities) == {
+        "clause",
+        "sentence",
+        "verse",
+        "two_verse",
+        "five_verse",
+    }
+
+
+def test_window_policy_prohibits_partial_unsafe_or_bridged_windows() -> None:
+    policy = _project_config().window_policy
+
+    assert policy.cross_chapter_boundaries
+    assert not policy.cross_book_boundaries
+    assert not policy.emit_partial_windows
+    assert not policy.bridge_profile_exclusions
+    assert not policy.bridge_analytical_boundary_breaks
+    assert policy.allow_source_order_reference_gaps
+    assert policy.mark_reference_gaps
+    assert policy.minimum_verse_count == 2
+    assert policy.maximum_verse_count == 5
+    assert policy.window_sizes == {"two_verse": 2, "five_verse": 5}
+
+
+def test_ketiv_reconstruction_identity_and_storage_policies_are_explicit() -> None:
+    config = _project_config()
+
+    ketiv = config.ketiv_policy
+    assert ketiv.verse_include_every_token
+    assert ketiv.sentence_use_resolved_mapping
+    assert ketiv.clause_use_resolved_mapping_only
+    assert ketiv.unresolved_clause_action == "explicit_exclusion"
+    assert ketiv.unresolved_phrase_action == "flag_only"
+    assert ketiv.never_fabricate_structure
+    assert ketiv.preserve_excluded_tokens_in_verse_analysis
+    assert ketiv.record_affected_token_ids
+
+    assert config.reconstruction_policy.language_aware
+    assert not config.reconstruction_policy.universal_space_join
+    assert config.zero_width_token_policy.include_in_membership
+    assert not config.zero_width_token_policy.contributes_visible_text
+    assert config.punctuation_reconstruction_policy.use_leading_punctuation
+    assert config.punctuation_reconstruction_policy.use_trailing_punctuation
+
+    identity = config.passage_identity
+    assert identity.schema_version == 1
+    assert identity.digest_algorithm == "sha256"
+    assert identity.collision_action == "error"
+    assert not identity.include_segmentation_config_hash
+    assert identity.digest_hex_length == 64
+    assert identity.canonical_payload_fields[-1] == "token_ids"
+
+    output = config.output_partitioning
+    assert output.schema_directory == "data/processed/passages/schema-v1"
+    assert output.partition_by == [
+        "corpus",
+        "analysis_profile",
+        "analysis_reading",
+        "granularity",
+    ]
+    assert output.atomic_writes
+    assert output.overwrite_requires_force
+
+
 def test_mark_source_successor_is_not_an_analytical_adjacency() -> None:
     config = _project_config()
 
@@ -161,6 +234,14 @@ def test_duplicate_analytical_boundaries_are_rejected() -> None:
         SegmentationConfig.model_validate(payload)
 
 
+def test_duplicate_disputed_passage_ids_are_rejected() -> None:
+    payload = _project_payload()
+    payload["disputed_passages"].append(deepcopy(payload["disputed_passages"][0]))
+
+    with pytest.raises(ValidationError, match="disputed passage IDs must be unique"):
+        SegmentationConfig.model_validate(payload)
+
+
 def test_boundary_window_granularities_must_be_unique() -> None:
     with pytest.raises(ValidationError, match="window granularities must be unique"):
         AnalyticalBoundaryBreak(
@@ -210,4 +291,122 @@ def test_critical_core_must_exclude_every_disputed_passage() -> None:
     critical_core["excluded_disputed_passage_ids"].remove("pericope_adulterae")
 
     with pytest.raises(ValidationError, match="must exclude every declared disputed passage"):
+        SegmentationConfig.model_validate(payload)
+
+
+def test_book_boundary_windows_are_rejected() -> None:
+    payload = _project_payload()
+    payload["window_policy"]["cross_book_boundaries"] = True
+
+    with pytest.raises(ValidationError, match="cross_book_boundaries"):
+        SegmentationConfig.model_validate(payload)
+
+
+def test_partial_windows_are_rejected() -> None:
+    payload = _project_payload()
+    payload["window_policy"]["emit_partial_windows"] = True
+
+    with pytest.raises(ValidationError, match="emit_partial_windows"):
+        SegmentationConfig.model_validate(payload)
+
+
+def test_alternate_endings_cannot_be_concatenated() -> None:
+    payload = _project_payload()
+    payload["reference_gap_policy"]["concatenate_alternate_readings_from_source_order"] = True
+
+    with pytest.raises(
+        ValidationError,
+        match="concatenate_alternate_readings_from_source_order",
+    ):
+        SegmentationConfig.model_validate(payload)
+
+
+def test_omitted_references_cannot_be_fabricated() -> None:
+    payload = _project_payload()
+    payload["reference_gap_policy"]["fabricate_omitted_references"] = True
+
+    with pytest.raises(ValidationError, match="fabricate_omitted_references"):
+        SegmentationConfig.model_validate(payload)
+
+
+def test_unresolved_ketiv_structure_cannot_be_fabricated() -> None:
+    payload = _project_payload()
+    payload["ketiv_policy"]["never_fabricate_structure"] = False
+
+    with pytest.raises(ValidationError, match="never_fabricate_structure"):
+        SegmentationConfig.model_validate(payload)
+
+
+def test_boundary_cannot_be_both_continuous_and_broken() -> None:
+    payload = _project_payload()
+    boundary = payload["analytical_boundary_breaks"][0]
+    payload["analytical_continuities"].append(
+        {
+            "corpus": boundary["corpus"],
+            "from_reference": boundary["from_reference"],
+            "to_reference": boundary["to_reference"],
+            "reason": "contradictory declaration",
+        }
+    )
+
+    with pytest.raises(ValidationError, match="both analytically continuous and broken"):
+        SegmentationConfig.model_validate(payload)
+
+
+def test_unknown_enabled_profile_is_rejected() -> None:
+    payload = _project_payload()
+    payload["enabled_analysis_profiles"].append("unknown_profile")
+
+    with pytest.raises(ValidationError, match="enabled_analysis_profiles"):
+        SegmentationConfig.model_validate(payload)
+
+
+def test_unknown_granularity_is_rejected() -> None:
+    payload = _project_payload()
+    payload["granularities"].append("paragraph")
+
+    with pytest.raises(ValidationError, match="granularities"):
+        SegmentationConfig.model_validate(payload)
+
+
+def test_critical_core_references_must_resolve_to_declared_ranges() -> None:
+    payload = _project_payload()
+    payload["critical_core_exclusions"][0]["start_reference"] = "MRK 16:10"
+
+    with pytest.raises(ValidationError, match="references must resolve"):
+        SegmentationConfig.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("minimum_verse_count", 3),
+        ("maximum_verse_count", 4),
+    ],
+)
+def test_invalid_window_size_bounds_are_rejected(field: str, value: int) -> None:
+    payload = _project_payload()
+    payload["window_policy"][field] = value
+
+    with pytest.raises(ValidationError, match="window size bounds"):
+        SegmentationConfig.model_validate(payload)
+
+
+def test_invalid_named_window_size_is_rejected() -> None:
+    payload = _project_payload()
+    payload["window_policy"]["window_sizes"]["two_verse"] = 3
+
+    with pytest.raises(ValidationError, match="window sizes must be exactly"):
+        SegmentationConfig.model_validate(payload)
+
+
+def test_default_profile_must_be_declared() -> None:
+    payload = _project_payload()
+    payload["analysis_profiles"] = [
+        profile
+        for profile in payload["analysis_profiles"]
+        if profile["name"] != payload["default_analysis_profile"]
+    ]
+
+    with pytest.raises(ValidationError, match="default analysis profile must be declared"):
         SegmentationConfig.model_validate(payload)

@@ -6,6 +6,30 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 ### Added
 
+- Milestone 5 passage segmentation: an accepted schema-v1 pipeline now derives
+  clause, sentence, verse, two-verse, and five-verse units across six governed
+  Hebrew/Aramaic and Greek profile/reading streams. ADR 0013 establishes
+  content-derived passage identity, authoritative exact membership,
+  language-aware reconstruction, distinct physical succession and analytical
+  continuity, and explicit Ketiv sensitivity exclusions. Deterministic
+  book-partitioned Parquet artifacts and transactional DuckDB views expose
+  passages, 21,530,271 membership rows, adjacency, exclusions, issues, and run
+  metadata; the CLI supports full or exact-scope generation, strict persisted
+  validation, summaries, passage display, reconstruction, and membership
+  inspection.
+
+- Milestone 5 full-corpus acceptance produced run ID
+  `passages-v1-00e261abea9ed44ef087` twice from the pinned inputs: 914,497
+  passages, 913,445 adjacency rows, 148,948 explicit exclusions, zero
+  segmentation issues, and one metadata row. Both strict validations completed
+  with zero errors, warnings, or informational findings. All six logical table
+  hashes, all five deterministic content-table physical hashes, and all 3,570
+  non-metadata leaf hashes agreed. The metadata Parquet physical hash alone
+  changed because it contains the measured runtime; its logical hash excludes
+  that registered telemetry and remained stable. The two generations took
+  2,245.249 and 2,225.401 seconds, each reporting 627,780,157 output bytes;
+  strict validation took 743.4 and 749.5 seconds.
+
 - Milestone 4 governance closure after PR #4 merged to `main` as
   `0eb04697eb2c3d6cb70a96e85ff25c4d0a44a27b`: the completed OSHB
   Ketiv/Qere supplement, generic beside-not-over annotation and
@@ -145,5 +169,8 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 - MACULA Hebrew normally supplies its preferred Qere reading rather than complete parallel Ketiv material, so the pinned representation cannot support exhaustive Ketiv/Qere comparison.
 - Raw MACULA files and full processed token tables remain local and Git-ignored; public redistribution requires a separate field-level rights and attribution review.
-- STEPBible and every downstream source remain inactive, and no segmentation, embedding, semantic-analysis, candidate-generation, or review-console milestone has begun.
+- STEPBible and every downstream source remain inactive. Passage segmentation
+  is complete, but no Milestone 6 benchmark import, lexical scoring, embedding,
+  semantic analysis, candidate generation, or review-console milestone has
+  begun.
 - Most registered sources still have incomplete licensing or acquisition reviews, as recorded explicitly in `data/manifests/sources.yaml`.

@@ -175,4 +175,17 @@
   generation, STEPBible acquisition, benchmark work, lexical scoring,
   embedding, or discovery analysis was performed.
 
+## 2026-07-12 - Milestone 5 full-corpus passage segmentation
+
+- Purpose: derive and validate exact, reconstructable multi-scale passage units from the accepted primary and Ketiv/Qere layers without beginning benchmark or discovery work.
+- Inputs: MACULA Hebrew `7ab368fcb14e4ad2e0f784138241a098fb516ec4`, MACULA Greek `b5b7ecec0882a3e9a609ecac99e157391e5d9b46`, OSHB `3d15126fb1ef74867fc1434be1942e837932691f`, and their pinned primary and supplement digests.
+- Architecture: ADR 0013; exact authoritative membership; content-derived passage IDs; Hebrew Qere/Ketiv and Greek source readings under `edition_complete` and `critical_core`; clause, sentence, verse, two-verse, and five-verse units; language-aware reconstruction; separate source succession and analytical continuity.
+- Run identity: both full generations reproduced `passages-v1-00e261abea9ed44ef087`.
+- Counts: 914,497 passages; 21,530,271 membership rows; 913,445 adjacency rows; 148,948 explicit exclusion rows; zero segmentation issues; one metadata row.
+- Acceptance: both strict persisted validations passed with zero errors, warnings, or informational findings. Boundaries, expected coverage, omitted-reference gaps, profile membership, Mark's alternate-ending boundary, disputed identifiers, Qere structure, Ketiv verse/sentence coverage, explicit unresolved Ketiv clause exclusions, reconstruction, and unchanged input digests all validated.
+- Determinism: all six logical table hashes, all five deterministic content-table physical hashes, and all 3,570 non-metadata leaf hashes agreed. The metadata physical hash alone changed with measured runtime telemetry; the metadata logical hash excluded the registered telemetry columns and remained `87b88f0b3d4efa88c9d4668ba1eb0aba5fce244b0350130a033deb1a087578cf`.
+- Resources: generations took 2,245.249 and 2,225.401 seconds; strict validations took 743.4 and 749.5 seconds; each metadata row reported 627,780,157 output bytes.
+- Storage boundary: complete Parquet and DuckDB artifacts remain local and Git-ignored; tracked reports contain aggregate evidence, IDs, hashes, and non-reconstructive samples rather than bulk source text.
+- Boundary: no Milestone 6 benchmark, OpenBible import, lexical scoring, embedding, candidate generation, or review-console work began.
+
 Substantive experiments are prohibited until their prerequisite milestones and data-governance gates pass.

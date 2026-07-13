@@ -1,5 +1,17 @@
-schema_version: 2
-status: planned
+schema_version: 3
+status: active
+enabled_corpora:
+  - hebrew
+  - greek
+enabled_analysis_profiles:
+  - edition_complete
+  - critical_core
+enabled_analysis_readings:
+  hebrew:
+    - qere
+    - ketiv
+  greek:
+    - source
 granularities:
   - clause
   - sentence
@@ -8,6 +20,20 @@ granularities:
   - five_verse
 preserve_token_boundaries: true
 default_analysis_profile: edition_complete
+
+window_policy:
+  cross_chapter_boundaries: true
+  cross_book_boundaries: false
+  emit_partial_windows: false
+  bridge_profile_exclusions: false
+  bridge_analytical_boundary_breaks: false
+  allow_source_order_reference_gaps: true
+  mark_reference_gaps: true
+  minimum_verse_count: 2
+  maximum_verse_count: 5
+  window_sizes:
+    two_verse: 2
+    five_verse: 5
 
 # Physical source order is not analytical continuity. The pinned MACULA Greek
 # files place the alternate ending after the longer ending, but no multi-verse
@@ -22,6 +48,10 @@ source_successors:
     reason: >-
       The pinned Nestle 1904 source places its alternate ending at pseudo-verse
       16:99 immediately after the inline longer ending at 16:20.
+
+# Positive analytical continuities must be declared independently of physical
+# source succession. The current policies require no exceptional declaration.
+analytical_continuities: []
 
 analytical_boundary_breaks:
   - corpus: greek
@@ -68,14 +98,106 @@ analysis_profiles:
       - mark_alternate_ending
       - pericope_adulterae
 
+critical_core_exclusions:
+  - disputed_passage_id: mark_longer_ending
+    start_reference: MRK 16:9
+    end_reference: MRK 16:20
+  - disputed_passage_id: mark_alternate_ending
+    start_reference: MRK 16:99
+    end_reference: MRK 16:99
+  - disputed_passage_id: pericope_adulterae
+    start_reference: JHN 7:53
+    end_reference: JHN 8:11
+
 reference_gap_policy:
   fabricate_omitted_references: false
   allow_source_order_adjacency_across_numbering_gaps: true
   mark_reference_gap: true
   concatenate_alternate_readings_from_source_order: false
 
+disputed_passage_policy:
+  flag_passages: true
+  passage_flag_field: disputed_passage_flag
+  passage_ids_field: disputed_passage_ids_json
+  profile_exclusions_break_continuity: true
+  truncate_source_units_at_profile_boundaries: false
+
 disputed_candidate_policy:
   flag_candidates: true
   candidate_flag_field: disputed_passage_flag
   strong_candidate_requires: >-
     survives_disputed_text_exclusion_or_completed_textual_criticism_review
+
+ketiv_policy:
+  verse_include_every_token: true
+  sentence_use_resolved_mapping: true
+  clause_use_resolved_mapping_only: true
+  unresolved_clause_action: explicit_exclusion
+  unresolved_phrase_action: flag_only
+  never_fabricate_structure: true
+  uncertainty_flag_field: ketiv_structural_uncertainty
+  preserve_excluded_tokens_in_verse_analysis: true
+  record_affected_token_ids: true
+
+reconstruction_policy:
+  language_aware: true
+  preserve_surface_text: true
+  preserve_null_distinct_from_empty: true
+  deterministic_unicode: true
+  universal_space_join: false
+  hebrew_strategy: source_word_and_morpheme_order
+  greek_strategy: punctuation_metadata_and_source_order
+
+zero_width_token_policy:
+  include_in_membership: true
+  preserve_source_order: true
+  contributes_visible_text: false
+
+punctuation_reconstruction_policy:
+  use_leading_punctuation: true
+  use_trailing_punctuation: true
+  preserve_elision_metadata: true
+  avoid_space_before_closing_punctuation: true
+  preserve_opening_punctuation: true
+
+passage_identity:
+  schema_version: 1
+  prefix: P
+  digest_algorithm: sha256
+  digest_hex_length: 64
+  canonical_payload_fields:
+    - passage_id_schema_version
+    - corpus
+    - analysis_profile
+    - analysis_reading
+    - granularity
+    - book
+    - source_unit_id
+    - reference_sequence
+    - token_ids
+  include_segmentation_config_hash: false
+  collision_action: error
+
+output_partitioning:
+  format: parquet
+  schema_directory: data/processed/passages/schema-v1
+  partition_by:
+    - corpus
+    - analysis_profile
+    - analysis_reading
+    - granularity
+  compression: zstd
+  write_statistics: true
+  atomic_writes: true
+  overwrite_requires_force: true
+  refuse_silent_overwrite: true
+
+validation_severity_policy:
+  allowed_severities:
+    - error
+    - warning
+    - informational
+  errors_fail_validation: true
+  warnings_fail_strict_validation: true
+  informational_fail_validation: false
+  unknown_severity_action: error

@@ -1,11 +1,11 @@
 # Limitations and unresolved issues
 
-## Current Milestone 4 closure state
+## Current Milestone 5 closure state
 
 - MACULA Hebrew release `25.08.11` (commit `7ab368fcb14e4ad2e0f784138241a098fb516ec4`) and MACULA Greek release `24.06.17` (commit `b5b7ecec0882a3e9a609ecac99e157391e5d9b46`) are the acquired and validated primary corpus sources. OSHB morphhb at commit `3d15126fb1ef74867fc1434be1942e837932691f` is the active Ketiv/Qere supplementary source. STEPBible, bridge corpora, benchmarks, textual witnesses, apparatuses, and reception sources remain inactive.
-- Milestone 4 closed after PR #4 merged as `0eb04697eb2c3d6cb70a96e85ff25c4d0a44a27b`. Closure rests on the OSHB Ketiv/Qere layer, generic beside-not-over annotation and conflict tables, explicit structural mappings and unresolved-status reporting, a separate versification crosswalk, source-native identity preservation, deterministic Qere/Ketiv streams, and unchanged primary-corpus digests. Post-merge verification passed the normal quality suite, the eight full-corpus regression tests, and Hebrew, Greek, and unified validation without digest changes.
+- Milestone 5 passage generation is complete on run ID `passages-v1-00e261abea9ed44ef087`. Two full generations each produced 914,497 passages, 21,530,271 membership rows, 913,445 adjacency rows, 148,948 explicit exclusions, zero issues, and one metadata row. Both strict validations passed with zero findings, and all deterministic logical and physical content hashes agreed.
 - ADR 0012 defers STEPBible activation; it does not reject STEPBible or make a licensing determination. No downstream capability currently demonstrates a need for a particular STEPBible file. The source remains eligible only after a later milestone names the missing field or capability, exact files, measurable benefit, completed file-level provenance and licensing review, and a conflict-preserving integration design. The previously registered STEPBible licensing questions therefore remain unanswered, including the rights and attribution consequences for each exact file, field, transformation, raw artifact, and derived output that might eventually be selected.
-- Milestone 5 must preserve Ketiv structural uncertainty rather than filling gaps. The default Qere stream retains complete primary MACULA structure; verse-level Ketiv analysis must include every Ketiv token; and sentence-level Ketiv analysis may use the completed sentence mappings. Clause- and phrase-level Ketiv units must not fabricate unresolved membership. A passage intersecting an unresolved Ketiv clause or phrase mapping must carry an explicit structural-uncertainty flag; a sensitivity analysis may exclude the unresolved mapping at that granularity, but must record the exclusion and must not silently drop its token. ADR 0011 remains binding: no multi-verse passage may contain both `MRK 16:20` and `MRK 16:99`, and disputed-passage and reference-gap metadata must be preserved. These are handoff constraints only; no Milestone 5 passage generator exists yet.
+- Milestone 5 preserves Ketiv structural uncertainty rather than filling gaps. The Qere stream retains primary MACULA structure; all Ketiv tokens remain visible in verse and sentence analysis; 255 clause-unresolved Ketiv tokens per profile have explicit clause exclusions; and intersecting passages retain clause/phrase uncertainty flags. These records describe alignment limits, not source-native Ketiv syntax. Phrase is not a Milestone 5 passage granularity, so phrase uncertainty is metadata for later feature and sensitivity work rather than a generated phrase-passage table.
 - The Greek corpus represents the Nestle 1904 edition. Its edition-level
   versification is preserved exactly: fifteen omitted verse numbers are not
   fabricated, the pericope adulterae is inline, and the alternate ending of
@@ -13,11 +13,11 @@
   has approved two future analysis profiles: `edition_complete` retains all
   inline edition text, while `critical_core` excludes `MRK 16:9-20`,
   `MRK 16:99`, and `JHN 7:53-8:11`. Source order does not make alternate
-  endings analytically adjacent: Milestone 5 must break every two- and
-  five-verse window between `MRK 16:20` and `MRK 16:99`. Extant verses across
-  an edition omission may remain source-order adjacent only with an explicit
-  `reference_gap` flag. These rules are declarative until Milestone 5; no
-  passage generator is implemented here.
+  endings analytically adjacent: every two- and five-verse window breaks
+  between `MRK 16:20` and `MRK 16:99`. Extant verses across an edition
+  omission remain source-order adjacent only with an explicit `reference_gap`
+  flag. The accepted artifacts enforce these rules; they do not resolve the
+  underlying textual-critical questions.
 - Any future candidate intersecting one of those three disputed passages must
   carry a textually disputed data-quality flag. It cannot retain an
   unqualified `strong candidate` label unless it survives the corresponding
@@ -33,7 +33,9 @@
 - Some source records omit `xml:id`, contain explicit zero-width morphemes, or occur alongside alternate source trees. The pipeline records deterministic fallbacks and informational findings rather than hiding them; downstream methods must respect those distinctions.
 - Stable project IDs depend only on the source edition's book/chapter/verse/token/subtoken coordinates and native record identity where variants require it. They do not depend on a later versification crosswalk. A reviewed source version or source segmentation change can still produce intentionally different identities and must be handled as a corpus migration.
 - Validation proves structural consistency, configured completeness, deterministic transformations, and storage agreement; it does not prove that every upstream lemma, morphology, syntax, semantic label, participant annotation, gloss, or canonical reference is philologically correct.
-- The twelve manual spot checks sample genre, language, and structural edge cases but are not an exhaustive scholarly audit of 475,911 records.
+- Full passage Parquet contains reconstructable source text and remains local and Git-ignored. The Milestone 5 acceptance statistics, IDs, and hashes do not authorize redistribution of the complete passage artifacts.
+- Runtime and environment are nondeterministic provenance telemetry. The two accepted runs therefore have different metadata-Parquet physical hashes, while the metadata logical hash and every content-table logical and physical hash agree. This registered exception must not be generalized to content tables.
+- The 30 reproducible scripted and manually reviewed spot checks sample genre, language, and structural edge cases but are not an exhaustive scholarly audit of 475,911 records.
 - Raw MACULA data, acquisition receipts, complete processed Parquet tables, and the DuckDB database are local and Git-ignored. Another run depends on the pinned upstream commit remaining retrievable or on an independently authorized archive.
 - Local machine processing is approved, but public release of full processed token tables is not. A field-level compatibility, attribution, modification, and reconstructability review is still required, especially for SDBH-derived attributes included in the MACULA aggregate by permission.
 - The provisional SBLGNT v1.2 MACULA Greek intent was superseded by ADR 0010: the release's SBLGNT representation documents incomplete annotation coverage at unmapped nodes, so the Nestle1904 dataset was selected. A future SBLGNT-based corpus would be a new source version requiring its own review.
@@ -45,6 +47,6 @@
 - ETCBC DSS upstream transcription rights remain unresolved, and no machine-processing permission has been established for proprietary Hebrew/Greek apparatuses or a Targum corpus.
 - The literature matrix has five verified seed projects, not comprehensive coverage of every field named in the master plan. The closest-project conclusion remains provisional.
 - Repository software and original documentation licensing remains pending owner selection.
-- No downstream segmentation, embedding, semantic analysis, knownness search, candidate generation, evaluation, review console, or substantive research experiment has begun. Corpus similarity or annotation proximity must not be inferred from this infrastructure milestone.
+- No Milestone 6 benchmark import, lexical scoring, embedding, semantic analysis, knownness search, candidate generation, evaluation, review console, or substantive discovery experiment has begun. Passage proximity must not be interpreted as evidence of a scholarly relationship.
 
 These limitations are acceptance boundaries. They must not be rewritten as evidence that a source, method, or scholarly relationship is absent.

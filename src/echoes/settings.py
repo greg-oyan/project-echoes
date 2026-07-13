@@ -221,6 +221,8 @@ class GreekIngestionConfig(EchoesModel):
         return self
 
 
+CorpusName = Literal["hebrew", "greek"]
+AnalysisProfileName = Literal["edition_complete", "critical_core"]
 Granularity = Literal["clause", "sentence", "verse", "two_verse", "five_verse"]
 WindowGranularity = Literal["two_verse", "five_verse"]
 _VERSE_REFERENCE_PATTERN = r"^[A-Z0-9]{3} [1-9][0-9]*:[1-9][0-9]*$"
@@ -242,7 +244,7 @@ class SourceVerseSuccessor(EchoesModel):
     """
 
     source_id: str = Field(min_length=1)
-    corpus: Literal["hebrew", "greek"]
+    corpus: CorpusName
     from_reference: str = Field(pattern=_VERSE_REFERENCE_PATTERN)
     to_reference: str = Field(pattern=_VERSE_REFERENCE_PATTERN)
     relation: Literal["edition_sequence", "alternate_ending"]
@@ -263,7 +265,7 @@ class SourceVerseSuccessor(EchoesModel):
 class AnalyticalBoundaryBreak(EchoesModel):
     """A source boundary that configured verse windows may not cross."""
 
-    corpus: Literal["hebrew", "greek"]
+    corpus: CorpusName
     from_reference: str = Field(pattern=_VERSE_REFERENCE_PATTERN)
     to_reference: str = Field(pattern=_VERSE_REFERENCE_PATTERN)
     prohibited_window_granularities: list[WindowGranularity] = Field(min_length=1)
@@ -284,11 +286,30 @@ class AnalyticalBoundaryBreak(EchoesModel):
         return self
 
 
+class AnalyticalContinuity(EchoesModel):
+    """A positively declared analytical connection between source verses."""
+
+    corpus: CorpusName
+    from_reference: str = Field(pattern=_VERSE_REFERENCE_PATTERN)
+    to_reference: str = Field(pattern=_VERSE_REFERENCE_PATTERN)
+    reason: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def continuity_is_within_one_book_and_directed(self) -> Self:
+        from_book = _reference_coordinates(self.from_reference)[0]
+        to_book = _reference_coordinates(self.to_reference)[0]
+        if from_book != to_book:
+            raise ValueError("analytical continuity must stay inside one book")
+        if self.from_reference == self.to_reference:
+            raise ValueError("analytical continuity requires two distinct references")
+        return self
+
+
 class DisputedPassage(EchoesModel):
     """An inline source range requiring explicit analytical treatment."""
 
     passage_id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
-    corpus: Literal["hebrew", "greek"]
+    corpus: CorpusName
     start_reference: str = Field(pattern=_VERSE_REFERENCE_PATTERN)
     end_reference: str = Field(pattern=_VERSE_REFERENCE_PATTERN)
     classification: Literal["longer_ending", "alternate_ending", "pericope_adulterae"]
@@ -309,7 +330,7 @@ class DisputedPassage(EchoesModel):
 class AnalysisProfile(EchoesModel):
     """A named selection of the source edition's inline token stream."""
 
-    name: Literal["edition_complete", "critical_core"]
+    name: AnalysisProfileName
     base_stream: Literal["source_inline"]
     excluded_disputed_passage_ids: list[str] = Field(default_factory=list)
 
@@ -339,25 +360,264 @@ class DisputedCandidatePolicy(EchoesModel):
     ]
 
 
-class SegmentationConfig(EchoesModel):
-    """Planned passage units and their source-order and analysis policies."""
+class EnabledAnalysisReadings(EchoesModel):
+    """Reading streams materialized for each primary corpus."""
 
-    schema_version: Literal[2]
-    status: Literal["planned"]
+    hebrew: list[Literal["qere", "ketiv"]] = Field(min_length=2)
+    greek: list[Literal["source"]] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def all_required_readings_are_enabled_once(self) -> Self:
+        if len(self.hebrew) != len(set(self.hebrew)) or set(self.hebrew) != {
+            "qere",
+            "ketiv",
+        }:
+            raise ValueError("Hebrew analysis readings must be exactly qere and ketiv")
+        if self.greek != ["source"]:
+            raise ValueError("Greek analysis reading must be exactly source")
+        return self
+
+
+class WindowPolicy(EchoesModel):
+    """Safe construction rules for complete sliding verse windows."""
+
+    cross_chapter_boundaries: Literal[True]
+    cross_book_boundaries: Literal[False]
+    emit_partial_windows: Literal[False]
+    bridge_profile_exclusions: Literal[False]
+    bridge_analytical_boundary_breaks: Literal[False]
+    allow_source_order_reference_gaps: Literal[True]
+    mark_reference_gaps: Literal[True]
+    minimum_verse_count: int = Field(ge=2)
+    maximum_verse_count: int = Field(ge=2)
+    window_sizes: dict[WindowGranularity, int]
+
+    @model_validator(mode="after")
+    def enabled_window_sizes_are_exact_and_bounded(self) -> Self:
+        expected = {"two_verse": 2, "five_verse": 5}
+        if self.window_sizes != expected:
+            raise ValueError("window sizes must be exactly two_verse=2 and five_verse=5")
+        if self.minimum_verse_count > self.maximum_verse_count:
+            raise ValueError("minimum window size cannot exceed maximum window size")
+        if self.minimum_verse_count != min(
+            self.window_sizes.values()
+        ) or self.maximum_verse_count != max(self.window_sizes.values()):
+            raise ValueError("window size bounds must match the configured window sizes")
+        return self
+
+
+class CriticalCoreExclusion(EchoesModel):
+    """A critical-core range resolved to one declared disputed passage."""
+
+    disputed_passage_id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    start_reference: str = Field(pattern=_VERSE_REFERENCE_PATTERN)
+    end_reference: str = Field(pattern=_VERSE_REFERENCE_PATTERN)
+
+    @model_validator(mode="after")
+    def exclusion_range_is_ordered_inside_one_book(self) -> Self:
+        start = _reference_coordinates(self.start_reference)
+        end = _reference_coordinates(self.end_reference)
+        if start[0] != end[0]:
+            raise ValueError("critical-core exclusion must stay inside one book")
+        if start[1:] > end[1:]:
+            raise ValueError("critical-core exclusion references must be ordered")
+        return self
+
+
+class DisputedPassagePolicy(EchoesModel):
+    """Passage-level treatment of inline textually disputed ranges."""
+
+    flag_passages: Literal[True]
+    passage_flag_field: Literal["disputed_passage_flag"]
+    passage_ids_field: Literal["disputed_passage_ids_json"]
+    profile_exclusions_break_continuity: Literal[True]
+    truncate_source_units_at_profile_boundaries: Literal[False]
+
+
+class KetivStructuralPolicy(EchoesModel):
+    """Conservative use of supplementary Ketiv structural mappings."""
+
+    verse_include_every_token: Literal[True]
+    sentence_use_resolved_mapping: Literal[True]
+    clause_use_resolved_mapping_only: Literal[True]
+    unresolved_clause_action: Literal["explicit_exclusion"]
+    unresolved_phrase_action: Literal["flag_only"]
+    never_fabricate_structure: Literal[True]
+    uncertainty_flag_field: Literal["ketiv_structural_uncertainty"]
+    preserve_excluded_tokens_in_verse_analysis: Literal[True]
+    record_affected_token_ids: Literal[True]
+
+
+class ReconstructionPolicy(EchoesModel):
+    """Language-aware, deterministic passage reconstruction contract."""
+
+    language_aware: Literal[True]
+    preserve_surface_text: Literal[True]
+    preserve_null_distinct_from_empty: Literal[True]
+    deterministic_unicode: Literal[True]
+    universal_space_join: Literal[False]
+    hebrew_strategy: Literal["source_word_and_morpheme_order"]
+    greek_strategy: Literal["punctuation_metadata_and_source_order"]
+
+
+class ZeroWidthTokenPolicy(EchoesModel):
+    """Membership and rendering rules for source-native zero-width rows."""
+
+    include_in_membership: Literal[True]
+    preserve_source_order: Literal[True]
+    contributes_visible_text: Literal[False]
+
+
+class PunctuationReconstructionPolicy(EchoesModel):
+    """Greek punctuation and elision reconstruction rules."""
+
+    use_leading_punctuation: Literal[True]
+    use_trailing_punctuation: Literal[True]
+    preserve_elision_metadata: Literal[True]
+    avoid_space_before_closing_punctuation: Literal[True]
+    preserve_opening_punctuation: Literal[True]
+
+
+PassageIdentityField = Literal[
+    "passage_id_schema_version",
+    "corpus",
+    "analysis_profile",
+    "analysis_reading",
+    "granularity",
+    "book",
+    "source_unit_id",
+    "reference_sequence",
+    "token_ids",
+]
+
+
+class PassageIdentityPolicy(EchoesModel):
+    """Canonical payload and collision behavior for stable passage IDs."""
+
+    schema_version: Literal[1]
+    prefix: Literal["P"]
+    digest_algorithm: Literal["sha256"]
+    digest_hex_length: Literal[64]
+    canonical_payload_fields: list[PassageIdentityField] = Field(min_length=9)
+    include_segmentation_config_hash: Literal[False]
+    collision_action: Literal["error"]
+
+    @model_validator(mode="after")
+    def canonical_fields_are_complete_and_ordered(self) -> Self:
+        expected: list[PassageIdentityField] = [
+            "passage_id_schema_version",
+            "corpus",
+            "analysis_profile",
+            "analysis_reading",
+            "granularity",
+            "book",
+            "source_unit_id",
+            "reference_sequence",
+            "token_ids",
+        ]
+        if self.canonical_payload_fields != expected:
+            raise ValueError("passage identity canonical payload fields must match schema v1")
+        return self
+
+
+PartitionField = Literal["corpus", "analysis_profile", "analysis_reading", "granularity"]
+
+
+class OutputPartitioning(EchoesModel):
+    """Deterministic, recoverable storage layout for passage artifacts."""
+
+    format: Literal["parquet"]
+    schema_directory: str = Field(min_length=1)
+    partition_by: list[PartitionField] = Field(min_length=4)
+    compression: Literal["zstd"]
+    write_statistics: Literal[True]
+    atomic_writes: Literal[True]
+    overwrite_requires_force: Literal[True]
+    refuse_silent_overwrite: Literal[True]
+
+    @model_validator(mode="after")
+    def directory_is_portable_and_partitions_are_complete(self) -> Self:
+        path = Path(self.schema_directory)
+        if path.is_absolute() or ".." in path.parts:
+            raise ValueError("passage output directory must be a repository-relative path")
+        expected: list[PartitionField] = [
+            "corpus",
+            "analysis_profile",
+            "analysis_reading",
+            "granularity",
+        ]
+        if self.partition_by != expected:
+            raise ValueError("passage outputs must use the canonical partition order")
+        return self
+
+
+IssueSeverity = Literal["error", "warning", "informational"]
+
+
+class ValidationSeverityPolicy(EchoesModel):
+    """Failure behavior for segmentation issues and strict validation."""
+
+    allowed_severities: list[IssueSeverity] = Field(min_length=3)
+    errors_fail_validation: Literal[True]
+    warnings_fail_strict_validation: Literal[True]
+    informational_fail_validation: Literal[False]
+    unknown_severity_action: Literal["error"]
+
+    @model_validator(mode="after")
+    def severities_are_complete_and_unique(self) -> Self:
+        if self.allowed_severities != ["error", "warning", "informational"]:
+            raise ValueError("validation severities must be error, warning, informational")
+        return self
+
+
+class SegmentationConfig(EchoesModel):
+    """Active passage-unit, stream, continuity, and storage policies."""
+
+    schema_version: Literal[3]
+    status: Literal["active"]
+    enabled_corpora: list[CorpusName] = Field(min_length=2)
+    enabled_analysis_profiles: list[AnalysisProfileName] = Field(min_length=2)
+    enabled_analysis_readings: EnabledAnalysisReadings
     granularities: list[Granularity]
     preserve_token_boundaries: Literal[True]
-    default_analysis_profile: Literal["edition_complete", "critical_core"]
+    default_analysis_profile: AnalysisProfileName
+    window_policy: WindowPolicy
     source_successors: list[SourceVerseSuccessor] = Field(default_factory=list)
+    analytical_continuities: list[AnalyticalContinuity] = Field(default_factory=list)
     analytical_boundary_breaks: list[AnalyticalBoundaryBreak] = Field(default_factory=list)
     disputed_passages: list[DisputedPassage] = Field(default_factory=list)
-    analysis_profiles: list[AnalysisProfile] = Field(min_length=2)
+    analysis_profiles: list[AnalysisProfile] = Field(min_length=1)
+    critical_core_exclusions: list[CriticalCoreExclusion] = Field(min_length=1)
     reference_gap_policy: ReferenceGapPolicy
+    disputed_passage_policy: DisputedPassagePolicy
     disputed_candidate_policy: DisputedCandidatePolicy
+    ketiv_policy: KetivStructuralPolicy
+    reconstruction_policy: ReconstructionPolicy
+    zero_width_token_policy: ZeroWidthTokenPolicy
+    punctuation_reconstruction_policy: PunctuationReconstructionPolicy
+    passage_identity: PassageIdentityPolicy
+    output_partitioning: OutputPartitioning
+    validation_severity_policy: ValidationSeverityPolicy
 
     @model_validator(mode="after")
     def declarations_are_consistent(self) -> Self:
+        if len(self.enabled_corpora) != len(set(self.enabled_corpora)) or set(
+            self.enabled_corpora
+        ) != {"hebrew", "greek"}:
+            raise ValueError("enabled corpora must be exactly hebrew and greek")
+
+        if len(self.enabled_analysis_profiles) != len(set(self.enabled_analysis_profiles)):
+            raise ValueError("enabled analysis profiles must be unique")
+        if set(self.enabled_analysis_profiles) != {"edition_complete", "critical_core"}:
+            raise ValueError(
+                "enabled analysis profiles must be exactly edition_complete and critical_core"
+            )
+
         if len(self.granularities) != len(set(self.granularities)):
             raise ValueError("segmentation granularities must be unique")
+        required_granularities = {"clause", "sentence", "verse", "two_verse", "five_verse"}
+        if set(self.granularities) != required_granularities:
+            raise ValueError("all five Milestone 5 granularities must be enabled")
 
         successor_pairs = [
             (item.source_id, item.corpus, item.from_reference, item.to_reference)
@@ -373,19 +633,31 @@ class SegmentationConfig(EchoesModel):
         if len(boundary_pairs) != len(set(boundary_pairs)):
             raise ValueError("analytical_boundary_breaks must be unique")
 
+        continuity_pairs = [
+            (item.corpus, item.from_reference, item.to_reference)
+            for item in self.analytical_continuities
+        ]
+        if len(continuity_pairs) != len(set(continuity_pairs)):
+            raise ValueError("analytical_continuities must be unique")
+        contradictory_boundaries = set(continuity_pairs) & set(boundary_pairs)
+        if contradictory_boundaries:
+            raise ValueError("the same boundary cannot be both analytically continuous and broken")
+
         disputed_ids = [item.passage_id for item in self.disputed_passages]
         if len(disputed_ids) != len(set(disputed_ids)):
             raise ValueError("disputed passage IDs must be unique")
         declared_disputed_ids = set(disputed_ids)
 
         profile_names = [profile.name for profile in self.analysis_profiles]
-        if len(profile_names) != len(set(profile_names)):
-            raise ValueError("analysis profile names must be unique")
         profiles = {profile.name: profile for profile in self.analysis_profiles}
         if self.default_analysis_profile not in profiles:
             raise ValueError("default analysis profile must be declared")
+        if len(profile_names) != len(set(profile_names)):
+            raise ValueError("analysis profile names must be unique")
         if set(profiles) != {"edition_complete", "critical_core"}:
             raise ValueError("edition_complete and critical_core profiles are required")
+        if set(profiles) != set(self.enabled_analysis_profiles):
+            raise ValueError("declared analysis profiles must match enabled profiles")
 
         for profile in self.analysis_profiles:
             unknown = set(profile.excluded_disputed_passage_ids) - declared_disputed_ids
@@ -398,7 +670,24 @@ class SegmentationConfig(EchoesModel):
         if set(profiles["critical_core"].excluded_disputed_passage_ids) != declared_disputed_ids:
             raise ValueError("critical_core must exclude every declared disputed passage")
 
-        blocked_windows = {"two_verse", "five_verse"}
+        critical_ids = [item.disputed_passage_id for item in self.critical_core_exclusions]
+        if len(critical_ids) != len(set(critical_ids)):
+            raise ValueError("critical-core exclusions must be unique")
+        if set(critical_ids) != declared_disputed_ids:
+            raise ValueError("critical-core exclusions must resolve every disputed passage")
+        disputed_by_id = {item.passage_id: item for item in self.disputed_passages}
+        for exclusion in self.critical_core_exclusions:
+            disputed = disputed_by_id[exclusion.disputed_passage_id]
+            if (
+                exclusion.start_reference != disputed.start_reference
+                or exclusion.end_reference != disputed.end_reference
+            ):
+                raise ValueError(
+                    "critical-core exclusion references must resolve to the declared "
+                    "disputed passage"
+                )
+
+        blocked_windows = set(self.window_policy.window_sizes)
         boundary_windows = {
             (item.corpus, item.from_reference, item.to_reference): set(
                 item.prohibited_window_granularities
@@ -413,6 +702,11 @@ class SegmentationConfig(EchoesModel):
                 raise ValueError(
                     "alternate-ending source successors must prohibit two-verse "
                     "and five-verse windows at a matching analytical boundary"
+                )
+        for key, prohibited_windows in boundary_windows.items():
+            if prohibited_windows != blocked_windows:
+                raise ValueError(
+                    f"analytical boundary {key} must prohibit every enabled window granularity"
                 )
         return self
 

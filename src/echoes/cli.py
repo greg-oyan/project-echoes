@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, cast
 
+import duckdb
 import typer
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from echoes import __version__
 from echoes.acquire import (
@@ -42,7 +43,27 @@ from echoes.manifests.sources import (
     serialize_source,
     summarize_sources,
 )
-from echoes.settings import ConfigLoadError, RuntimeSettings, validate_config_directory
+from echoes.segment.generation import PassageGenerationError
+from echoes.segment.pipeline import (
+    PassagePipelineError,
+    SegmentationSelection,
+    default_passage_output,
+    segment_passages,
+)
+from echoes.segment.storage import (
+    PassageStorageError,
+    read_passage,
+    read_passage_membership,
+)
+from echoes.segment.streams import SegmentationInputError, load_segmentation_inputs
+from echoes.segment.validation import validate_passage_artifacts
+from echoes.settings import (
+    ConfigLoadError,
+    RuntimeSettings,
+    SegmentationConfig,
+    load_config,
+    validate_config_directory,
+)
 
 app = typer.Typer(
     name="echoes",
@@ -106,6 +127,71 @@ def _table(headers: Sequence[str], rows: Sequence[Sequence[str]]) -> str:
     return "\n".join(rendered)
 
 
+def _load_segmentation_config(config_dir: Path) -> SegmentationConfig:
+    loaded = load_config(config_dir / "segmentation.yaml")
+    if not isinstance(loaded, SegmentationConfig):  # pragma: no cover - schema registry guard
+        raise ConfigLoadError("segmentation.yaml did not load as SegmentationConfig")
+    return loaded
+
+
+def _passage_exclusions(database: Path, passage_id: str) -> list[dict[str, object]]:
+    """Return explicit exclusions related to one passage without JSON SQL assumptions."""
+
+    try:
+        with duckdb.connect(str(database), read_only=True) as connection:
+            cursor = connection.execute(
+                "SELECT exclusion_id, token_id, locus_id, source_reference, reason_code, "
+                "resolution_status, related_passage_ids_json, notes "
+                "FROM segmentation_exclusions ORDER BY stream_position_in_corpus, exclusion_id"
+            )
+            rows = cursor.fetchall()
+            columns = [str(description[0]) for description in cursor.description]
+    except (duckdb.Error, OSError) as exc:
+        raise PassageStorageError(
+            f"could not read exclusions for passage {passage_id}: {exc}"
+        ) from exc
+
+    related: list[dict[str, object]] = []
+    for row in rows:
+        values = dict(zip(columns, row, strict=True))
+        try:
+            passage_ids = json.loads(cast(str, values["related_passage_ids_json"]))
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise PassageStorageError(
+                "segmentation exclusion contains invalid passage IDs"
+            ) from exc
+        if passage_id in passage_ids:
+            values.pop("related_passage_ids_json")
+            related.append(values)
+    return related
+
+
+def _passage_selection(
+    *,
+    all_streams: bool,
+    corpus: str | None,
+    profile: str | None,
+    reading: str | None,
+    granularity: str | None,
+    book: str | None,
+) -> SegmentationSelection:
+    try:
+        selection = SegmentationSelection.model_validate(
+            {
+                "all_streams": all_streams,
+                "corpus": corpus,
+                "analysis_profile": profile,
+                "analysis_reading": reading,
+                "granularity": granularity,
+                "book": book,
+            }
+        )
+        selection.selected_streams()
+    except ValidationError as exc:
+        raise PassagePipelineError(str(exc)) from exc
+    return selection
+
+
 @app.command()
 def version() -> None:
     """Print the installed Project Echoes version."""
@@ -127,6 +213,13 @@ def validate_config_command(config_dir: ConfigDir = Path("config")) -> None:
 def validate_sources_command(
     manifest_path: SourceManifestPath = Path("data/manifests/sources.yaml"),
     data_root: DataRoot = Path("data"),
+    audit_canonical_hashes: Annotated[
+        bool,
+        typer.Option(
+            "--audit-canonical-hashes",
+            help="Explicitly request the canonical-hash audit that is always enforced.",
+        ),
+    ] = False,
 ) -> None:
     """Validate source records, governance state, and locally present canonical hashes."""
     try:
@@ -143,6 +236,8 @@ def validate_sources_command(
         "Licensing: "
         f"complete={summary.licensing_complete}, incomplete={summary.licensing_incomplete}"
     )
+    if audit_canonical_hashes:
+        typer.echo("Explicit canonical-hash audit requested.")
     audited = 0
     hash_findings: list[str] = []
     for source in catalog.sources:
@@ -585,6 +680,424 @@ def corpus_summary_command(
         f"Variants={summary.variant_count}, ketiv/qere={summary.ketiv_qere_count}, "
         f"punctuation={summary.punctuation_count}, issues={summary.validation_issue_count}."
     )
+
+
+@app.command("segment-passages")
+def segment_passages_command(
+    all_streams: Annotated[
+        bool,
+        typer.Option("--all", help="Generate every governed corpus/profile/reading stream."),
+    ] = False,
+    corpus: Annotated[
+        str | None,
+        typer.Option("--corpus", help="Exact corpus selector: hebrew or greek."),
+    ] = None,
+    profile: Annotated[
+        str | None,
+        typer.Option("--profile", help="Exact profile selector."),
+    ] = None,
+    reading: Annotated[
+        str | None,
+        typer.Option("--reading", help="Exact reading selector: qere, ketiv, or source."),
+    ] = None,
+    granularity: Annotated[
+        str | None,
+        typer.Option("--granularity", help="Optionally generate one governed granularity."),
+    ] = None,
+    book: Annotated[
+        str | None,
+        typer.Option("--book", help="Optionally generate one canonical three-character book."),
+    ] = None,
+    manifest_path: SourceManifestPath = Path("data/manifests/sources.yaml"),
+    config_dir: ConfigDir = Path("config"),
+    data_root: DataRoot = Path("data"),
+    output_dir: Annotated[
+        Path | None,
+        typer.Option("--output-dir", help="Generated schema-v1 passage output directory."),
+    ] = None,
+    database: Annotated[
+        Path | None,
+        typer.Option("--database", help="Local DuckDB database path."),
+    ] = None,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Replace only the selected generated passage artifacts."),
+    ] = False,
+) -> None:
+    """Generate deterministic passage artifacts after all immutable-input gates."""
+
+    try:
+        selection = _passage_selection(
+            all_streams=all_streams,
+            corpus=corpus,
+            profile=profile,
+            reading=reading,
+            granularity=granularity,
+            book=book,
+        )
+        config = _load_segmentation_config(config_dir)
+        result = segment_passages(
+            config=config,
+            selection=selection,
+            manifest_path=manifest_path,
+            data_root=data_root,
+            output_dir=output_dir,
+            database_path=database,
+            force=force,
+        )
+    except (
+        ConfigLoadError,
+        PassageGenerationError,
+        PassagePipelineError,
+        PassageStorageError,
+        SegmentationInputError,
+        SourceManifestError,
+        OSError,
+    ) as exc:
+        typer.echo(f"Passage generation failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"Generated passage run {result.context.run_id}.")
+    typer.echo(f"Artifacts: {result.output_dir}")
+    typer.echo(f"DuckDB: {result.database_path}")
+    typer.echo(f"Rows: {_counts(result.table_counts)}")
+    typer.echo(
+        f"Runtime: {result.runtime_seconds:.3f}s; output size: {result.output_size_bytes} bytes."
+    )
+
+
+@app.command("validate-passages")
+def validate_passages_command(
+    all_passages: Annotated[
+        bool,
+        typer.Option("--all", help="Validate all generated passage artifacts and input anchors."),
+    ] = False,
+    manifest_path: SourceManifestPath = Path("data/manifests/sources.yaml"),
+    config_dir: ConfigDir = Path("config"),
+    data_root: DataRoot = Path("data"),
+    output_dir: Annotated[
+        Path | None,
+        typer.Option("--output-dir", help="Generated schema-v1 passage output directory."),
+    ] = None,
+    database: Annotated[
+        Path,
+        typer.Option("--database", help="Local DuckDB database path."),
+    ] = Path("data/processed/project_echoes.duckdb"),
+    strict: Annotated[
+        bool,
+        typer.Option("--strict", help="Treat validation warnings as failures."),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit the complete structured validation report."),
+    ] = False,
+    report: Annotated[
+        Path | None,
+        typer.Option("--report", help="Optionally write the structured validation report."),
+    ] = None,
+) -> None:
+    """Validate complete persisted passage artifacts and immutable corpus anchors."""
+
+    if not all_passages:
+        typer.echo("Passage validation failed: select --all.", err=True)
+        raise typer.Exit(code=1)
+    try:
+        config = _load_segmentation_config(config_dir)
+        inputs = load_segmentation_inputs(manifest_path=manifest_path, data_root=data_root)
+        resolved_output = output_dir or default_passage_output(config)
+        validation = validate_passage_artifacts(
+            resolved_output,
+            database_path=database,
+            config=config,
+            inputs=inputs,
+            strict=strict,
+        )
+        if report is not None:
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(validation.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    except (
+        ConfigLoadError,
+        PassagePipelineError,
+        PassageStorageError,
+        SegmentationInputError,
+        SourceManifestError,
+        OSError,
+    ) as exc:
+        typer.echo(f"Passage validation failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if json_output:
+        _echo_json(validation)
+    else:
+        typer.echo(
+            f"Validated passage run {validation.segmentation_run_id or 'unknown'}: "
+            f"errors={validation.error_count}, warnings={validation.warning_count}, "
+            f"informational={validation.informational_count}."
+        )
+        typer.echo(f"Rows: {_counts(validation.table_counts)}")
+        for issue in validation.issues:
+            if issue.severity != "informational":
+                location = f" [{issue.table}]" if issue.table else ""
+                typer.echo(
+                    f"{issue.severity.upper()} {issue.code}{location}: {issue.message}",
+                    err=issue.severity == "error",
+                )
+    if not validation.passed:
+        raise typer.Exit(code=validation.exit_code)
+
+
+@app.command("passage-summary")
+def passage_summary_command(
+    all_streams: Annotated[
+        bool,
+        typer.Option("--all", help="Summarize every generated passage stream."),
+    ] = False,
+    corpus: Annotated[str | None, typer.Option("--corpus", help="Exact corpus selector.")] = None,
+    profile: Annotated[
+        str | None, typer.Option("--profile", help="Exact analysis-profile selector.")
+    ] = None,
+    reading: Annotated[
+        str | None, typer.Option("--reading", help="Exact analysis-reading selector.")
+    ] = None,
+    granularity: Annotated[
+        str | None, typer.Option("--granularity", help="Optional granularity filter.")
+    ] = None,
+    book: Annotated[
+        str | None, typer.Option("--book", help="Optional canonical book filter.")
+    ] = None,
+    database: Annotated[
+        Path,
+        typer.Option("--database", help="Local DuckDB database path."),
+    ] = Path("data/processed/project_echoes.duckdb"),
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit the passage summary as JSON."),
+    ] = False,
+) -> None:
+    """Summarize generated passages by stream and granularity."""
+
+    try:
+        selection = _passage_selection(
+            all_streams=all_streams,
+            corpus=corpus,
+            profile=profile,
+            reading=reading,
+            granularity=granularity,
+            book=book,
+        )
+        clauses: list[str] = []
+        parameters: list[str] = []
+        if not selection.all_streams:
+            for column, value in (
+                ("corpus", selection.corpus),
+                ("analysis_profile", selection.analysis_profile),
+                ("analysis_reading", selection.analysis_reading),
+                ("granularity", selection.granularity),
+                ("book", selection.book),
+            ):
+                if value is not None:
+                    clauses.append(f"{column} = ?")
+                    parameters.append(value)
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        with duckdb.connect(str(database), read_only=True) as connection:
+            rows = connection.execute(
+                "SELECT corpus, analysis_profile, analysis_reading, granularity, "
+                "count(*) AS passage_count, sum(token_count) AS membership_count, "
+                "count(*) FILTER (WHERE disputed_passage_flag) AS disputed_count, "
+                "count(*) FILTER (WHERE reference_gap) AS reference_gap_count, "
+                "count(*) FILTER (WHERE ketiv_structural_uncertainty) AS uncertainty_count "
+                f"FROM passages{where} GROUP BY ALL ORDER BY 1, 2, 3, 4",
+                parameters,
+            ).fetchall()
+    except (PassagePipelineError, duckdb.Error, OSError) as exc:
+        typer.echo(f"Passage summary failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if not rows:
+        typer.echo("Passage summary failed: no passages match the selection.", err=True)
+        raise typer.Exit(code=1)
+    headers = (
+        "CORPUS",
+        "PROFILE",
+        "READING",
+        "GRANULARITY",
+        "PASSAGES",
+        "MEMBERSHIPS",
+        "DISPUTED",
+        "GAPS",
+        "KETIV UNCERTAIN",
+    )
+    rendered = [[str(value) for value in row] for row in rows]
+    if json_output:
+        json_fields = (
+            "corpus",
+            "analysis_profile",
+            "analysis_reading",
+            "granularity",
+            "passage_count",
+            "membership_count",
+            "disputed_count",
+            "reference_gap_count",
+            "ketiv_uncertainty_count",
+        )
+        typer.echo(
+            json.dumps(
+                [dict(zip(json_fields, row, strict=True)) for row in rows],
+                indent=2,
+                ensure_ascii=True,
+            )
+        )
+    else:
+        typer.echo(_table(headers, rendered))
+        typer.echo(f"{len(rows)} stream/granularity row(s).")
+
+
+@app.command("show-passage")
+def show_passage_command(
+    passage_id: Annotated[str, typer.Argument(help="Stable passage identifier.")],
+    database: Annotated[
+        Path,
+        typer.Option("--database", help="Local DuckDB database path."),
+    ] = Path("data/processed/project_echoes.duckdb"),
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit complete passage metadata as JSON."),
+    ] = False,
+) -> None:
+    """Display passage metadata, reconstruction, uncertainty, and exclusions."""
+
+    try:
+        passage = read_passage(database, passage_id)
+        if passage is None:
+            typer.echo(f"Passage not found: {passage_id}", err=True)
+            raise typer.Exit(code=1)
+        exclusions = _passage_exclusions(database, passage_id)
+    except PassageStorageError as exc:
+        typer.echo(f"Could not show passage: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if json_output:
+        payload = passage.model_dump(mode="json")
+        payload["exclusions"] = exclusions
+        typer.echo(json.dumps(payload, indent=2, ensure_ascii=True))
+        return
+    constituent_ids = json.loads(passage.constituent_verse_passage_ids_json)
+    typer.echo(f"Passage: {passage.passage_id}")
+    typer.echo(
+        f"Stream: {passage.corpus}/{passage.analysis_profile}/{passage.analysis_reading}/"
+        f"{passage.granularity}"
+    )
+    typer.echo(f"References: {passage.start_reference} through {passage.end_reference}")
+    typer.echo(f"Tokens: {passage.token_count}")
+    typer.echo(f"Surface: {passage.surface_text}")
+    typer.echo(f"Normalized: {passage.normalized_text}")
+    if passage.unpointed_text is not None:
+        typer.echo(f"Unpointed: {passage.unpointed_text}")
+    if passage.folded_text is not None:
+        typer.echo(f"Folded: {passage.folded_text}")
+    typer.echo(f"Disputed: {passage.disputed_passage_flag}")
+    typer.echo(f"Reference gap: {passage.reference_gap}")
+    typer.echo(f"Ketiv structural uncertainty: {passage.ketiv_structural_uncertainty}")
+    typer.echo(f"Constituent verse IDs: {json.dumps(constituent_ids, ensure_ascii=True)}")
+    typer.echo(f"Explicit exclusions: {len(exclusions)}")
+    for exclusion in exclusions:
+        typer.echo(
+            f"- {exclusion['reason_code']} at {exclusion['source_reference']} "
+            f"(token {exclusion['token_id']}, {exclusion['resolution_status']})"
+        )
+
+
+@app.command("reconstruct-passage")
+def reconstruct_passage_command(
+    passage_id: Annotated[str, typer.Argument(help="Stable passage identifier.")],
+    database: Annotated[
+        Path,
+        typer.Option("--database", help="Local DuckDB database path."),
+    ] = Path("data/processed/project_echoes.duckdb"),
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit all stored reconstruction forms as JSON."),
+    ] = False,
+) -> None:
+    """Display the deterministic language-aware reconstruction for one passage."""
+
+    try:
+        passage = read_passage(database, passage_id)
+    except PassageStorageError as exc:
+        typer.echo(f"Could not reconstruct passage: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if passage is None:
+        typer.echo(f"Passage not found: {passage_id}", err=True)
+        raise typer.Exit(code=1)
+    forms = {
+        "passage_id": passage.passage_id,
+        "surface_text": passage.surface_text,
+        "normalized_text": passage.normalized_text,
+        "unpointed_text": passage.unpointed_text,
+        "folded_text": passage.folded_text,
+    }
+    if json_output:
+        typer.echo(json.dumps(forms, indent=2, ensure_ascii=True))
+        return
+    typer.echo(f"Passage: {passage.passage_id}")
+    typer.echo(f"Surface: {passage.surface_text}")
+    typer.echo(f"Normalized: {passage.normalized_text}")
+    if passage.unpointed_text is not None:
+        typer.echo(f"Unpointed: {passage.unpointed_text}")
+    if passage.folded_text is not None:
+        typer.echo(f"Folded: {passage.folded_text}")
+
+
+@app.command("passage-membership")
+def passage_membership_command(
+    passage_id: Annotated[str, typer.Argument(help="Stable passage identifier.")],
+    database: Annotated[
+        Path,
+        typer.Option("--database", help="Local DuckDB database path."),
+    ] = Path("data/processed/project_echoes.duckdb"),
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit exact ordered membership as JSON."),
+    ] = False,
+) -> None:
+    """Display authoritative ordered token membership for one passage."""
+
+    try:
+        members = read_passage_membership(database, passage_id)
+    except PassageStorageError as exc:
+        typer.echo(f"Could not read passage membership: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if not members:
+        typer.echo(f"Passage not found: {passage_id}", err=True)
+        raise typer.Exit(code=1)
+    if json_output:
+        typer.echo(
+            json.dumps(
+                [member.model_dump(mode="json") for member in members],
+                indent=2,
+                ensure_ascii=True,
+            )
+        )
+        return
+    headers = (
+        "POSITION",
+        "TOKEN ID",
+        "REFERENCE",
+        "SOURCE POS",
+        "STREAM POS",
+        "BASIS",
+        "RESOLUTION",
+    )
+    rows = [
+        (
+            str(member.position_in_passage),
+            member.token_id,
+            member.source_reference,
+            str(member.source_position_in_corpus),
+            str(member.stream_position_in_corpus),
+            member.membership_basis,
+            member.structural_resolution_status,
+        )
+        for member in members
+    ]
+    typer.echo(_table(headers, rows))
+    typer.echo(f"{len(rows)} token(s).")
 
 
 @app.command("create-run-manifest")
