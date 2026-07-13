@@ -1,0 +1,80 @@
+{
+  "validation": {
+    "passed": true,
+    "error_count": 0,
+    "warning_count": 0,
+    "informational_count": 0
+  },
+  "determinism": {
+    "first_run_id": "passages-v1-00e261abea9ed44ef087",
+    "second_run_id": "passages-v1-00e261abea9ed44ef087",
+    "first_runtime_seconds": 2245.249,
+    "second_runtime_seconds": 2225.401,
+    "first_output_size_bytes": 627780157,
+    "second_output_size_bytes": 627780157,
+    "run_ids_match": true,
+    "logical_hashes_match": true,
+    "physical_hashes_match": true,
+    "input_digests_match": true
+  },
+  "acceptance_checks": [
+    {
+      "gate": "Verified Milestone 4 handoff",
+      "passed": true,
+      "evidence": "PR #5 merged as b4b5c707d9eb852c01652df438455c828c0100a8; post-merge gates and source anchors passed."
+    },
+    {
+      "gate": "Five passage granularities and six streams",
+      "passed": true,
+      "evidence": "Clause, sentence, verse, two-verse, and five-verse passages exist for all governed profile/reading combinations."
+    },
+    {
+      "gate": "Exact identity and membership",
+      "passed": true,
+      "evidence": "914497 unique deterministic passages reproduce from 21530271 authoritative ordered membership rows."
+    },
+    {
+      "gate": "Source structure and Ketiv uncertainty",
+      "passed": true,
+      "evidence": "Resolved mappings are used; 510 unresolved Ketiv clause exclusions are explicit across both profiles; every Ketiv token remains in verse analysis."
+    },
+    {
+      "gate": "Profiles, disputed text, and continuity",
+      "passed": true,
+      "evidence": "Critical-core excludes exactly 390 tokens in 25 extant references; no profile exclusion or Mark 16:20-to-16:99 boundary is bridged."
+    },
+    {
+      "gate": "Reference gaps and omitted verses",
+      "passed": true,
+      "evidence": "No omitted verse record is fabricated; valid extant-source gaps are flagged in 174 passages across both Greek profiles."
+    },
+    {
+      "gate": "Language-aware reconstruction",
+      "passed": true,
+      "evidence": "Hebrew, Aramaic, and Greek reconstruction and ordered analytical arrays pass persisted validation and 30 sanitized spot checks."
+    },
+    {
+      "gate": "Two-run determinism",
+      "passed": true,
+      "evidence": "Run IDs, all six logical hashes, five content-table physical hashes, and all 3570 content Parquet leaf hashes match."
+    },
+    {
+      "gate": "Quality and full-corpus regressions",
+      "passed": true,
+      "evidence": "Both strict validators returned zero findings; pinned full-corpus regression suite passes 20/20."
+    },
+    {
+      "gate": "Repository and milestone boundary",
+      "passed": true,
+      "evidence": "Generated/source data remain ignored; no benchmark, retrieval, scoring, embedding, candidate, or review-console implementation began."
+    }
+  ],
+  "known_limitations": [
+    "MACULA source annotations contain 37195 Qere-primary rows without clause assignments per profile; each omission is explicit rather than fabricated.",
+    "The OSHB supplement resolves 1013 of 1268 Ketiv tokens to clauses; the remaining 255 tokens per profile have explicit clause exclusions while remaining in verse analysis.",
+    "Runtime telemetry is recorded for each complete run, not independently for each granularity because all five granularities are generated together per book.",
+    "The metadata Parquet leaf contains runtime telemetry and therefore differs physically between runs; its telemetry-excluded logical hash matches, and every content leaf is byte-identical."
+  ],
+  "adr_number": "0013",
+  "next_recommended_task": "Milestone 6 only: define the benchmark schema and validation contract, acquire OpenBible cross-references as licensed Tier 3 weak supervision, and validate the existing header-only Tier 1 benchmark without implementing retrieval, scoring, embeddings, candidates, or review tooling."
+}

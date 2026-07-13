@@ -213,6 +213,13 @@ def validate_config_command(config_dir: ConfigDir = Path("config")) -> None:
 def validate_sources_command(
     manifest_path: SourceManifestPath = Path("data/manifests/sources.yaml"),
     data_root: DataRoot = Path("data"),
+    audit_canonical_hashes: Annotated[
+        bool,
+        typer.Option(
+            "--audit-canonical-hashes",
+            help="Explicitly request the canonical-hash audit that is always enforced.",
+        ),
+    ] = False,
 ) -> None:
     """Validate source records, governance state, and locally present canonical hashes."""
     try:
@@ -229,6 +236,8 @@ def validate_sources_command(
         "Licensing: "
         f"complete={summary.licensing_complete}, incomplete={summary.licensing_incomplete}"
     )
+    if audit_canonical_hashes:
+        typer.echo("Explicit canonical-hash audit requested.")
     audited = 0
     hash_findings: list[str] = []
     for source in catalog.sources:

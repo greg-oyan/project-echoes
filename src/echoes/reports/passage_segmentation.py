@@ -406,6 +406,7 @@ def collect_passage_report_data(database_path: Path) -> PassageReportData:
                        related_passage_ids_json, source_id, source_version
                 FROM segmentation_exclusions
                 WHERE corpus = 'hebrew' AND analysis_reading = 'ketiv'
+                  AND reason_code = 'ketiv_clause_mapping_unresolved'
                 ORDER BY analysis_profile, granularity, source_reference,
                          token_id, exclusion_id
                 """,
