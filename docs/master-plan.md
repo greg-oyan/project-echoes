@@ -2781,6 +2781,22 @@ Acceptance:
 
 time_budget:
 
+Status: **Complete as of 2026-07-12**. Two strict full-corpus generations
+reproduced run ID `passages-v1-00e261abea9ed44ef087`, 914,497 passages,
+21,530,271 membership rows, 913,445 adjacency rows, 148,948 explicit
+exclusions, zero issues, all six logical table hashes, all five deterministic
+content-table physical hashes, and all 3,570 non-metadata leaf hashes. The
+metadata physical hash differs only because runtime is registered telemetry;
+its telemetry-excluding logical hash is stable. The validated run satisfies
+every acceptance item below under ADRs 0011 and 0013 without changing the
+pinned corpus or supplement digests.
+
+The exact next task is Milestone 6 only: begin the known-link benchmark with
+the known-relationship schema, the governed OpenBible Tier 3 manifest review,
+and validation of the still-header-only project-curated Tier 1 quotation CSV.
+No Milestone 6 acquisition, import, or benchmark implementation began during
+Milestone 5.
+
 Build:
 
 * Clause passages

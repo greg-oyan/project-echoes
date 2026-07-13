@@ -1,15 +1,14 @@
 # Segmentation
 
-Status: **Milestone 5 architecture is active and implementation is in progress;
-generated passage artifacts are not yet accepted or regression-pinned**.
+Status: **Milestone 5 complete; schema-v1 full-corpus artifacts are accepted and
+regression-pinned**.
 
 At the Milestone 4 closure gate this document stated:
 
 > no passage generation is implemented
 
-That historical handoff boundary has now been superseded by the accepted
-Milestone 5 architecture, but it remains important: the architecture alone
-does not establish a completed or accepted corpus run.
+That historical handoff boundary has been superseded by the implemented and
+twice-validated Milestone 5 corpus run.
 
 The governing policy is declared in `config/segmentation.yaml`, the row and
 storage contracts are documented in [Passage schema](passage-schema.md), and
@@ -30,7 +29,7 @@ more than one verse. Verse and window construction does not split those units.
 Windows are derived from analytical continuity between extant verse passages,
 not from numeric verse arithmetic.
 
-The architecture materializes six analytical stream contexts:
+The implementation materializes six analytical stream contexts:
 
 - Hebrew/Aramaic `edition_complete` + `qere`
 - Hebrew/Aramaic `edition_complete` + `ketiv`
@@ -128,15 +127,14 @@ Passage validation must fail nonzero on errors and check:
 - stable logical outputs across two equivalent runs
 
 Warnings fail strict validation. Informational findings do not fail validation.
-The structure audit and active schemas establish the architecture; they do not
-replace the required two-run full-corpus acceptance and regression-pinning
-work.
+The structure audit, strict persisted validation, two-run deterministic
+comparison, and pinned full-corpus regression together establish acceptance.
 
 ## Ketiv structural-uncertainty handoff
 
 Milestone 4 completed supplementary OSHB Ketiv tokens and explicit structural
-alignment records. Milestone 5 must consume those records under the following
-acceptance contract without treating derived alignments as source-native
+alignment records. Milestone 5 consumes those records under the following
+accepted contract without treating derived alignments as source-native
 structure:
 
 - The default Qere stream retains complete primary MACULA sentence, clause,
@@ -152,8 +150,8 @@ structure:
   The tokens remain in the corpus and in verse-level Ketiv analysis; they must
   never disappear silently.
 
-This handoff contract does not by itself establish an accepted passage run. It
-defines acceptance conditions the Milestone 5 implementation must satisfy.
+The accepted passage run satisfies this contract; the explicit exclusions and
+uncertainty flags remain required inputs to later methods.
 
 ## Source succession is not analytical adjacency
 
@@ -162,8 +160,8 @@ The pinned MACULA Greek source physically places `MRK 16:99` immediately after
 with `relation: alternate_ending` and `reference_gap: true`. It separately
 declares an analytical boundary break over the same pair.
 
-Consequently, Milestone 5 must never construct a two-verse or five-verse window
-that combines `MRK 16:20` and `MRK 16:99`. The latter remains available as its
+Consequently, Milestone 5 constructs no two-verse or five-verse window that
+combines `MRK 16:20` and `MRK 16:99`. The latter remains available as its
 own verse passage in the edition-complete profile; its position in a source file
 does not turn two alternate endings into one analytical sequence.
 
@@ -206,5 +204,29 @@ in source or file order.
 A future candidate whose evidence intersects a declared disputed passage must
 set `disputed_passage_flag`. It may retain `strong candidate` status only if it
 survives exclusion of the disputed text or receives a completed
-textual-criticism review. This is a downstream eligibility contract, not a
-candidate-generation implementation in Milestone 4.
+textual-criticism review. This remains a downstream eligibility contract;
+Milestone 5 does not generate candidates.
+
+## Full-corpus acceptance evidence
+
+Two complete generations reproduced run ID
+`passages-v1-00e261abea9ed44ef087`, 914,497 passages, 21,530,271 exact
+membership rows, 913,445 adjacency rows, 148,948 explicit exclusions, zero
+issues, and one metadata row. Both strict persisted validations returned zero
+errors, warnings, and informational findings. Generation took 2,245.249 and
+2,225.401 seconds; validation took 743.4 and 749.5 seconds; both runs reported
+627,780,157 output bytes.
+
+All six logical table hashes agreed, as did all five content-table physical
+hashes and all 3,570 non-metadata leaf hashes. Runtime telemetry caused the
+metadata Parquet physical hash to differ; the metadata logical hash excludes
+the registered telemetry fields and remained
+`87b88f0b3d4efa88c9d4668ba1eb0aba5fce244b0350130a033deb1a087578cf`.
+This is the sole governed physical-hash exception.
+
+The validated gate covers source-unit boundaries, expected per-granularity
+coverage, language-aware reconstruction, all fifteen omitted Greek verse
+numbers without fabrication, reference-gap propagation, exact disputed-text
+profiles, the `MRK 16:20`/`MRK 16:99` analytical break, complete Qere
+structure, all Ketiv tokens in verse and sentence analysis, and explicit
+unresolved Ketiv clause exclusions without silent token loss.

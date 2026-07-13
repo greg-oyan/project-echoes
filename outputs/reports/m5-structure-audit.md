@@ -1,7 +1,7 @@
 # Milestone 5 full-corpus structure audit
 
-Date: 2026-07-12  
-Executing agent: Codex  
+Date: 2026-07-12
+Executing agent: Codex
 Scope: read-only inspection of the complete local MACULA Hebrew, MACULA Greek,
 and OSHB Ketiv/Qere processed tables before passage-schema design.
 

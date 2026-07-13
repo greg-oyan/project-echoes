@@ -57,3 +57,88 @@ Twelve configured manual samples span Torah, historical narrative, poetry, wisdo
 ### Reproducibility result
 
 At least two independent full builds from the same verified receipt and configuration produced the same 475,911 rows, ingestion run ID `hebrew-7db8035c6ae1c3268074`, Parquet hashes, and logical table hashes. Transactional DuckDB reloads preserved the same row counts and logical fingerprints. Synthetic fixtures also demonstrate that changing input traversal order does not change canonical identities or logical outputs, while changing governed configuration changes the run identity.
+
+## Milestone 5
+
+Milestone 5 derives comparison units without modifying the validated source or
+supplement tables. The inputs are the pinned MACULA Hebrew/Aramaic and Greek
+tables, the OSHB Ketiv supplement and structural mappings, the immutable corpus
+digests, and schema-version-3 `config/segmentation.yaml`. Passage schema version
+1 and passage-ID schema version 1 are governed by ADR 0013. No benchmark,
+scoring, embedding, candidate-generation, or scholarly inference is part of
+this milestone.
+
+### Analytical streams and units
+
+The generator materializes six stream contexts: Hebrew `edition_complete` and
+`critical_core`, each with Qere and Ketiv readings, and Greek
+`edition_complete` and `critical_core` with the source reading. Each context
+produces source-native clauses and sentences, extant verses, and complete
+two-verse and five-verse windows. Windows follow explicitly analytical
+continuity between extant verse passages; they may cross chapters, never cross
+books, never bridge a profile exclusion, and never join `MRK 16:20` to
+`MRK 16:99`.
+
+`passage_membership` is authoritative. Its ordered token IDs and one-based
+positions reproduce passage identity, boundaries, reference sequence, counts,
+reconstructed forms, and ordered features. Passage IDs hash a canonical payload
+containing schema, corpus, profile, reading, granularity, book, scoped source
+unit, exact references, and exact token membership. Run identity adds the
+relevant configuration, selected scope, pinned source versions, and immutable
+input digests, while excluding paths and execution telemetry.
+
+Hebrew and Aramaic reconstruction groups source morphemes into words and
+preserves source separators, punctuation, selected Qere/Ketiv readings, and
+zero-width membership. Greek reconstruction uses the stored leading/core/
+trailing punctuation and elision metadata. Missing analytical annotations stay
+JSON null rather than becoming empty strings. Reconstruction validation
+recomputes selected samples from membership instead of trusting stored text.
+
+### Profiles, gaps, and uncertainty
+
+`edition_complete` includes all text inline in the selected editions.
+`critical_core` excludes exactly the longer ending of Mark (`MRK 16:9-20`),
+the alternate ending (`MRK 16:99`), and the pericope adulterae
+(`JHN 7:53-8:11`) without changing source records or positions. The fifteen
+edition-omitted Greek verse numbers are not fabricated. Units that span an
+omitted reference retain the extant reference sequence and set
+`reference_gap=true`.
+
+The Qere stream retains complete primary MACULA structure. Every Ketiv token is
+present in the Ketiv verse and sentence analyses. Clause membership uses only
+resolved supplementary mappings: 255 unresolved Ketiv clause tokens per
+profile receive explicit `ketiv_clause_mapping_unresolved` exclusion rows and
+remain in verse analysis. Tokens whose primary clause annotation is absent are
+also recorded explicitly instead of disappearing. Intersecting passages carry
+`ketiv_structural_uncertainty` for unresolved clause or phrase mappings.
+
+### Storage and full-corpus acceptance
+
+Typed, deterministically sorted Parquet is partitioned into book-sized leaves
+under `data/processed/passages/schema-v1/`; DuckDB exposes external views over
+the artifacts. Staged writes require explicit `--force`, atomically replace
+only generated passage outputs, and recover the prior target on failed
+replacement. The local artifacts remain Git-ignored.
+
+Two complete strict runs over identical inputs reproduced segmentation run ID
+`passages-v1-00e261abea9ed44ef087` and these exact table counts:
+
+| Artifact | Rows | Logical SHA-256 |
+|---|---:|---|
+| `passages` | 914,497 | `00047c9dc16ceaefdc0ff1b18a8fb2b4480a1be0534ed861cf5c11706d2048a0` |
+| `passage_membership` | 21,530,271 | `726c6b9339a78e7806bac90f7d91930c7f86bec7c7c0be6a51bdedb7a54d40bd` |
+| `passage_adjacency` | 913,445 | `1ca8c79f92b2742e12586b6c72eaddbcc834d5bce818b909f33b2c10b9db69bd` |
+| `segmentation_exclusions` | 148,948 | `6a0e475398e76730b5a7a92370ee319b803c0d17ba45e01b7155fa3b28c7e209` |
+| `segmentation_issues` | 0 | `2f3a57eada1dda388ca99bf67cd0b6de70fb31afa1abc1980eafbf605359eac3` |
+| `segmentation_metadata` | 1 | `87b88f0b3d4efa88c9d4668ba1eb0aba5fce244b0350130a033deb1a087578cf` |
+
+Both strict validations reported zero errors, warnings, and informational
+findings. All six logical hashes, all five content-table physical hashes, and
+all 3,570 non-metadata leaf hashes agreed byte for byte. Generation runtimes
+were 2,245.249 and 2,225.401 seconds; strict validation runtimes were 743.4 and
+749.5 seconds. Both metadata rows reported 627,780,157 output bytes.
+
+Runtime is observed provenance, not passage content. Accordingly, the metadata
+Parquet physical hash changed between runs while its logical hash remained
+stable under the registered telemetry-column exclusion. This is the sole
+physical-hash exception and does not weaken content determinism.

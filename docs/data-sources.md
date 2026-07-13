@@ -1,9 +1,9 @@
 # Data sources and provenance
 
-Status: **Milestone 4 supplementary-data foundation complete; unactivated sources remain preliminary**
+Status: **Milestone 5 passage segmentation complete; unactivated sources remain preliminary**
 Review date: 2026-07-12
 
-The authoritative machine-readable register is [`data/manifests/sources.yaml`](../data/manifests/sources.yaml). MACULA Hebrew and MACULA Greek are the validated primary sources: their pinned snapshots have been acquired, ingested, and checked locally, and the unified DuckDB tables expose both corpora with distinct corpus and provenance values. OSHB is the validated Ketiv/Qere supplementary source. Other records document intent and review state rather than activation. Raw biblical data and full processed token tables remain Git-ignored.
+The authoritative machine-readable register is [`data/manifests/sources.yaml`](../data/manifests/sources.yaml). MACULA Hebrew and MACULA Greek are the validated primary sources: their pinned snapshots have been acquired, ingested, and checked locally, and the unified DuckDB tables expose both corpora with distinct corpus and provenance values. OSHB is the validated Ketiv/Qere supplementary source. Milestone 5 derives passages only from these approved inputs; it activates no new dataset. Other records document intent and review state rather than activation. Raw biblical data, full processed token tables, passage Parquet, and the local database remain Git-ignored.
 
 ## Layered corpus strategy
 
@@ -90,6 +90,20 @@ OSHB source-native fields. It resides in a separate structural-alignment table
 with ordered anchors, method, confidence, status, and field-level resolution
 notes. Paired loci require unanimous replaced-Qere anchors; Ketiv-only loci
 require agreeing nearest primary tokens on both sides within the same verse.
+
+## Validated passage-derivation provenance
+
+Passage run `passages-v1-00e261abea9ed44ef087` records the exact MACULA Hebrew
+commit `7ab368fcb14e4ad2e0f784138241a098fb516ec4`, MACULA Greek commit
+`b5b7ecec0882a3e9a609ecac99e157391e5d9b46`, OSHB commit
+`3d15126fb1ef74867fc1434be1942e837932691f`, and their established identity,
+surface/lemma, analytical, and supplement digests. The six derived stream
+contexts preserve source ID and version on membership rows and never overwrite
+the source tables. Two complete strict runs produced the same run ID, 914,497
+passages, 21,530,271 exact membership rows, and deterministic logical hashes.
+Each run reported 627,780,157 bytes of generated passage output. These locally
+validated derived artifacts are not a new textual witness and are not approved
+for public redistribution.
 
 ## STEPBible activation deferral
 

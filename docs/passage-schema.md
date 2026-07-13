@@ -1,11 +1,12 @@
 # Passage schema
 
-Status: **Milestone 5 schema version 1 is active; full passage generation,
-determinism pinning, and the Milestone 5 acceptance gate remain in progress**.
+Status: **Milestone 5 schema version 1 is active and accepted against two
+strict full-corpus runs**.
 
 This document describes the typed passage contract established by ADR 0013,
-`config/segmentation.yaml`, and `src/echoes/segment/models.py`. It does not
-report generated passage counts or claim that Milestone 5 is complete.
+`config/segmentation.yaml`, and `src/echoes/segment/models.py`. The accepted
+implementation preserves this contract across 914,497 passages and 21,530,271
+authoritative membership rows.
 
 ## Authority and data ownership
 
@@ -323,7 +324,11 @@ Passage validation covers:
 - exact profile membership and no source-token mutation
 - deterministic run IDs, logical hashes, and governed physical hashes
 
-The schema is necessary but not sufficient for Milestone 5 acceptance. The
-milestone remains open until two complete local runs agree, output constants
-are independently verified and pinned, all quality gates pass, and the
-Milestone 5 pull request is open and CI-green.
+The schema and persisted artifacts passed two complete strict local
+validations with run ID `passages-v1-00e261abea9ed44ef087`, zero validation
+findings, 913,445 adjacency rows, 148,948 exclusions, and zero issue rows. All
+six logical table hashes, all five content-table physical hashes, and all 3,570
+non-metadata leaf hashes agreed. The metadata Parquet physical hash is the sole
+exception because runtime is observed telemetry; the registered logical hash
+excludes telemetry and remained stable. Both runs reported 627,780,157 output
+bytes. These results close the schema's Milestone 5 acceptance contract.
