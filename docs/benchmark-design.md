@@ -1,6 +1,6 @@
 # Benchmark design
 
-Status: **Milestone 6 local builds validated; pull-request and CI acceptance pending**
+Status: **Milestone 6 complete as of 2026-07-13**
 
 The [master plan](master-plan.md) remains the governing specification. The active data
 contracts are documented in [benchmark-schema.md](benchmark-schema.md), and the executable
@@ -12,6 +12,11 @@ The validated local build identity is run `benchmark-v1-dff1d3ef650c8ccd4930`,
 benchmark version `known-links-v1-dff1d3ef650c`. Two complete builds reproduced every
 logical table hash, row count, and content-table physical hash. Each strict validation
 returned zero errors, zero warnings, and 18 informational source-reference findings.
+Unmerged [PR #7](https://github.com/greg-oyan/project-echoes/pull/7) retains the
+accepted implementation for review; [CI run
+29235763865](https://github.com/greg-oyan/project-echoes/actions/runs/29235763865)
+succeeded for commit `a680c0b4c14cb6e3bab7e8b5305fd6a516ec37de`, with the quality
+job completing in 32 seconds. Milestone 7 has not begun.
 
 ## Active benchmark tiers
 

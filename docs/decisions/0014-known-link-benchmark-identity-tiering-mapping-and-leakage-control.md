@@ -157,8 +157,13 @@ wall times were 551.3 and 533.7 seconds, persisted runtimes were
 672,790,515 bytes. Strict validation returned zero errors, zero warnings, and 18
 informational findings on each build. The source manifest therefore advances
 from `approved` to `validated` without changing OpenBible's Tier 3 role,
-mapping-confidence ceiling, license boundary, or publication policy. Pull-request
-and CI evidence remain outside this local validation record until available.
+mapping-confidence ceiling, license boundary, or publication policy. Unmerged
+[PR #7](https://github.com/greg-oyan/project-echoes/pull/7) and successful
+[CI run 29235763865](https://github.com/greg-oyan/project-echoes/actions/runs/29235763865)
+complete the repository acceptance evidence for commit
+`a680c0b4c14cb6e3bab7e8b5305fd6a516ec37de`; the quality job completed in 32
+seconds. Milestone 6 is complete as of 2026-07-13, while Milestone 7 has not
+begun.
 
 ## Consequences
 

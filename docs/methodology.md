@@ -143,7 +143,7 @@ Parquet physical hash changed between runs while its logical hash remained
 stable under the registered telemetry-column exclusion. This is the sole
 physical-hash exception and does not weaken content determinism.
 
-## Milestone 6 (local validation complete; pull-request and CI acceptance pending)
+## Milestone 6 (complete as of 2026-07-13)
 
 Milestone 6 adds governed known-link benchmark infrastructure without running a
 retrieval model or beginning lexical discovery. The implementation is governed
@@ -151,8 +151,9 @@ by ADR 0014, `config/benchmark.yaml`, the
 [benchmark design](benchmark-design.md), and the
 [benchmark schema](benchmark-schema.md). Two complete local builds from the same
 acquired snapshot reproduced their run identity, logical content, row counts,
-and content-table physical bytes. The remaining milestone acceptance evidence is
-the unmerged pull request and its green CI result.
+and content-table physical bytes. PR #7 remains open and unmerged, and its CI
+run succeeded for the accepted head commit. Together these results complete the
+Milestone 6 acceptance gate.
 
 ### OpenBible source and acquisition
 
@@ -308,3 +309,9 @@ leakage memberships, 1,723,995 split assignments, 29,275 presumed negatives,
 `unresolved_reference`. Source-reference corpus pairs were 187,117 OT–OT,
 84,369 NT–NT, and 73,313 cross-testament. All presumed negatives had zero
 positive-graph collisions under the governed bidirectional check.
+
+Final repository acceptance is recorded by unmerged
+[PR #7](https://github.com/greg-oyan/project-echoes/pull/7) and successful
+[CI run 29235763865](https://github.com/greg-oyan/project-echoes/actions/runs/29235763865)
+for commit `a680c0b4c14cb6e3bab7e8b5305fd6a516ec37de`; its quality
+job completed in 32 seconds. Milestone 7 had not begun when this gate closed.

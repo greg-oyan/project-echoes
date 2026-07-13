@@ -1,6 +1,6 @@
 # Known-link benchmark schema
 
-Status: **Milestone 6 schema version 1 locally validated; pull-request and CI acceptance pending**
+Status: **Milestone 6 schema version 1 accepted as of 2026-07-13**
 
 The known-link benchmark is represented by ten versioned logical artifacts. Each artifact
 has a strict Pydantic row model and an ordered Polars schema in
@@ -35,6 +35,12 @@ Two complete builds reproduced all ten logical hashes and every row count. All
 content-artifact physical hashes also matched. The metadata Parquet physical
 hash alone changed with measured runtime telemetry, which is deliberately
 excluded from the registered metadata logical hash.
+
+Repository acceptance is recorded by still-unmerged
+[PR #7](https://github.com/greg-oyan/project-echoes/pull/7) and successful
+[CI run 29235763865](https://github.com/greg-oyan/project-echoes/actions/runs/29235763865)
+for commit `a680c0b4c14cb6e3bab7e8b5305fd6a516ec37de`; its quality
+job completed in 32 seconds. No Milestone 7 schema or implementation is included.
 
 ## Identity layers
 

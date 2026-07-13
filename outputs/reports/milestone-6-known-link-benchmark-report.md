@@ -230,15 +230,15 @@ Manual review verdict: `passed`; reviewer: `Codex`; date: `2026-07-12`.
 
 ## Acceptance assessment
 
-- Declared final acceptance status: `pending`
+- Declared final acceptance status: `passed`
 - Artifact-level validation checks all passed: `True`
 - Two-run logical and expected-physical determinism passed: `True`
 - First and second run IDs match: `True`
 - Manual spot-check review: `passed`
-- Local quality/full-regression gates: `pending`
-- Repository and data audit: `pending`
-- Unmerged pull request: `not supplied`
-- GitHub Actions: `pending` (no run URL supplied)
+- Local quality/full-regression gates: `passed`
+- Repository and data audit: `passed`
+- Unmerged pull request: `https://github.com/greg-oyan/project-echoes/pull/7`
+- GitHub Actions: `passed` (https://github.com/greg-oyan/project-echoes/actions/runs/29235763865)
 - Milestone 6 may be marked complete only when the declared status is `passed`, the two-run comparison passes, every repository/full-corpus quality command passes, all anchors remain unchanged, and the unmerged PR is CI-green.
 
 ## Exact recommended Milestone 7 task

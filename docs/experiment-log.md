@@ -202,7 +202,7 @@
 - Acceptance status at implementation checkpoint: pending the two-build validation recorded in the 2026-07-13 closure entry below.
 - Boundary: no TF-IDF, BM25, rare-lemma scoring, phrase or ordered-sequence scoring, similarity search, null simulation, embeddings, semantic retrieval, candidate generation, human review, review console, Septuagint acquisition, or STEPBible activation was implemented or run.
 
-## 2026-07-13 - Milestone 6 local validation closure
+## 2026-07-13 - Milestone 6 acceptance closure
 
 - Scope: validate the governed OpenBible Tier 3 benchmark twice from the same pinned acquisition and unchanged Milestone 5 passage inputs. No retrieval model or Milestone 7 feature was run.
 - Identity: both builds produced run `benchmark-v1-dff1d3ef650c8ccd4930` and version `known-links-v1-dff1d3ef650c`.
@@ -214,7 +214,8 @@
 - Resources: wall-clock build times were 551.3 and 533.7 seconds; persisted pipeline runtimes were 501.93041979987174 and 479.37766140000895 seconds. Each build reported a 672,790,515-byte footprint.
 - Command semantics: `ingest-benchmark` atomically stages and promotes the complete benchmark, including leakage, split, and presumed-negative artifacts. `generate-benchmark-splits` and `generate-presumed-negatives` verify those already materialized stages rather than generating them separately.
 - Source lifecycle: the exact OpenBible snapshot moved from `approved` to `validated` for its restricted Tier 3 role. This does not change its evidence tier, redistribution policy, or mapping uncertainty.
-- Remaining gate: Milestone 6 is not complete until its unmerged pull request is CI-green. PR URL and CI run evidence are intentionally pending here until they exist.
+- Repository gate: [PR #7](https://github.com/greg-oyan/project-echoes/pull/7) remains open and unmerged. [CI run 29235763865](https://github.com/greg-oyan/project-echoes/actions/runs/29235763865) succeeded for commit `a680c0b4c14cb6e3bab7e8b5305fd6a516ec37de`; the quality job completed in 32 seconds.
+- Acceptance: all Milestone 6 local, governance, repository-audit, pull-request, and CI gates are satisfied. Milestone 6 is complete as of 2026-07-13.
 - Boundary: no TF-IDF, BM25, rare-lemma or phrase scoring, similarity search, null simulation, embeddings, semantic retrieval, candidate generation, human review, review console, Septuagint acquisition, or STEPBible activation began.
 
 Substantive experiments are prohibited until their prerequisite milestones and data-governance gates pass.

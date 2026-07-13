@@ -6,8 +6,8 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 ### Added
 
-- Milestone 6 known-link benchmark implementation (local gates validated; pull
-  request and CI acceptance pending): ADR 0014
+- Milestone 6 known-link benchmark implementation completed on 2026-07-13:
+  ADR 0014
   governs stable source-record, relationship, endpoint, pair, and mapping
   identities; strict benchmark configuration and ten typed Parquet/DuckDB
   artifacts preserve source direction, duplicate provenance, tier permissions,
@@ -15,8 +15,11 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
   non-row-random splits, presumed negatives, and evaluation-metric metadata.
   The CLI now supports governed benchmark ingestion, strict validation, Tier 1
   placeholder validation, split and presumed-negative generation, summaries,
-  and relationship/mapping inspection. The remaining acceptance evidence is a
-  CI-green unmerged pull request; no Milestone 7 work has begun.
+  and relationship/mapping inspection. PR #7 remains open and unmerged at
+  `https://github.com/greg-oyan/project-echoes/pull/7`; CI run
+  `29235763865` succeeded for commit
+  `a680c0b4c14cb6e3bab7e8b5305fd6a516ec37de`, with the quality job completing
+  in 32 seconds. No Milestone 7 work has begun.
 
 - Two complete Milestone 6 builds reproduced run
   `benchmark-v1-dff1d3ef650c8ccd4930`, benchmark version
@@ -223,7 +226,7 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 - Raw MACULA files and full processed token tables remain local and Git-ignored; public redistribution requires a separate field-level rights and attribution review.
 - STEPBible and all bridge, textual-witness, and reception sources remain
   inactive. The Milestone 6 local build and determinism gates are validated,
-  while its unmerged pull-request and CI acceptance evidence is still pending.
-  No Milestone 7 lexical scoring, embedding, semantic analysis, candidate
+  and its still-unmerged PR #7 has successful CI acceptance evidence. No
+  Milestone 7 lexical scoring, embedding, semantic analysis, candidate
   generation, or review-console work has begun.
 - Most registered sources still have incomplete licensing or acquisition reviews, as recorded explicitly in `data/manifests/sources.yaml`.
