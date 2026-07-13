@@ -112,14 +112,46 @@ class AcquisitionFileSpec(BaseModel):
         return self
 
 
+class SourceArchiveSchema(BaseModel):
+    """Observed schema of a governed delimited file inside an archive."""
+
+    # Delimiters can be whitespace characters, so this model deliberately does
+    # not inherit the surrounding manifest's whitespace-stripping behavior.
+    model_config = ConfigDict(extra="forbid")
+
+    archive_format: Literal["zip"]
+    data_file: str = Field(min_length=1)
+    encoding: str = Field(min_length=1)
+    byte_order_mark: Literal["none", "utf-8", "utf-16-le", "utf-16-be"]
+    newline_convention: Literal["lf", "crlf", "cr", "mixed"]
+    delimiter: str = Field(min_length=1, max_length=1)
+    header: list[str] = Field(min_length=1)
+    column_count: int = Field(gt=0)
+    reference_syntax: str = Field(min_length=1)
+    range_syntax: str = Field(min_length=1)
+    weight_representation: str = Field(min_length=1)
+    directionality: str = Field(min_length=1)
+    canonical_record_stream_schema_version: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def schema_is_internally_consistent(self) -> Self:
+        path = Path(self.data_file)
+        if path.is_absolute() or ".." in path.parts or self.data_file.endswith(("/", "\\")):
+            raise ValueError("archive data_file must be a safe relative file path")
+        if len(self.header) != len(set(self.header)):
+            raise ValueError("archive header values must be unique")
+        return self
+
+
 class SourceAcquisitionSpec(BaseModel):
     """Reproducible, non-overwriting acquisition instructions for one source."""
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    method: Literal["http_files", "git_sparse"]
+    method: Literal["http_files", "http_zip", "git_sparse"]
     version_label: str = Field(min_length=1)
-    upstream_commit: str = Field(pattern=COMMIT_PATTERN)
+    upstream_commit: str | None = Field(default=None, pattern=COMMIT_PATTERN)
+    archive_sha256: str | None = Field(default=None, pattern=SHA256_PATTERN.pattern)
     files: list[AcquisitionFileSpec] = Field(default_factory=list)
     repository_url: str | None = None
     include_paths: list[str] = Field(default_factory=list)
@@ -144,9 +176,32 @@ class SourceAcquisitionSpec(BaseModel):
                 raise ValueError("http_files acquisition requires at least one file")
             if self.repository_url is not None or self.include_paths:
                 raise ValueError("http_files acquisition may not define Git sparse-checkout fields")
+            if self.upstream_commit is None:
+                raise ValueError("http_files acquisition requires upstream_commit")
+            if self.archive_sha256 is not None:
+                raise ValueError("http_files acquisition may not define archive_sha256")
+        if self.method == "http_zip":
+            if len(self.files) != 1:
+                raise ValueError("http_zip acquisition requires exactly one archive file")
+            if self.archive_sha256 is None:
+                raise ValueError("http_zip acquisition requires archive_sha256")
+            if self.upstream_commit is not None:
+                raise ValueError("http_zip acquisition may not define upstream_commit")
+            if self.repository_url is not None or self.include_paths:
+                raise ValueError("http_zip acquisition may not define Git sparse-checkout fields")
+            if self.expected_file_count is not None:
+                raise ValueError(
+                    "http_zip acquisition uses source expected_files, not expected_file_count"
+                )
+            if Path(self.files[0].path).suffix.lower() != ".zip":
+                raise ValueError("http_zip acquisition file must have a .zip suffix")
         if self.method == "git_sparse":
             if self.files:
                 raise ValueError("git_sparse acquisition may not define HTTP file entries")
+            if self.upstream_commit is None:
+                raise ValueError("git_sparse acquisition requires upstream_commit")
+            if self.archive_sha256 is not None:
+                raise ValueError("git_sparse acquisition may not define archive_sha256")
             if not self.repository_url or not self.repository_url.startswith("https://"):
                 raise ValueError("git_sparse acquisition requires an HTTPS repository_url")
             if not self.include_paths:
@@ -182,6 +237,7 @@ class SourceManifest(BaseModel):
     file_hashes: dict[str, str]
     ingest_adapter: str | None
     acquisition: SourceAcquisitionSpec | None = None
+    archive_schema: SourceArchiveSchema | None = None
     research_purpose: str = Field(min_length=1)
     known_limitations: list[str]
     notes: list[str]
@@ -230,6 +286,12 @@ class SourceManifest(BaseModel):
         if len(expected_files) != len(set(expected_files)):
             msg = "expected_files values must be unique"
             raise ValueError(msg)
+        if len(expected_files) != len({path.casefold() for path in expected_files}):
+            raise ValueError("expected_files values must not collide by case")
+        for expected_file in expected_files:
+            path = Path(expected_file)
+            if path.is_absolute() or ".." in path.parts or expected_file.endswith(("/", "\\")):
+                raise ValueError("expected_files must contain safe relative file paths")
         return expected_files
 
     @model_validator(mode="after")
@@ -270,7 +332,35 @@ class SourceManifest(BaseModel):
                 if acquisition_paths != set(self.expected_files):
                     msg = "expected_files must exactly match acquisition file paths"
                     raise ValueError(msg)
-            if self.version_or_commit != self.acquisition.upstream_commit:
+            if self.acquisition.method == "http_zip":
+                assert self.acquisition.archive_sha256 is not None
+                if self.version_or_commit != self.acquisition.version_label:
+                    raise ValueError(
+                        "http_zip version_or_commit must match acquisition.version_label"
+                    )
+                expected_prefix = (
+                    rf"^snapshot-\d{{4}}-\d{{2}}-\d{{2}}-sha256-"
+                    rf"{self.acquisition.archive_sha256[:12]}$"
+                )
+                if re.fullmatch(expected_prefix, self.acquisition.version_label) is None:
+                    raise ValueError(
+                        "http_zip version_label must contain its acquisition date and "
+                        "archive SHA-256 prefix"
+                    )
+                if self.archive_schema is None:
+                    raise ValueError("http_zip acquisition requires archive_schema")
+                if self.archive_schema.data_file not in self.expected_files:
+                    raise ValueError("archive data_file must appear in expected_files")
+                if set(self.file_hashes) != set(self.expected_files):
+                    raise ValueError("http_zip acquisition requires a hash for every expected file")
+                if self.ingest_adapter is None:
+                    raise ValueError("http_zip acquisition requires ingest_adapter")
+                if self.raw_data_git_policy is not RawDataGitPolicy.IGNORED_LOCAL_ONLY:
+                    raise ValueError("http_zip raw data must use ignored_local_only Git policy")
+                archive_path = self.acquisition.files[0].path
+                if archive_path in self.expected_files:
+                    raise ValueError("http_zip archive path must differ from extracted files")
+            elif self.version_or_commit != self.acquisition.upstream_commit:
                 msg = "version_or_commit must match acquisition.upstream_commit"
                 raise ValueError(msg)
 

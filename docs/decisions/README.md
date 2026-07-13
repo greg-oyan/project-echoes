@@ -45,3 +45,4 @@ Decision records preserve durable methodological, data, licensing, architecture,
 - [0011 — Separate source order from disputed-passage analysis](0011-disputed-passage-segmentation-policy.md)
 - [0012 — Defer STEPBible activation](0012-defer-stepbible-activation.md)
 - [0013 — Passage identity, membership, and analytical continuity](0013-passage-identity-membership-and-analytical-continuity.md)
+- [0014 — Known-link benchmark identity, tiering, mapping, and leakage control](0014-known-link-benchmark-identity-tiering-mapping-and-leakage-control.md)

@@ -305,11 +305,11 @@ sources:
     corpus: Canon-wide English-versification cross-reference graph
     role: benchmark
     language: [english]
-    edition: Continuously updated downloadable archive; exact snapshot not yet pinned
+    edition: OpenBible.info cross-reference snapshot represented by the 2026-07-06 archive header and complete archive hash
     provider: OpenBible.info
     repository_or_location: https://www.openbible.info/labs/cross-references/
-    version_or_commit: null
-    download_date: null
+    version_or_commit: snapshot-2026-07-12-sha256-18e63e370308
+    download_date: 2026-07-12
     license: >-
       Creative Commons Attribution 4.0 (CC BY 4.0) for the page and downloadable
       cross-reference data unless otherwise indicated; separately copyrighted ESV
@@ -323,9 +323,36 @@ sources:
     redistribution_status: permitted
     machine_processing_status: permitted
     raw_data_git_policy: ignored_local_only
-    expected_files: []
-    file_hashes: {}
-    ingest_adapter: null
+    expected_files:
+      - cross_references.txt
+    file_hashes:
+      cross_references.txt: eb7a78dbd5a8a88f1a87689de11f6d87806dc9fa20c3e88f7800665deb6b5c37
+    ingest_adapter: echoes.benchmarks.openbible
+    acquisition:
+      method: http_zip
+      version_label: snapshot-2026-07-12-sha256-18e63e370308
+      archive_sha256: 18e63e370308868391a8458cfa7454e3b29bb8f94c0ca11dcac2d267d449c492
+      files:
+        - path: cross-references.zip
+          url: https://a.openbible.info/data/cross-references.zip
+    archive_schema:
+      archive_format: zip
+      data_file: cross_references.txt
+      encoding: utf-8
+      byte_order_mark: none
+      newline_convention: lf
+      delimiter: "\t"
+      header:
+        - From Verse
+        - To Verse
+        - Votes
+        - "#www.openbible.info CC-BY 2026-07-06"
+      column_count: 3
+      reference_syntax: Book.Chapter.Verse
+      range_syntax: Book.Chapter.Verse-Book.Chapter.Verse
+      weight_representation: signed decimal integer vote
+      directionality: directed from source verse to target verse or range
+      canonical_record_stream_schema_version: openbible-tsv-v1
     research_purpose: >-
       Benchmark Tier 3 weak supervision and broad knownness filtering; not scholarly
       ground truth, original-language textual evidence, or a sole positive benchmark.
@@ -333,29 +360,36 @@ sources:
       - Links mix themes, words, events, and people and are primarily verse-to-verse rather than passage ranges.
       - The page includes ESV quotations whose copyright is separate from the downloadable link graph.
       - The broad TSK-related graph is heterogeneous weak supervision and does not establish quotation or allusion classes.
-      - The live archive is not an immutable scholarly edition and still requires a pinned snapshot and schema inspection before activation.
+      - The live URL is mutable; reproducibility depends on the retained ignored-local bytes, complete SHA-256, extracted-file hash, and canonical parsed-stream hash.
+      - Eighteen observed target ranges cross book boundaries and remain preserved but mapping-ineligible rather than being forced into a passage.
+      - Same-label mappings into the primary corpora remain provisional without an approved versification crosswalk.
     notes:
       - Tier 3 only; do not use this graph to populate Tier 1 or as the sole positive ground truth.
-      - The official page links a roughly 2 MB downloadable archive; Project Echoes has not acquired it in this amendment.
-      - License evidence was verified on the official page on 2026-07-10; the linked Creative Commons deed identifies CC BY 4.0.
+      - The audited archive contains references and signed vote integers only; no biblical quotation, ESV text, or other modern-translation text is present.
+      - Raw archive bytes, extracted source, the acquisition receipt, and normalized benchmark tables remain Git-ignored by conservative project policy.
+      - Attribute OpenBible.info, link the official source and CC BY 4.0 license, identify this snapshot, preserve the file notice, and indicate Project Echoes transformations.
+      - License and exact-archive evidence were reverified on 2026-07-12; see outputs/reports/m6-openbible-source-audit.md.
     confirmed_information:
       - The official page describes approximately 340,000 cross references and provides a downloadable archive.
       - The official page says the data draws primarily from public-domain sources, especially the Treasury of Scripture Knowledge, with additional data used to seed initial votes.
       - The official page states that its content is CC BY 4.0 unless otherwise indicated and separately identifies ESV quotations and their copyright.
-    unresolved_questions:
-      - What exact fields, reference conventions, and vote or ranking values occur in the downloadable archive?
-      - What stable snapshot mechanism will pin a reproducible version?
-    status: planned
+      - Two independent audit downloads were byte-identical at SHA-256 18e63e370308868391a8458cfa7454e3b29bb8f94c0ca11dcac2d267d449c492.
+      - The safe ZIP contains only cross_references.txt, whose SHA-256 is eb7a78dbd5a8a88f1a87689de11f6d87806dc9fa20c3e88f7800665deb6b5c37.
+      - The source has 344799 three-field TSV rows, 344799 unique directed relationships, 29878 unordered reverse pairs, no exact duplicates or self-links, and signed votes from -86 to 1281.
+      - The fourth header token is an embedded attribution notice; every data row has exactly three columns.
+      - Two complete schema-v1 benchmark builds reproduced run benchmark-v1-dff1d3ef650c8ccd4930, version known-links-v1-dff1d3ef650c, all logical table hashes, all content-table physical hashes, and all table counts; strict validation returned zero errors, zero warnings, and 18 informational source-reference findings on each build.
+    unresolved_questions: []
+    status: validated
 
   - source_id: project-echoes-tier1-quotations
     source_name: Project Echoes Curated Tier 1 Explicit Quotation Benchmark
     corpus: Explicit New Testament quotations of Old Testament passages
     role: benchmark
     language: [multilingual]
-    edition: Future initial release; header-only schema placeholder as of 2026-07-10
+    edition: Schema version 1 header-only placeholder as of 2026-07-12
     provider: Project Echoes
     repository_or_location: data/benchmarks/tier1_quotations.csv
-    version_or_commit: null
+    version_or_commit: schema-v1-header-only-sha256-7d6875481395
     download_date: null
     license: >-
       CC BY 4.0 for Project Echoes-authored selection, relationship classifications,
@@ -369,8 +403,10 @@ sources:
     redistribution_status: permitted
     machine_processing_status: permitted
     raw_data_git_policy: trackable
-    expected_files: []
-    file_hashes: {}
+    expected_files:
+      - data/benchmarks/tier1_quotations.csv
+    file_hashes:
+      data/benchmarks/tier1_quotations.csv: 7d687548139586fe97479429e121e89c2a3f4494806e7e0aaa7ee3e72ea5136b
     ingest_adapter: null
     research_purpose: >-
       Future Benchmark Tier 1 held-out evaluation set of approximately 300 explicit New
@@ -380,11 +416,13 @@ sources:
       - Public-domain or permissively licensed indexes provide curation leads, not automatically accepted labels.
       - Reference-only project metadata does not transfer rights in biblical editions, source indexes, or scholarly appendices.
     notes:
-      - Population is deferred to Milestone 6 and must follow docs/tier1-quotation-curation.md.
+      - Population remains a separate future human-curation task and must follow docs/tier1-quotation-curation.md.
+      - Schema version 1 validates at the exact tracked header hash; this is not populated benchmark evidence.
       - Copyrighted UBS, Nestle-Aland, and comparable appendices may not be copied or systematically reconstructed without explicit permission.
       - Only independently verified rows may enter the released Tier 1 positive set.
     confirmed_information:
       - The header-only CSV has the eleven approved curation and provenance fields.
+      - The tracked schema-v1 placeholder SHA-256 is 7d687548139586fe97479429e121e89c2a3f4494806e7e0aaa7ee3e72ea5136b.
       - Project-authored curation metadata is licensed for CC BY 4.0 release without copied biblical text.
     unresolved_questions:
       - Which exact public-domain source-index editions will be approved for the first curation pass?

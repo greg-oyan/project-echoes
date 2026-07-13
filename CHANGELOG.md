@@ -6,6 +6,58 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 ### Added
 
+- Milestone 6 known-link benchmark implementation (local gates validated; pull
+  request and CI acceptance pending): ADR 0014
+  governs stable source-record, relationship, endpoint, pair, and mapping
+  identities; strict benchmark configuration and ten typed Parquet/DuckDB
+  artifacts preserve source direction, duplicate provenance, tier permissions,
+  reference schemes, mapping uncertainty, leakage groups, deterministic
+  non-row-random splits, presumed negatives, and evaluation-metric metadata.
+  The CLI now supports governed benchmark ingestion, strict validation, Tier 1
+  placeholder validation, split and presumed-negative generation, summaries,
+  and relationship/mapping inspection. The remaining acceptance evidence is a
+  CI-green unmerged pull request; no Milestone 7 work has begun.
+
+- Two complete Milestone 6 builds reproduced run
+  `benchmark-v1-dff1d3ef650c8ccd4930`, benchmark version
+  `known-links-v1-dff1d3ef650c`, every logical table hash, every content-table
+  physical hash, and every row count. Wall times were 551.3 and 533.7 seconds;
+  persisted pipeline runtimes were 501.93041979987174 and
+  479.37766140000895 seconds. Both builds reported 672,790,515 bytes and strict
+  validation returned zero errors, zero warnings, and 18 informational findings.
+  Metadata Parquet differed physically only because it retains measured runtime
+  telemetry; its registered logical content remained identical.
+
+- The validated benchmark contains 344,799 source records and relationships,
+  689,598 endpoints, 1,379,196 endpoint mappings, 4,561,525 leakage memberships,
+  1,723,995 split assignments, 29,275 presumed negatives, 18 informational
+  issues, and one metadata row. Mapping statuses are 639 profile exclusions,
+  781 partial, 1,371,984 provisional, 5,756 missing-target, and 36 unresolved
+  reference mappings. The source graph contains 187,117 OT–OT, 84,369 NT–NT,
+  and 73,313 cross-testament relationships.
+
+- The exact OpenBible.info Tier 3 snapshot
+  `snapshot-2026-07-12-sha256-18e63e370308` was audited and acquired from the
+  official cross-reference archive under CC BY 4.0. The archive SHA-256 is
+  `18e63e370308868391a8458cfa7454e3b29bb8f94c0ca11dcac2d267d449c492`;
+  its sole extracted file has SHA-256
+  `eb7a78dbd5a8a88f1a87689de11f6d87806dc9fa20c3e88f7800665deb6b5c37`.
+  All 344,799 observed records contain references and signed integer votes, not
+  biblical quotation text. OpenBible remains weak supervision and broad
+  knownness support only: it is not scholarly truth, primary evaluation, or a
+  route to Tier 1.
+
+- The project-curated Tier 1 quotation file remains the approved header and
+  zero data rows. Its schema-v1 header-only SHA-256 is
+  `7d687548139586fe97479429e121e89c2a3f4494806e7e0aaa7ee3e72ea5136b`.
+  Typed future-row checks use synthetic fixtures only; population, independent
+  scholarly review, and curation remain human work. No copyrighted UBS,
+  Nestle-Aland, or comparable quotation appendix was copied or reconstructed.
+
+- PR #6, the accepted Milestone 5 passage implementation, merged to `main` as
+  `00f5e84a4a83227585bd77dd9a08a0567cd58a7f` before Milestone 6 began. Its
+  post-merge source, corpus, supplement, and passage anchors remained unchanged.
+
 - Milestone 5 passage segmentation: an accepted schema-v1 pipeline now derives
   clause, sentence, verse, two-verse, and five-verse units across six governed
   Hebrew/Aramaic and Greek profile/reading streams. ADR 0013 establishes
@@ -169,8 +221,9 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 - MACULA Hebrew normally supplies its preferred Qere reading rather than complete parallel Ketiv material, so the pinned representation cannot support exhaustive Ketiv/Qere comparison.
 - Raw MACULA files and full processed token tables remain local and Git-ignored; public redistribution requires a separate field-level rights and attribution review.
-- STEPBible and every downstream source remain inactive. Passage segmentation
-  is complete, but no Milestone 6 benchmark import, lexical scoring, embedding,
-  semantic analysis, candidate generation, or review-console milestone has
-  begun.
+- STEPBible and all bridge, textual-witness, and reception sources remain
+  inactive. The Milestone 6 local build and determinism gates are validated,
+  while its unmerged pull-request and CI acceptance evidence is still pending.
+  No Milestone 7 lexical scoring, embedding, semantic analysis, candidate
+  generation, or review-console work has begun.
 - Most registered sources still have incomplete licensing or acquisition reviews, as recorded explicitly in `data/manifests/sources.yaml`.

@@ -188,4 +188,33 @@
 - Storage boundary: complete Parquet and DuckDB artifacts remain local and Git-ignored; tracked reports contain aggregate evidence, IDs, hashes, and non-reconstructive samples rather than bulk source text.
 - Boundary: no Milestone 6 benchmark, OpenBible import, lexical scoring, embedding, candidate generation, or review-console work began.
 
+## 2026-07-12 - Milestone 6 governed known-link benchmark implementation
+
+- Purpose: establish versioned known-link infrastructure, source governance, conservative passage mapping, leakage-safe evaluation controls, presumed-negative generation, and metric contracts without beginning lexical retrieval or candidate discovery.
+- Merge basis: Milestone 5 PR #6 head `61da893fe51886262342e336d70baeab117f6c2b` merged to `main` as merge commit `00f5e84a4a83227585bd77dd9a08a0567cd58a7f`; the Milestone 6 branch began from that verified merge.
+- Source audit: official OpenBible.info cross references under CC BY 4.0, pinned as `snapshot-2026-07-12-sha256-18e63e370308`; archive SHA-256 `18e63e370308868391a8458cfa7454e3b29bb8f94c0ca11dcac2d267d449c492`; extracted-file SHA-256 `eb7a78dbd5a8a88f1a87689de11f6d87806dc9fa20c3e88f7800665deb6b5c37`.
+- Archive findings: one safe tab-delimited reference-and-vote file; 344,799 structurally parsed records; 344,799 directed pairs; 314,921 unordered pairs; 29,878 unordered pairs represented in both directions; zero duplicate lines, duplicate directed pairs, self-links, invalid structural rows, or biblical/ESV quotation text. Signed votes range from -86 to 1,281 and remain ranking values, not scholarly confidence.
+- Governance: ADR 0014 fixes separate source-record, relationship, directed/unordered pair, endpoint, and mapping identities; OpenBible remains Tier 3 weak supervision and knownness support only. It cannot supply scholarly ground truth, primary evaluation, or Tier 1.
+- Tier 1: `data/benchmarks/tier1_quotations.csv` remains its exact governed header and zero data rows; header-only SHA-256 `7d687548139586fe97479429e121e89c2a3f4494806e7e0aaa7ee3e72ea5136b`. Future controlled-value checks use synthetic rows only; no quotation appendix was copied or reconstructed.
+- Mapping: source references remain in the OpenBible scheme and map only to Milestone 5 verse passages. Same-label mappings without an approved scheme crosswalk remain provisional; ranges expand only to extant targets, and partial, missing, disputed, reference-gap, and `critical_core` exclusion states remain explicit.
+- Evaluation controls: exact-pair, endpoint, overlap, target-passage, duplicate-provenance, and source-provenance groups support deterministic held-out-book, book-pair, source-passage, and broad-genre infrastructure splits. Relationship-family labels remain unsupported rather than invented. Five metadata-only presumed-negative strategies check the positive graph in both directions, overlap, partition, and leakage constraints.
+- Metrics and storage: pure synthetic-fixture contracts cover recall, reciprocal rank, nDCG, precision, coverage, and governed strata. Ten typed benchmark artifacts and transactional DuckDB views retain logical/physical hashes while complete generated data stays local and Git-ignored. No retrieval model was run.
+- Acceptance status at implementation checkpoint: pending the two-build validation recorded in the 2026-07-13 closure entry below.
+- Boundary: no TF-IDF, BM25, rare-lemma scoring, phrase or ordered-sequence scoring, similarity search, null simulation, embeddings, semantic retrieval, candidate generation, human review, review console, Septuagint acquisition, or STEPBible activation was implemented or run.
+
+## 2026-07-13 - Milestone 6 local validation closure
+
+- Scope: validate the governed OpenBible Tier 3 benchmark twice from the same pinned acquisition and unchanged Milestone 5 passage inputs. No retrieval model or Milestone 7 feature was run.
+- Identity: both builds produced run `benchmark-v1-dff1d3ef650c8ccd4930` and version `known-links-v1-dff1d3ef650c`.
+- Counts per build: 344,799 source records, 344,799 relationships, 344,799 relationship/source links, 689,598 endpoints, 1,379,196 mappings, 4,561,525 leakage memberships, 1,723,995 split assignments, 29,275 presumed negatives, 18 informational issues, and one metadata row.
+- Mapping statuses: 639 `excluded_by_profile`, 781 `mapped_partial`, 1,371,984 `mapped_provisional`, 5,756 `unresolved_missing_target`, and 36 `unresolved_reference`.
+- Corpus pairs: 187,117 OT–OT, 84,369 NT–NT, and 73,313 cross-testament relationships; together they account for all 344,799 relationships.
+- Validation: strict validation returned zero errors, zero warnings, and 18 informational findings for each build. Presumed negatives had zero collisions with the complete range-expanded and exclusion-aware positive graph.
+- Determinism: all ten logical hashes, all table counts, and all content-table physical hashes matched. Metadata physical bytes differed only because `runtime_seconds` is measured telemetry; the metadata logical hash excludes that registered field and matched. Exact hashes are pinned in `docs/benchmark-schema.md` and `tests/regression/test_full_benchmark.py`.
+- Resources: wall-clock build times were 551.3 and 533.7 seconds; persisted pipeline runtimes were 501.93041979987174 and 479.37766140000895 seconds. Each build reported a 672,790,515-byte footprint.
+- Command semantics: `ingest-benchmark` atomically stages and promotes the complete benchmark, including leakage, split, and presumed-negative artifacts. `generate-benchmark-splits` and `generate-presumed-negatives` verify those already materialized stages rather than generating them separately.
+- Source lifecycle: the exact OpenBible snapshot moved from `approved` to `validated` for its restricted Tier 3 role. This does not change its evidence tier, redistribution policy, or mapping uncertainty.
+- Remaining gate: Milestone 6 is not complete until its unmerged pull request is CI-green. PR URL and CI run evidence are intentionally pending here until they exist.
+- Boundary: no TF-IDF, BM25, rare-lemma or phrase scoring, similarity search, null simulation, embeddings, semantic retrieval, candidate generation, human review, review console, Septuagint acquisition, or STEPBible activation began.
+
 Substantive experiments are prohibited until their prerequisite milestones and data-governance gates pass.

@@ -1,1 +1,1 @@
-"""Known-relationship benchmarks (implemented in later milestones)."""
+"""Governed known-relationship benchmark infrastructure."""

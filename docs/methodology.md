@@ -142,3 +142,169 @@ Runtime is observed provenance, not passage content. Accordingly, the metadata
 Parquet physical hash changed between runs while its logical hash remained
 stable under the registered telemetry-column exclusion. This is the sole
 physical-hash exception and does not weaken content determinism.
+
+## Milestone 6 (local validation complete; pull-request and CI acceptance pending)
+
+Milestone 6 adds governed known-link benchmark infrastructure without running a
+retrieval model or beginning lexical discovery. The implementation is governed
+by ADR 0014, `config/benchmark.yaml`, the
+[benchmark design](benchmark-design.md), and the
+[benchmark schema](benchmark-schema.md). Two complete local builds from the same
+acquired snapshot reproduced their run identity, logical content, row counts,
+and content-table physical bytes. The remaining milestone acceptance evidence is
+the unmerged pull request and its green CI result.
+
+### OpenBible source and acquisition
+
+The Tier 3 input is the official OpenBible.info cross-reference archive pinned
+as `snapshot-2026-07-12-sha256-18e63e370308`. The complete ZIP SHA-256 is
+`18e63e370308868391a8458cfa7454e3b29bb8f94c0ca11dcac2d267d449c492`;
+its sole member, `cross_references.txt`, has SHA-256
+`eb7a78dbd5a8a88f1a87689de11f6d87806dc9fa20c3e88f7800665deb6b5c37`.
+Acquisition records HTTP metadata and per-file hashes in a local receipt,
+verifies archive integrity and the expected one-file inventory, rejects unsafe
+archive entries, refuses silent overwrite, and supports offline receipt
+verification. Raw and normalized data remain Git-ignored.
+
+The observed tab-delimited source contains 344,799 post-header records, each
+with a source reference, target reference or range, and signed integer vote.
+All rows passed the structural audit; no duplicate source rows, self-links,
+invalid structural rows, or biblical/ESV quotation text were observed. Those
+are snapshot observations, not parser assumptions. The parser retains every
+future source occurrence and records an explicit status or issue rather than
+silently losing malformed input. Votes remain source ranking values rather than
+confidence or probabilities of literary dependence.
+
+OpenBible is licensed CC BY 4.0 with OpenBible.info attribution and a link to the
+source and license. It is restricted by project policy to Tier 3 weak
+supervision and broad knownness support. It cannot act as scholarly ground
+truth, primary evaluation truth, a sole positive benchmark, or a source of Tier
+1 rows.
+
+### Identity and provenance
+
+Source-record identity combines the source, complete archive hash, exact record
+hash, and a deterministic duplicate-occurrence ordinal. Line number remains
+mutable provenance. Relationship identity instead uses the identity-schema
+version, source and version, preserved reference scheme, normalized ordered
+endpoints, and observed direction. It excludes votes, line numbers, mappings,
+passage IDs, splits, timestamps, paths, and random identifiers.
+
+Directed and canonical unordered pair IDs coexist. Reversing a pair changes its
+directed relationship identity while retaining the common unordered-pair
+identity; the source graph is never silently symmetrized. Duplicate raw
+occurrences may aggregate into one normalized relationship only through an
+explicit relationship-to-source-record link that preserves every occurrence
+and its weight. Endpoint and mapping IDs are separate, so a later mapping
+correction cannot rename source evidence.
+
+### Reference parsing and conservative mapping
+
+OpenBible references remain in the
+`openbible-english-protestant-v1` source scheme. Parsing supports the observed
+single verses and same- or cross-chapter ranges while retaining invalid,
+backward, and cross-book forms as explicit non-mappable evidence. Milestone 6
+maps only to Milestone 5 `edition_complete` verse passages: Hebrew/Aramaic uses
+the Qere stream and Greek uses the source stream. A separate `critical_core`
+compatibility mapping exposes profile exclusions without rewriting the default.
+
+Ranges expand only to ordered, extant verse targets. Missing verses are never
+fabricated. Partial ranges, omitted target references, reference gaps,
+disputed-passage membership, profile exclusions, and ambiguity receive explicit
+statuses or flags. In the absence of an independently approved reference-scheme
+crosswalk, a same-label target is a provisional
+`same_label_extant_reference` mapping rather than verified versification
+equivalence. These mappings may support Tier 3 weak supervision or knownness
+filtering under configuration, but not primary evaluation.
+
+### Tier 1 boundary
+
+The canonical `data/benchmarks/tier1_quotations.csv` remains the exact governed
+header with zero data rows and header-only SHA-256
+`7d687548139586fe97479429e121e89c2a3f4494806e7e0aaa7ee3e72ea5136b`.
+The validator checks encoding, exact column order, hidden or whitespace rows,
+row count, and configured hash agreement. Typed future-row checks use synthetic
+fixtures only. Human curation, independent review, source-tradition analysis,
+and row-level rights/provenance review are mandatory; neither OpenBible nor an
+automated or LLM process may populate or verify Tier 1. Copyrighted UBS,
+Nestle-Aland, and comparable quotation or allusion appendices are excluded
+without explicit permission.
+
+### Leakage, splits, and presumed negatives
+
+Relationships receive separate leakage groups for exact directed and unordered
+pairs, duplicate provenance, shared endpoints, overlapping endpoint ranges,
+shared or overlapping mapped target passages, canonical unordered book pairs,
+and relevant source provenance. Future
+relationship-family slots remain unsupported when no genuine label exists. The
+implementation uses bounded groups rather than one unrestricted graph-connected
+component, which would allow hub verses to collapse most of the graph.
+
+Deterministic infrastructure splits hold out books, canonical book pairs,
+source passages, and broad project-defined genre strata. They operate on named
+leakage units rather than random rows, record their seed and configuration hash,
+and exclude ineligible mappings with reasons. The relationship-family contract
+is represented but excluded as unsupported until reviewed family labels exist.
+Because the current positive source is Tier 3, these assignments are
+weak-supervision infrastructure rather than definitive scholarly evaluation
+sets.
+
+Presumed-negative generation uses only verse-passage metadata and indexed
+known-link membership. Its five configured strategies cover length-matched
+random unlinked pairs, same-book pairs, same-book-pair pairs, same-broad-genre
+pairs, and nearby-context pairs. Every output is checked against the known graph
+in both directions, passage overlap, split partition, and leakage constraints,
+and retains its seed and configuration hash. The label asserts only absence
+from the checked reference graph; it does not prove that no relationship exists.
+No lexical, thematic, formulaic, embedding, or semantic hard-negative feature
+is calculated in this milestone.
+
+### Metric and storage contracts
+
+Pure metric functions and synthetic fixtures define Recall@5/10/20, mean
+reciprocal rank, nDCG@20, Precision@10 and configurable Precision@k, and
+coverage, with strata for book, broad genre, passage-length bucket, corpus pair,
+relationship class, tier, and mapping confidence. Every result must carry the
+benchmark version, included tiers, mapping eligibility, split, label quality,
+eligible/excluded query counts, and exclusion reasons. No real retrieval result
+exists yet; any future OpenBible-only result must be labeled Tier 3
+weak-supervision recovery.
+
+The build writes ten explicitly typed and deterministically sorted Parquet
+artifacts under Git-ignored schema-v1 storage, records logical and physical
+hashes, and replaces generated outputs atomically only with explicit `--force`.
+DuckDB loads are transactional and expose benchmark inspection views without
+mutating the Milestone 5 passage tables. Runtime, local paths, and storage
+telemetry do not contribute to logical run identity.
+
+`ingest-benchmark` is the sole materialization path. It stages the source,
+relationship, endpoint, mapping, leakage, split, presumed-negative, issue, and
+metadata artifacts, validates the complete set, then promotes that set as one
+atomic unit. The `generate-benchmark-splits` and
+`generate-presumed-negatives` CLI commands verify their corresponding stages in
+the already materialized benchmark. They do not independently generate or
+replace tables, so there is no partially updated split/negative state.
+
+### Validated full-build evidence
+
+Both accepted local builds produced run `benchmark-v1-dff1d3ef650c8ccd4930`
+and version `known-links-v1-dff1d3ef650c`. Wall-clock times were 551.3 and
+533.7 seconds; metadata recorded pipeline runtimes of 501.93041979987174 and
+479.37766140000895 seconds. Each persisted 672,790,515 bytes and strict
+validation returned zero errors, zero warnings, and 18 informational findings.
+
+The builds had zero logical-hash differences, zero row-count differences, and
+zero content-table physical-hash differences. The metadata Parquet physical
+hash changed because `runtime_seconds` is measured telemetry; its logical hash
+excludes that registered nondeterministic field and remained identical. This is
+the only permitted determinism exception.
+
+Each build materialized 344,799 source records, 344,799 relationships, 344,799
+relationship/source links, 689,598 endpoints, 1,379,196 mappings, 4,561,525
+leakage memberships, 1,723,995 split assignments, 29,275 presumed negatives,
+18 informational issues, and one metadata row. Mapping statuses were 639
+`excluded_by_profile`, 781 `mapped_partial`, 1,371,984
+`mapped_provisional`, 5,756 `unresolved_missing_target`, and 36
+`unresolved_reference`. Source-reference corpus pairs were 187,117 OT–OT,
+84,369 NT–NT, and 73,313 cross-testament. All presumed negatives had zero
+positive-graph collisions under the governed bidirectional check.

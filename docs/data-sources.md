@@ -1,9 +1,9 @@
 # Data sources and provenance
 
-Status: **Milestone 5 passage segmentation complete; unactivated sources remain preliminary**
-Review date: 2026-07-12
+Status: **Milestone 6 OpenBible source validated; unactivated sources remain preliminary**
+Review date: 2026-07-13
 
-The authoritative machine-readable register is [`data/manifests/sources.yaml`](../data/manifests/sources.yaml). MACULA Hebrew and MACULA Greek are the validated primary sources: their pinned snapshots have been acquired, ingested, and checked locally, and the unified DuckDB tables expose both corpora with distinct corpus and provenance values. OSHB is the validated Ketiv/Qere supplementary source. Milestone 5 derives passages only from these approved inputs; it activates no new dataset. Other records document intent and review state rather than activation. Raw biblical data, full processed token tables, passage Parquet, and the local database remain Git-ignored.
+The authoritative machine-readable register is [`data/manifests/sources.yaml`](../data/manifests/sources.yaml). MACULA Hebrew and MACULA Greek are the validated primary sources: their pinned snapshots have been acquired, ingested, and checked locally, and the unified DuckDB tables expose both corpora with distinct corpus and provenance values. OSHB is the validated Ketiv/Qere supplementary source. Milestone 6 adds the validated, content-addressed OpenBible.info cross-reference snapshot for Tier 3 weak supervision and broad knownness filtering only; it does not change the primary corpora or passage artifacts. Other records document intent and review state rather than activation. Raw source archives, full processed token tables, passage and benchmark Parquet, acquisition receipts, and the local database remain Git-ignored.
 
 ## Layered corpus strategy
 
@@ -26,7 +26,7 @@ The detailed boundary is fixed in [corpus-scope.md](corpus-scope.md).
 | MACULA Greek | Primary Greek NT tokens and linguistic annotations | Validated `Nestle1904/nodes` snapshot from release `24.06.17`, commit `b5b7ecec0882a3e9a609ecac99e157391e5d9b46`; 137,779 records across 27 books and 260 chapters, matching the upstream test expectation | Full processed-table publication remains unapproved; MARBLE-derived LN/LexDomain fields need a field-level derived-output review; any source upgrade requires renewed review |
 | STEPBible Data | Eligible future supplementary glosses, lexical/semantic mappings, names, morphology, or versification | Repository-level CC BY 4.0 statement and UTF-8 tabular-resource availability are recorded; activation is deferred under [ADR 0012](decisions/0012-defer-stepbible-activation.md) | No file is selected, approved, blocked, acquired, or validated; all seven file-level provenance and licensing questions remain unresolved |
 | CATSS Septuagint | Later bridge morphology and Hebrew–Greek alignment | Official CATSS materials describe Rahlfs-based Greek morphology, Stuttgart Hebrew parallel data, and a source-specific user agreement | Confirm current acquisition agreement, exact modules and revisions, redistribution limits, Beta Code handling, variants, and versification |
-| OpenBible cross-references | Broad known-link and weak-supervision layer | Official page describes about 340,000 downloadable links, primarily from TSK, under a CC Attribution notice | Inspect archive contents; ensure no ESV quotations are imported; create stable date/hash snapshot and versification mapping |
+| OpenBible cross-references | Tier 3 weak supervision and broad knownness filtering | Validated snapshot `snapshot-2026-07-12-sha256-18e63e370308`; archive SHA-256 `18e63e370308868391a8458cfa7454e3b29bb8f94c0ca11dcac2d267d449c492`; two deterministic full benchmark builds; one reference-and-vote file, no biblical quotation or ESV text; CC BY 4.0 determination and attribution recorded | Same-label passage mappings remain provisional without a verified crosswalk; heterogeneous links and votes are not scholarly truth or calibrated confidence; raw and normalized data remain local only by project policy |
 | UBS Parallel Passages | Curated parallels and OT-in-NT benchmark/reference | UBS publishes structured data with a dedicated CC BY-SA 4.0 license | Pin commit; map labels/token numbering; separate training, evaluation, and knownness uses; propagate ShareAlike obligations |
 | ETCBC DSS | Deferred early-witness validation | Official repository supplies Text-Fabric transcriptions/annotations, archived releases, an MIT repository license, and acknowledges Abegg data | Confirm upstream transcription rights; select biblical subset; represent fragments/reconstruction; align with confidence |
 | Hebrew critical apparatus | Deferred Hebrew variant validation | German Bible Society describes BHQ/BHS scholarly apparatuses and their edition scope | Select edition/fascicles; obtain machine-processing rights; define local access, citation, extraction, and derived-output limits |
@@ -34,6 +34,53 @@ The detailed boundary is fixed in [corpus-scope.md](corpus-scope.md).
 | CAL Targum category | Deferred reception-history checking | CAL is an institutional live Aramaic text base and requires access dates in citations | Select exact Targum editions; obtain versioned lawful bulk access and reuse terms; keep out of primary discovery |
 
 Links, exact license fields, attribution text, and recorded uncertainties are in the source manifest. “Confirmed” means verified on an official provider page during this review, not that every legal or scholarly question is resolved.
+
+## Validated OpenBible Tier 3 snapshot
+
+Milestone 6 audited the official [Bible Cross References page](https://www.openbible.info/labs/cross-references/) and the linked archive at
+`https://a.openbible.info/data/cross-references.zip`. Two audit downloads were
+byte-identical. The governed identity is:
+
+```text
+Snapshot label: snapshot-2026-07-12-sha256-18e63e370308
+Archive SHA-256: 18e63e370308868391a8458cfa7454e3b29bb8f94c0ca11dcac2d267d449c492
+Extracted file: cross_references.txt
+Extracted SHA-256: eb7a78dbd5a8a88f1a87689de11f6d87806dc9fa20c3e88f7800665deb6b5c37
+Canonical stream schema: openbible-tsv-v1
+```
+
+The safe ZIP contains only `cross_references.txt`. It is UTF-8 TSV reference data with an
+internal CC BY notice, directional source and target reference fields, and signed integer
+votes. The source audit found no biblical quotation text, ESV quotations, other modern
+translation text, executable content, symlinks, or mixed-rights secondary dataset. The
+source therefore passes the archive-content stop conditions for its validated Tier 3 role.
+
+Acquisition is approval-gated, content-addressed, atomic, and non-overwriting. It records
+the requested and final URL, available HTTP headers, archive and extracted hashes, archive
+inventory, and canonical parsed-stream hash in a Git-ignored schema-2 receipt. Verification
+recomputes the exact receipt without contacting the network:
+
+```bash
+uv run echoes acquire-source openbible-cross-references
+uv run echoes verify-acquisition openbible-cross-references
+```
+
+Every physical source row remains traceable. Source votes remain ranking metadata, not a
+probability or scholarly confidence. References retain the
+`openbible-english-protestant-v1` scheme. Mappings target Milestone 5 verse passages, but
+same-label mappings without an independently approved versification crosswalk are
+provisional. Missing verses are never fabricated, and ranges, profile exclusions,
+reference gaps, and disputed text remain explicit.
+
+Two complete schema-v1 builds reproduced run
+`benchmark-v1-dff1d3ef650c8ccd4930`, version
+`known-links-v1-dff1d3ef650c`, all logical hashes, counts, and content-table
+physical hashes. Each strict validation returned zero errors, zero warnings,
+and 18 informational findings. The builds materialized 344,799 relationships,
+689,598 endpoints, and 1,379,196 conservative profile mappings. That validation
+changes the manifest lifecycle from `approved` to `validated`; it does not
+upgrade OpenBible beyond Tier 3 or turn same-label mappings into verified
+versification equivalence.
 
 ## Validated MACULA Hebrew snapshot
 
@@ -154,7 +201,7 @@ When sources conflict, selection is not resolved by silently choosing the most c
 
 Git sources use an immutable commit and, when available, a release tag. Mutable web archives use acquisition timestamp, final URL, HTTP metadata when available, archive hash, internal file list, and individual file hashes. Live databases require an authorized snapshot or export; an access date alone is not reproducible enough for activation. Updating a source creates a new manifest version and corpus-processing run. Earlier raw and processed hashes remain in history.
 
-MACULA Hebrew is pinned to the immutable commit above and may be marked validated because its acquisition receipt, inventory, hashes, adapter, and corpus checks exist. `null` version and date fields for every other unacquired source remain deliberate and prevent those records from being marked acquired. A future MACULA Hebrew upgrade is a new source version and must not silently replace 25.08.11; in particular, 2026 releases require a fresh review of the later SILHA integration and licensing terms.
+MACULA Hebrew, MACULA Greek, and OSHB remain pinned to their immutable Git commits. OpenBible is pinned by the complete archive SHA-256 above; the shorter hash in its snapshot label is descriptive, not the authoritative identity. Other unacquired sources retain deliberate `null` versions and dates that prevent premature activation. Any Git or archive update creates a new source version, receipt, processing run, and review. A future MACULA Hebrew upgrade must not silently replace 25.08.11; in particular, 2026 releases require a fresh review of the later SILHA integration and licensing terms.
 
 ## Canonical-byte hashing policy
 
