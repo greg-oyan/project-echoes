@@ -6,6 +6,7 @@ import hashlib
 import json
 import platform
 import sys
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
@@ -31,7 +32,8 @@ from echoes.segment.streams import (
     CorpusName,
     InputDigestSet,
     SegmentationInputs,
-    build_analysis_stream,
+    apply_analysis_profile,
+    build_analysis_base_stream,
     load_segmentation_inputs,
 )
 from echoes.settings import SegmentationConfig
@@ -212,6 +214,57 @@ def _selected_granularities(
     return tuple(config.granularities)
 
 
+def _stream_groups(
+    stream_keys: tuple[tuple[CorpusName, AnalysisProfileName, AnalysisReadingName], ...],
+) -> tuple[
+    tuple[CorpusName, AnalysisReadingName, tuple[AnalysisProfileName, ...]],
+    ...,
+]:
+    """Group selected profiles by their reusable corpus/reading base."""
+
+    grouped: dict[tuple[CorpusName, AnalysisReadingName], list[AnalysisProfileName]] = {}
+    for corpus, profile, reading in stream_keys:
+        profiles = grouped.setdefault((corpus, reading), [])
+        if profile not in profiles:
+            profiles.append(profile)
+    return tuple(
+        (corpus, reading, tuple(profiles)) for (corpus, reading), profiles in grouped.items()
+    )
+
+
+def _iter_book_streams(stream: pl.DataFrame) -> Iterator[pl.DataFrame]:
+    """Return contiguous book slices without eagerly partitioning every column.
+
+    The selected streams are corpus-ordered, so each book occupies one
+    contiguous range.  Only the narrow book column is grouped to find those
+    ranges; Polars slices then share the underlying buffers until the current
+    generated book partition is released.
+    """
+
+    ranges = (
+        stream.select("book")
+        .with_row_index("_offset")
+        .group_by("book", maintain_order=True)
+        .agg(
+            pl.col("_offset").min().alias("_start"),
+            pl.len().alias("_length"),
+        )
+    )
+    expected_start = 0
+    for start, length in ranges.select("_start", "_length").iter_rows():
+        offset = int(start)
+        size = int(length)
+        if offset != expected_start:
+            raise PassagePipelineError("analysis stream book rows are not contiguous")
+        book_stream = stream.slice(offset, size)
+        if book_stream["book"].n_unique() != 1:
+            raise PassagePipelineError("analysis stream book rows are not contiguous")
+        yield book_stream
+        expected_start += size
+    if expected_start != stream.height:
+        raise PassagePipelineError("analysis stream book slices do not cover every token")
+
+
 def _estimated_output_bytes(
     stream_keys: tuple[tuple[CorpusName, AnalysisProfileName, AnalysisReadingName], ...],
 ) -> int:
@@ -312,72 +365,76 @@ def segment_passages(
         estimated_output_bytes=estimated_bytes,
         required_free_bytes=required_free_bytes,
     ) as writer:
-        for corpus, profile, reading in stream_keys:
-            stream = build_analysis_stream(
+        for corpus, reading, profiles in _stream_groups(stream_keys):
+            base_stream = build_analysis_base_stream(
                 inputs,
-                config=config,
                 corpus=corpus,
-                profile=profile,
                 reading=reading,
             )
-            if selection.book is not None:
-                stream = stream.filter(pl.col("book") == selection.book)
-                if stream.is_empty():
-                    raise PassagePipelineError(
-                        f"selected book {selection.book} is absent from {corpus}"
-                    )
-            for book_stream in stream.partition_by("book", maintain_order=True, include_key=True):
-                book = str(book_stream.item(0, "book"))
-                generated = generate_partition(
-                    book_stream,
-                    config=config,
-                    segmentation_run_id=context.run_id,
-                    config_hash=context.config_hash,
-                )
-                artifact_frames: dict[
-                    Literal["passages", "passage_membership", "passage_adjacency"],
-                    pl.DataFrame,
-                ] = {
-                    "passages": generated.passages,
-                    "passage_membership": generated.membership,
-                    "passage_adjacency": generated.adjacency,
-                }
-                for granularity in granularities:
-                    for table, frame in artifact_frames.items():
-                        writer.write_partition(
-                            ArtifactPartition(
-                                table=table,
-                                frame=frame.filter(pl.col("granularity") == granularity),
-                                corpus=corpus,
-                                analysis_profile=profile,
-                                analysis_reading=reading,
-                                granularity=granularity,
-                                book=book,
-                            )
+            for profile in profiles:
+                stream = apply_analysis_profile(base_stream, config=config, profile=profile)
+                if selection.book is not None:
+                    stream = stream.filter(pl.col("book") == selection.book)
+                    if stream.is_empty():
+                        raise PassagePipelineError(
+                            f"selected book {selection.book} is absent from {corpus}"
                         )
-                exclusions = generated.exclusions.filter(pl.col("granularity").is_in(granularities))
-                writer.write_partition(
-                    ArtifactPartition(
-                        table="segmentation_exclusions",
-                        frame=exclusions,
-                        corpus=corpus,
-                        analysis_profile=profile,
-                        analysis_reading=reading,
-                        granularity="clause" if "clause" in granularities else granularities[0],
-                        book=book,
+                for book_stream in _iter_book_streams(stream):
+                    book = str(book_stream.item(0, "book"))
+                    generated = generate_partition(
+                        book_stream,
+                        config=config,
+                        segmentation_run_id=context.run_id,
+                        config_hash=context.config_hash,
                     )
-                )
-                writer.write_partition(
-                    ArtifactPartition(
-                        table="segmentation_issues",
-                        frame=generated.issues,
-                        corpus=corpus,
-                        analysis_profile=profile,
-                        analysis_reading=reading,
-                        granularity=None,
-                        book=book,
+                    artifact_frames: dict[
+                        Literal["passages", "passage_membership", "passage_adjacency"],
+                        pl.DataFrame,
+                    ] = {
+                        "passages": generated.passages,
+                        "passage_membership": generated.membership,
+                        "passage_adjacency": generated.adjacency,
+                    }
+                    for granularity in granularities:
+                        for table, frame in artifact_frames.items():
+                            writer.write_partition(
+                                ArtifactPartition(
+                                    table=table,
+                                    frame=frame.filter(pl.col("granularity") == granularity),
+                                    corpus=corpus,
+                                    analysis_profile=profile,
+                                    analysis_reading=reading,
+                                    granularity=granularity,
+                                    book=book,
+                                )
+                            )
+                    exclusions = generated.exclusions.filter(
+                        pl.col("granularity").is_in(granularities)
                     )
-                )
+                    writer.write_partition(
+                        ArtifactPartition(
+                            table="segmentation_exclusions",
+                            frame=exclusions,
+                            corpus=corpus,
+                            analysis_profile=profile,
+                            analysis_reading=reading,
+                            granularity=(
+                                "clause" if "clause" in granularities else granularities[0]
+                            ),
+                            book=book,
+                        )
+                    )
+                    writer.write_partition(
+                        ArtifactPartition(
+                            table="segmentation_issues",
+                            frame=generated.issues,
+                            corpus=corpus,
+                            analysis_profile=profile,
+                            analysis_reading=reading,
+                            granularity=None,
+                            book=book,
+                        )
+                    )
         summary = writer.content_summary()
         runtime = round(perf_counter() - started, 6)
         metadata = _metadata_frame(

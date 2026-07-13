@@ -11,6 +11,8 @@ import pytest
 from echoes.segment.pipeline import (
     PassagePipelineError,
     SegmentationSelection,
+    _iter_book_streams,
+    _stream_groups,
     create_run_context,
     segmentation_config_fingerprint,
 )
@@ -53,6 +55,37 @@ def test_all_selection_expands_to_every_required_stream() -> None:
     assert len(streams) == 6
     assert ("hebrew", "edition_complete", "qere") in streams
     assert ("greek", "critical_core", "source") in streams
+
+
+def test_stream_groups_reuse_one_base_for_both_profiles() -> None:
+    groups = _stream_groups(SegmentationSelection(all_streams=True).selected_streams())
+
+    assert groups == (
+        ("hebrew", "qere", ("edition_complete", "critical_core")),
+        ("hebrew", "ketiv", ("edition_complete", "critical_core")),
+        ("greek", "source", ("edition_complete", "critical_core")),
+    )
+
+
+def test_book_streams_are_complete_contiguous_slices() -> None:
+    stream = pl.DataFrame(
+        {
+            "book": ["GEN", "GEN", "EXO", "EXO", "EXO"],
+            "token": [1, 2, 3, 4, 5],
+        }
+    )
+
+    slices = list(_iter_book_streams(stream))
+
+    assert [frame["book"].unique().to_list() for frame in slices] == [["GEN"], ["EXO"]]
+    assert pl.concat(slices).equals(stream)
+
+
+def test_noncontiguous_book_stream_fails() -> None:
+    stream = pl.DataFrame({"book": ["GEN", "EXO", "GEN"], "token": [1, 2, 3]})
+
+    with pytest.raises(PassagePipelineError, match="not contiguous"):
+        list(_iter_book_streams(stream))
 
 
 def test_ambiguous_or_contradictory_selection_fails() -> None:

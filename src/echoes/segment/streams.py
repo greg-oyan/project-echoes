@@ -495,6 +495,29 @@ def build_required_analysis_streams(
     return streams
 
 
+def build_analysis_base_stream(
+    inputs: SegmentationInputs,
+    *,
+    corpus: CorpusName,
+    reading: AnalysisReadingName,
+) -> pl.DataFrame:
+    """Build one reading-level base that can serve both analysis profiles.
+
+    Production generation deliberately derives both profiles from one base and
+    then releases it before moving to the next reading.  This avoids rebuilding
+    the comparatively wide whole-corpus stream twice while still applying and
+    validating profile membership independently.
+    """
+
+    if corpus == "hebrew":
+        if reading not in {"qere", "ketiv"}:
+            raise SegmentationInputError("Hebrew streams require qere or ketiv reading")
+        return _hebrew_base_stream(inputs, reading)
+    if reading != "source":
+        raise SegmentationInputError("Greek streams require source reading")
+    return _greek_base_stream(inputs)
+
+
 def build_analysis_stream(
     inputs: SegmentationInputs,
     *,
@@ -505,12 +528,5 @@ def build_analysis_stream(
 ) -> pl.DataFrame:
     """Build one governed stream so production can release it before the next."""
 
-    if corpus == "hebrew":
-        if reading not in {"qere", "ketiv"}:
-            raise SegmentationInputError("Hebrew streams require qere or ketiv reading")
-        base = _hebrew_base_stream(inputs, reading)
-    elif reading == "source":
-        base = _greek_base_stream(inputs)
-    else:
-        raise SegmentationInputError("Greek streams require source reading")
+    base = build_analysis_base_stream(inputs, corpus=corpus, reading=reading)
     return apply_analysis_profile(base, config=config, profile=profile)
