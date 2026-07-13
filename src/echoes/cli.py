@@ -18,6 +18,14 @@ from echoes.acquire import (
     audit_manifest_hashes,
     verify_acquisition,
 )
+from echoes.benchmarks.pipeline import BenchmarkBuildError, build_benchmark
+from echoes.benchmarks.storage import BenchmarkStorageError, table_row_counts
+from echoes.benchmarks.tier1 import Tier1ValidationError, validate_tier1_quotations
+from echoes.benchmarks.validation import (
+    BenchmarkValidationError,
+    BenchmarkValidationReport,
+    validate_benchmark_artifacts,
+)
 from echoes.corpus.greek import (
     GreekPipelineError,
     ingest_greek_corpus,
@@ -58,6 +66,7 @@ from echoes.segment.storage import (
 from echoes.segment.streams import SegmentationInputError, load_segmentation_inputs
 from echoes.segment.validation import validate_passage_artifacts
 from echoes.settings import (
+    BenchmarkConfig,
     ConfigLoadError,
     RuntimeSettings,
     SegmentationConfig,
@@ -132,6 +141,151 @@ def _load_segmentation_config(config_dir: Path) -> SegmentationConfig:
     if not isinstance(loaded, SegmentationConfig):  # pragma: no cover - schema registry guard
         raise ConfigLoadError("segmentation.yaml did not load as SegmentationConfig")
     return loaded
+
+
+def _load_benchmark_config(config_path: Path) -> BenchmarkConfig:
+    loaded = load_config(config_path)
+    if not isinstance(loaded, BenchmarkConfig):  # pragma: no cover - schema registry guard
+        raise ConfigLoadError(f"{config_path} did not load as BenchmarkConfig")
+    return loaded
+
+
+def _query_dicts(
+    connection: duckdb.DuckDBPyConnection,
+    sql: str,
+    parameters: Sequence[object] = (),
+) -> list[dict[str, object]]:
+    cursor = connection.execute(sql, list(parameters))
+    columns = [str(description[0]) for description in cursor.description]
+    return [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]
+
+
+def _benchmark_summary_payload(database: Path) -> dict[str, object]:
+    counts = table_row_counts(database)
+    try:
+        with duckdb.connect(str(database), read_only=True) as connection:
+            metadata_rows = _query_dicts(
+                connection,
+                "SELECT benchmark_run_id, benchmark_version, relationship_count, "
+                "endpoint_count, mapping_count FROM benchmark_metadata",
+            )
+            if len(metadata_rows) != 1:
+                raise BenchmarkStorageError("benchmark_metadata must contain exactly one row")
+            tiers = _query_dicts(
+                connection,
+                "SELECT tier, source_id, count(*) AS relationship_count "
+                "FROM benchmark_relationships GROUP BY tier, source_id ORDER BY tier, source_id",
+            )
+            mappings = _query_dicts(
+                connection,
+                "SELECT target_analysis_profile, mapping_status, count(*) AS mapping_count "
+                "FROM benchmark_endpoint_mappings GROUP BY target_analysis_profile, "
+                "mapping_status ORDER BY target_analysis_profile, mapping_status",
+            )
+            splits = _query_dicts(
+                connection,
+                "SELECT split_strategy, partition, count(*) AS assignment_count "
+                "FROM benchmark_split_assignments GROUP BY split_strategy, partition "
+                "ORDER BY split_strategy, partition",
+            )
+            negatives = _query_dicts(
+                connection,
+                "SELECT negative_strategy, count(*) AS presumed_negative_count "
+                "FROM benchmark_presumed_negatives GROUP BY negative_strategy "
+                "ORDER BY negative_strategy",
+            )
+    except (duckdb.Error, OSError) as exc:
+        raise BenchmarkStorageError(f"could not summarize benchmark tables: {exc}") from exc
+    return {
+        "metadata": metadata_rows[0],
+        "table_counts": counts,
+        "relationships_by_tier_and_source": tiers,
+        "mappings_by_profile_and_status": mappings,
+        "splits_by_strategy_and_partition": splits,
+        "presumed_negatives_by_strategy": negatives,
+    }
+
+
+def _relationship_details(database: Path, relationship_id: str) -> dict[str, object] | None:
+    try:
+        with duckdb.connect(str(database), read_only=True) as connection:
+            relationships = _query_dicts(
+                connection,
+                "SELECT * FROM benchmark_relationships WHERE relationship_id = ?",
+                [relationship_id],
+            )
+            if not relationships:
+                return None
+            source_records = _query_dicts(
+                connection,
+                "SELECT l.link_role, s.* FROM benchmark_relationship_source_records l "
+                "JOIN benchmark_source_records s USING (source_record_id) "
+                "WHERE l.relationship_id = ? ORDER BY s.source_file, s.source_line_number",
+                [relationship_id],
+            )
+            endpoints = _query_dicts(
+                connection,
+                "SELECT * FROM benchmark_endpoints WHERE relationship_id = ? "
+                "ORDER BY endpoint_side",
+                [relationship_id],
+            )
+            mappings = _query_dicts(
+                connection,
+                "SELECT m.* FROM benchmark_endpoint_mappings m "
+                "JOIN benchmark_endpoints e USING (endpoint_id) "
+                "WHERE e.relationship_id = ? "
+                "ORDER BY e.endpoint_side, m.target_analysis_profile",
+                [relationship_id],
+            )
+            leakage = _query_dicts(
+                connection,
+                "SELECT * FROM benchmark_leakage_groups WHERE relationship_id = ? "
+                "ORDER BY group_type, leakage_group_id",
+                [relationship_id],
+            )
+            splits = _query_dicts(
+                connection,
+                "SELECT * FROM benchmark_split_assignments WHERE relationship_id = ? "
+                "ORDER BY split_strategy",
+                [relationship_id],
+            )
+            negatives = _query_dicts(
+                connection,
+                "SELECT DISTINCT n.* FROM benchmark_presumed_negatives n "
+                "JOIN benchmark_mapping_target_passages t "
+                "ON t.target_passage_id IN (n.passage_a_id, n.passage_b_id) "
+                "JOIN benchmark_endpoint_mappings m ON m.mapping_id = t.mapping_id "
+                "JOIN benchmark_endpoints e ON e.endpoint_id = m.endpoint_id "
+                "WHERE e.relationship_id = ? ORDER BY n.negative_strategy, n.contrastive_id",
+                [relationship_id],
+            )
+    except (duckdb.Error, OSError) as exc:
+        raise BenchmarkStorageError(
+            f"could not read benchmark relationship {relationship_id}: {exc}"
+        ) from exc
+    return {
+        "relationship": relationships[0],
+        "source_records": source_records,
+        "endpoints": endpoints,
+        "endpoint_mappings": mappings,
+        "leakage_groups": leakage,
+        "split_assignments": splits,
+        "related_presumed_negatives": negatives,
+    }
+
+
+def _mapping_details(database: Path, relationship_id: str) -> dict[str, object] | None:
+    details = _relationship_details(database, relationship_id)
+    if details is None:
+        return None
+    relationship = cast(dict[str, object], details["relationship"])
+    return {
+        "relationship_id": relationship_id,
+        "source_reference_a": relationship["source_reference_a"],
+        "source_reference_b": relationship["source_reference_b"],
+        "endpoints": details["endpoints"],
+        "endpoint_mappings": details["endpoint_mappings"],
+    }
 
 
 def _passage_exclusions(database: Path, passage_id: str) -> list[dict[str, object]]:
@@ -1098,6 +1252,502 @@ def passage_membership_command(
     ]
     typer.echo(_table(headers, rows))
     typer.echo(f"{len(rows)} token(s).")
+
+
+@app.command("ingest-benchmark")
+def ingest_benchmark_command(
+    source: Annotated[
+        str,
+        typer.Option(
+            "--source",
+            help="Governed benchmark source; only openbible-cross-references is enabled.",
+        ),
+    ] = "openbible-cross-references",
+    config_path: Annotated[
+        Path, typer.Option("--config", help="Typed benchmark configuration path.")
+    ] = Path("config/benchmark.yaml"),
+    manifest_path: SourceManifestPath = Path("data/manifests/sources.yaml"),
+    tier1_path: Annotated[
+        Path, typer.Option("--tier1", help="Tracked header-only Tier 1 CSV path.")
+    ] = Path("data/benchmarks/tier1_quotations.csv"),
+    data_root: DataRoot = Path("data"),
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="Generated benchmark output root."),
+    ] = Path("data/processed/benchmarks"),
+    database: Annotated[
+        Path, typer.Option("--database", help="Local DuckDB database path.")
+    ] = Path("data/processed/project_echoes.duckdb"),
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            help="Replace generated artifacts only; governance gates are never bypassed.",
+        ),
+    ] = False,
+) -> None:
+    """Build all governed known-link artifacts from the pinned OpenBible snapshot."""
+
+    if source.lower() not in {"openbible-cross-references", "openbible"}:
+        typer.echo(
+            "Benchmark ingestion failed: only openbible-cross-references is enabled.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    try:
+        result = build_benchmark(
+            config_path=config_path,
+            manifest_path=manifest_path,
+            tier1_path=tier1_path,
+            data_root=data_root,
+            output_root=output_dir,
+            database_path=database,
+            force=force,
+        )
+    except (
+        AcquisitionError,
+        BenchmarkBuildError,
+        BenchmarkStorageError,
+        ConfigLoadError,
+        SourceManifestError,
+        Tier1ValidationError,
+        duckdb.Error,
+        OSError,
+    ) as exc:
+        typer.echo(f"Benchmark ingestion failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"Generated benchmark run {result.benchmark_run_id} ({result.benchmark_version}).")
+    typer.echo(f"Rows: {_counts(result.storage.table_counts)}")
+    typer.echo(f"Mappings: {_counts(result.mapping_status_counts)}")
+    typer.echo(f"Splits: {_counts(result.split_counts)}")
+    typer.echo(f"Presumed negatives: {_counts(result.negative_counts)}")
+    typer.echo(f"DuckDB: {result.database_path}")
+
+
+@app.command("validate-benchmarks")
+def validate_benchmarks_command(
+    all_benchmarks: Annotated[
+        bool, typer.Option("--all", help="Validate all ten benchmark artifacts.")
+    ] = False,
+    config_path: Annotated[
+        Path, typer.Option("--config", help="Typed benchmark configuration path.")
+    ] = Path("config/benchmark.yaml"),
+    manifest_path: SourceManifestPath = Path("data/manifests/sources.yaml"),
+    tier1_path: Annotated[
+        Path, typer.Option("--tier1", help="Tracked header-only Tier 1 CSV path.")
+    ] = Path("data/benchmarks/tier1_quotations.csv"),
+    data_root: DataRoot = Path("data"),
+    output_dir: Annotated[
+        Path, typer.Option("--output-dir", help="Generated benchmark output root.")
+    ] = Path("data/processed/benchmarks"),
+    database: Annotated[
+        Path, typer.Option("--database", help="Local DuckDB database path.")
+    ] = Path("data/processed/project_echoes.duckdb"),
+    strict: Annotated[
+        bool, typer.Option("--strict", help="Treat benchmark warnings as failures.")
+    ] = False,
+    json_output: Annotated[
+        bool, typer.Option("--json", help="Emit the complete validation report as JSON.")
+    ] = False,
+    report: Annotated[
+        Path | None,
+        typer.Option("--report", help="Optionally write the validation report as JSON."),
+    ] = None,
+) -> None:
+    """Validate source, tier, identity, mapping, leakage, split, and input invariants."""
+
+    if not all_benchmarks:
+        typer.echo("Benchmark validation failed: select --all.", err=True)
+        raise typer.Exit(code=1)
+    try:
+        validation = validate_benchmark_artifacts(
+            config_path=config_path,
+            manifest_path=manifest_path,
+            tier1_path=tier1_path,
+            data_root=data_root,
+            output_root=output_dir,
+            database_path=database,
+            strict=strict,
+        )
+        if report is not None:
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(validation.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    except (
+        AcquisitionError,
+        BenchmarkBuildError,
+        BenchmarkValidationError,
+        BenchmarkStorageError,
+        ConfigLoadError,
+        SourceManifestError,
+        Tier1ValidationError,
+        duckdb.Error,
+        OSError,
+    ) as exc:
+        typer.echo(f"Benchmark validation failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if json_output:
+        _echo_json(validation)
+    else:
+        typer.echo(
+            f"Validated benchmark run {validation.benchmark_run_id or 'unknown'}: "
+            f"errors={validation.error_count}, warnings={validation.warning_count}, "
+            f"informational={validation.informational_count}."
+        )
+        typer.echo(f"Rows: {_counts(validation.table_counts)}")
+        for issue in validation.issues:
+            if issue.severity != "informational":
+                location = f" [{issue.artifact}]" if issue.artifact else ""
+                typer.echo(
+                    f"{issue.severity.upper()} {issue.code}{location}: {issue.message}",
+                    err=issue.severity == "error",
+                )
+    if not validation.passed:
+        raise typer.Exit(code=validation.exit_code)
+
+
+@app.command("validate-tier1-quotations")
+def validate_tier1_quotations_command(
+    config_path: Annotated[
+        Path, typer.Option("--config", help="Typed benchmark configuration path.")
+    ] = Path("config/benchmark.yaml"),
+    tier1_path: Annotated[
+        Path, typer.Option("--tier1", help="Tracked header-only Tier 1 CSV path.")
+    ] = Path("data/benchmarks/tier1_quotations.csv"),
+    json_output: Annotated[
+        bool, typer.Option("--json", help="Emit the Tier 1 validation result as JSON.")
+    ] = False,
+) -> None:
+    """Require the exact governed Tier 1 header and exactly zero data rows."""
+
+    try:
+        config = _load_benchmark_config(config_path)
+        result = validate_tier1_quotations(
+            tier1_path,
+            expected_sha256=config.sources.tier1.header_sha256,
+        )
+    except (ConfigLoadError, Tier1ValidationError, OSError) as exc:
+        typer.echo(f"Tier 1 quotation validation failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if json_output:
+        _echo_json(result)
+    else:
+        typer.echo(
+            f"Validated Tier 1 quotation placeholder: rows={result.row_count}, "
+            f"sha256={result.sha256}."
+        )
+
+
+def _verify_generated_benchmark_stage(
+    *,
+    stage_table: str,
+    config_path: Path,
+    manifest_path: Path,
+    tier1_path: Path,
+    data_root: Path,
+    output_dir: Path,
+    database: Path,
+) -> tuple[BenchmarkValidationReport, dict[str, int]]:
+    validation = validate_benchmark_artifacts(
+        config_path=config_path,
+        manifest_path=manifest_path,
+        tier1_path=tier1_path,
+        data_root=data_root,
+        output_root=output_dir,
+        database_path=database,
+        strict=True,
+    )
+    if not validation.passed:
+        raise BenchmarkValidationError("the materialized benchmark does not pass strict validation")
+    counts = table_row_counts(database)
+    if stage_table not in counts:
+        raise BenchmarkStorageError(f"materialized benchmark is missing {stage_table}")
+    return validation, counts
+
+
+@app.command("generate-benchmark-splits")
+def generate_benchmark_splits_command(
+    all_strategies: Annotated[
+        bool, typer.Option("--all", help="Verify every configured split strategy.")
+    ] = False,
+    config_path: Annotated[
+        Path, typer.Option("--config", help="Typed benchmark configuration path.")
+    ] = Path("config/benchmark.yaml"),
+    manifest_path: SourceManifestPath = Path("data/manifests/sources.yaml"),
+    tier1_path: Annotated[
+        Path, typer.Option("--tier1", help="Tracked header-only Tier 1 CSV path.")
+    ] = Path("data/benchmarks/tier1_quotations.csv"),
+    data_root: DataRoot = Path("data"),
+    output_dir: Annotated[
+        Path, typer.Option("--output-dir", help="Generated benchmark output root.")
+    ] = Path("data/processed/benchmarks"),
+    database: Annotated[
+        Path, typer.Option("--database", help="Local DuckDB database path.")
+    ] = Path("data/processed/project_echoes.duckdb"),
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            help="Acknowledge generated outputs; never bypass validation gates.",
+        ),
+    ] = False,
+) -> None:
+    """Verify deterministic split artifacts materialized by full benchmark ingestion."""
+
+    if not all_strategies:
+        typer.echo("Split generation verification failed: select --all.", err=True)
+        raise typer.Exit(code=1)
+    try:
+        validation, counts = _verify_generated_benchmark_stage(
+            stage_table="benchmark_split_assignments",
+            config_path=config_path,
+            manifest_path=manifest_path,
+            tier1_path=tier1_path,
+            data_root=data_root,
+            output_dir=output_dir,
+            database=database,
+        )
+    except (
+        AcquisitionError,
+        BenchmarkBuildError,
+        BenchmarkValidationError,
+        BenchmarkStorageError,
+        ConfigLoadError,
+        SourceManifestError,
+        Tier1ValidationError,
+        duckdb.Error,
+        OSError,
+    ) as exc:
+        typer.echo(f"Split generation verification failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    force_note = " --force acknowledged after all gates." if force else ""
+    typer.echo(
+        f"Verified benchmark splits for {validation.benchmark_run_id}: "
+        f"rows={counts['benchmark_split_assignments']}.{force_note}"
+    )
+
+
+@app.command("generate-presumed-negatives")
+def generate_presumed_negatives_command(
+    all_strategies: Annotated[
+        bool, typer.Option("--all", help="Verify every configured negative strategy.")
+    ] = False,
+    config_path: Annotated[
+        Path, typer.Option("--config", help="Typed benchmark configuration path.")
+    ] = Path("config/benchmark.yaml"),
+    manifest_path: SourceManifestPath = Path("data/manifests/sources.yaml"),
+    tier1_path: Annotated[
+        Path, typer.Option("--tier1", help="Tracked header-only Tier 1 CSV path.")
+    ] = Path("data/benchmarks/tier1_quotations.csv"),
+    data_root: DataRoot = Path("data"),
+    output_dir: Annotated[
+        Path, typer.Option("--output-dir", help="Generated benchmark output root.")
+    ] = Path("data/processed/benchmarks"),
+    database: Annotated[
+        Path, typer.Option("--database", help="Local DuckDB database path.")
+    ] = Path("data/processed/project_echoes.duckdb"),
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            help="Acknowledge generated outputs; never bypass validation gates.",
+        ),
+    ] = False,
+) -> None:
+    """Verify presumed-negative artifacts materialized by full benchmark ingestion."""
+
+    if not all_strategies:
+        typer.echo("Presumed-negative verification failed: select --all.", err=True)
+        raise typer.Exit(code=1)
+    try:
+        validation, counts = _verify_generated_benchmark_stage(
+            stage_table="benchmark_presumed_negatives",
+            config_path=config_path,
+            manifest_path=manifest_path,
+            tier1_path=tier1_path,
+            data_root=data_root,
+            output_dir=output_dir,
+            database=database,
+        )
+    except (
+        AcquisitionError,
+        BenchmarkBuildError,
+        BenchmarkValidationError,
+        BenchmarkStorageError,
+        ConfigLoadError,
+        SourceManifestError,
+        Tier1ValidationError,
+        duckdb.Error,
+        OSError,
+    ) as exc:
+        typer.echo(f"Presumed-negative verification failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    force_note = " --force acknowledged after all gates." if force else ""
+    typer.echo(
+        f"Verified presumed negatives for {validation.benchmark_run_id}: "
+        f"rows={counts['benchmark_presumed_negatives']}.{force_note}"
+    )
+
+
+@app.command("benchmark-summary")
+def benchmark_summary_command(
+    all_benchmarks: Annotated[
+        bool, typer.Option("--all", help="Summarize all benchmark artifacts.")
+    ] = False,
+    database: Annotated[
+        Path, typer.Option("--database", help="Local DuckDB database path.")
+    ] = Path("data/processed/project_echoes.duckdb"),
+    json_output: Annotated[
+        bool, typer.Option("--json", help="Emit the complete summary as JSON.")
+    ] = False,
+) -> None:
+    """Summarize materialized benchmark tiers, mappings, splits, and negatives."""
+
+    if not all_benchmarks:
+        typer.echo("Benchmark summary failed: select --all.", err=True)
+        raise typer.Exit(code=1)
+    try:
+        payload = _benchmark_summary_payload(database)
+    except BenchmarkStorageError as exc:
+        typer.echo(f"Benchmark summary failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2, ensure_ascii=True))
+        return
+    metadata = cast(dict[str, object], payload["metadata"])
+    counts = cast(dict[str, int], payload["table_counts"])
+    typer.echo(f"Benchmark run {metadata['benchmark_run_id']} ({metadata['benchmark_version']}).")
+    typer.echo(f"Rows: {_counts(counts)}")
+    tier_groups = cast(list[object], payload["relationships_by_tier_and_source"])
+    typer.echo(f"Tier/source groups: {len(tier_groups)}")
+    typer.echo(
+        f"Mapping groups: {len(cast(list[object], payload['mappings_by_profile_and_status']))}"
+    )
+    typer.echo(
+        f"Split groups: {len(cast(list[object], payload['splits_by_strategy_and_partition']))}"
+    )
+    typer.echo(
+        "Presumed-negative strategies: "
+        f"{len(cast(list[object], payload['presumed_negatives_by_strategy']))}"
+    )
+
+
+@app.command("show-relationship")
+def show_relationship_command(
+    relationship_id: Annotated[str, typer.Argument(help="Stable relationship identifier.")],
+    database: Annotated[
+        Path, typer.Option("--database", help="Local DuckDB database path.")
+    ] = Path("data/processed/project_echoes.duckdb"),
+    json_output: Annotated[
+        bool, typer.Option("--json", help="Emit all relationship evidence as JSON.")
+    ] = False,
+) -> None:
+    """Display source provenance, mappings, leakage, splits, and contrasts."""
+
+    try:
+        details = _relationship_details(database, relationship_id)
+    except BenchmarkStorageError as exc:
+        typer.echo(f"Could not show benchmark relationship: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if details is None:
+        typer.echo(f"Benchmark relationship not found: {relationship_id}", err=True)
+        raise typer.Exit(code=1)
+    if json_output:
+        typer.echo(json.dumps(details, indent=2, ensure_ascii=True))
+        return
+    relationship = cast(dict[str, object], details["relationship"])
+    typer.echo(f"Relationship: {relationship_id}")
+    typer.echo(
+        f"Source references: {relationship['source_reference_a']} -> "
+        f"{relationship['source_reference_b']} ({relationship['relationship_direction']})"
+    )
+    typer.echo(
+        f"Tier: {relationship['tier']}; class: {relationship['relationship_class']}; "
+        f"source weight sum/max: {relationship['source_weight_sum']}/"
+        f"{relationship['source_weight_max']}"
+    )
+    typer.echo(
+        "Eligibility: weak_supervision="
+        f"{relationship['weak_supervision_eligible']}, knownness="
+        f"{relationship['knownness_filter_eligible']}, primary_evaluation="
+        f"{relationship['primary_evaluation_eligible']}, tier1="
+        f"{relationship['tier1_eligible']}"
+    )
+    typer.echo(f"Provenance: {relationship['provenance_json']}")
+    source_records = cast(list[dict[str, object]], details["source_records"])
+    typer.echo(f"Source records: {len(source_records)}")
+    for source_record in source_records:
+        typer.echo(
+            f"- {source_record['source_record_id']} at {source_record['source_file']}:"
+            f"{source_record['source_line_number']} weight={source_record['source_weight']} "
+            f"status={source_record['parse_status']} raw_sha256="
+            f"{source_record['raw_record_sha256']}"
+        )
+    mappings = cast(list[dict[str, object]], details["endpoint_mappings"])
+    typer.echo(f"Endpoint mappings: {len(mappings)}")
+    for mapping in mappings:
+        typer.echo(
+            f"- {mapping['target_analysis_profile']}/{mapping['target_corpus']}: "
+            f"status={mapping['mapping_status']}, confidence={mapping['mapping_confidence']}, "
+            f"gap={mapping['reference_gap']}, disputed={mapping['disputed_passage_flag']}, "
+            f"passages={mapping['target_passage_ids_json']}"
+        )
+    leakage_groups = cast(list[dict[str, object]], details["leakage_groups"])
+    typer.echo(f"Leakage groups: {len(leakage_groups)}")
+    for group in leakage_groups:
+        typer.echo(f"- {group['group_type']}: {group['group_key']}")
+    split_assignments = cast(list[dict[str, object]], details["split_assignments"])
+    typer.echo(f"Split assignments: {len(split_assignments)}")
+    for assignment in split_assignments:
+        typer.echo(
+            f"- {assignment['split_strategy']}: {assignment['partition']} "
+            f"({assignment['eligibility_status']})"
+        )
+    negatives = cast(list[dict[str, object]], details["related_presumed_negatives"])
+    typer.echo(f"Related presumed negatives: {len(negatives)}")
+    for negative in negatives:
+        typer.echo(
+            f"- {negative['negative_strategy']} {negative['partition']}: "
+            f"{negative['passage_a_id']} / {negative['passage_b_id']}"
+        )
+
+
+@app.command("show-benchmark-mapping")
+def show_benchmark_mapping_command(
+    relationship_id: Annotated[str, typer.Argument(help="Stable relationship identifier.")],
+    database: Annotated[
+        Path, typer.Option("--database", help="Local DuckDB database path.")
+    ] = Path("data/processed/project_echoes.duckdb"),
+    json_output: Annotated[
+        bool, typer.Option("--json", help="Emit complete endpoint mapping evidence as JSON.")
+    ] = False,
+) -> None:
+    """Display mapping confidence, uncertainty, gaps, and disputed-text status."""
+
+    try:
+        details = _mapping_details(database, relationship_id)
+    except BenchmarkStorageError as exc:
+        typer.echo(f"Could not show benchmark mapping: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if details is None:
+        typer.echo(f"Benchmark relationship not found: {relationship_id}", err=True)
+        raise typer.Exit(code=1)
+    if json_output:
+        typer.echo(json.dumps(details, indent=2, ensure_ascii=True))
+        return
+    typer.echo(f"Relationship: {relationship_id}")
+    typer.echo(
+        f"Source references: {details['source_reference_a']} -> {details['source_reference_b']}"
+    )
+    mappings = cast(list[dict[str, object]], details["endpoint_mappings"])
+    for mapping in mappings:
+        typer.echo(
+            f"- {mapping['target_analysis_profile']}/{mapping['target_corpus']}: "
+            f"status={mapping['mapping_status']}, confidence={mapping['mapping_confidence']}, "
+            f"method={mapping['mapping_method']}, gap={mapping['reference_gap']}, "
+            f"disputed={mapping['disputed_passage_flag']}, "
+            f"passages={mapping['target_passage_ids_json']}, "
+            f"ambiguity={mapping['ambiguity_reason']}"
+        )
 
 
 @app.command("create-run-manifest")

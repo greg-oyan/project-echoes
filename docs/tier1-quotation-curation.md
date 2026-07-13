@@ -1,12 +1,22 @@
 # Tier 1 explicit-quotation benchmark curation instructions
 
-Status: **planned; schema only, no curated rows**
+Status: **active governance; validated header only, human curation has not begun**
 
 These instructions govern the future Project Echoes Tier 1 benchmark of explicit New Testament quotations of Old Testament passages. The target of approximately 300 reviewed entries is descriptive, not a quota that permits lowering evidentiary standards.
 
+The canonical file is `data/benchmarks/tier1_quotations.csv`. During Milestone 6 it
+must contain exactly this header and zero data rows:
+
+```text
+quotation_id,nt_reference,ot_reference,ot_source_tradition,relationship_class,quotation_marker,curation_source,source_public_domain_status,curator,review_status,notes
+```
+
+The header-only file is a validated curation contract, not positive benchmark evidence.
+No script, importer, model, or LLM may populate it during Milestone 6.
+
 ## Allowed source indexes
 
-Curators may begin from the public-domain *Treasury of Scripture Knowledge* and from other quotation indexes only after their specific edition is verified as public domain or used under an explicit compatible license and recorded in the source manifest. The OpenBible.info graph may suggest leads under its Tier 3 role, but it cannot independently establish a Tier 1 row. Public accessibility, age of a website, or the absence of a copyright notice is not proof of public-domain status.
+Curators may begin from the public-domain *Treasury of Scripture Knowledge* and from other quotation indexes only after their specific edition is verified as public domain or used under an explicit compatible license and recorded in the source manifest. The content-addressed OpenBible.info snapshot may suggest leads under its Tier 3 role, but it cannot independently establish or verify a Tier 1 row and its signed votes are not scholarly confidence. Public accessibility, age of a website, or the absence of a copyright notice is not proof of public-domain status.
 
 Copyrighted UBS, Nestle-Aland, or comparable quotation/allusion appendices are not import sources. They may be manually consulted where lawful, but their selection, organization, wording, labels, or systematic contents must not be copied or reconstructed.
 
@@ -49,7 +59,26 @@ If several plausible source passages compete, retain the row as `pending` or `am
 5. Only `verified` rows enter the released Tier 1 positive set. `pending`, `needs_adjudication`, `ambiguous`, and `rejected` rows remain auditable but are excluded from positive evaluation.
 6. Before release, automated checks validate the schema, uniqueness, controlled values, required notes, provenance, licensing, and leakage groups; a human confirms the generated diff.
 
-Human verification is mandatory. An imported label, script, model, or LLM cannot mark a row `verified`.
+Human verification is mandatory. An imported label, script, model, or LLM cannot mark a row `verified`. Automated checks may reject malformed rows or expose duplicates, but they cannot make the scholarly judgment.
+
+## Identity, mapping, and evaluation boundary
+
+Tier 1 relationship identity must remain independent of mutable passage mappings, database
+row numbers, local paths, split assignments, and timestamps. Edition-specific NT and OT
+references remain source evidence; any mapping to Project Echoes passages is a separate,
+versioned record with explicit method, confidence, versification uncertainty, disputed-text
+status, and profile compatibility.
+
+Before any verified Tier 1 rows enter evaluation, exact and unordered pairs, duplicate
+provenance, shared endpoints, overlapping ranges, shared target passages, and repeated
+quotation families must be grouped for leakage control. Splits operate on those groups,
+not random rows. A row used for training or tuning cannot be reported as independently
+held-out recovery.
+
+Contrastive pairs remain presumed negatives, never proven nonrelationships. Tier 1 metrics
+must name the benchmark version, eligible rows, excluded rows and reasons, split strategy,
+mapping policy, and label quality. OpenBible Tier 3 recovery must be reported separately
+and cannot substitute for Tier 1 quotation recovery.
 
 ## Project licensing
 

@@ -711,6 +711,477 @@ class SegmentationConfig(EchoesModel):
         return self
 
 
+LeakageGroupType = Literal[
+    "exact_directed_pair",
+    "exact_unordered_pair",
+    "duplicate_source_records",
+    "shared_endpoint",
+    "overlapping_endpoint_range",
+    "shared_target_passage",
+    "overlapping_target_passage",
+    "canonical_book_pair",
+    "relationship_family",
+    "shared_source_provenance",
+]
+SplitStrategyName = Literal[
+    "held_out_book",
+    "held_out_book_pair",
+    "held_out_source_passage",
+    "held_out_relationship_family",
+    "held_out_genre",
+]
+NegativeStrategyName = Literal[
+    "length_matched_random_unlinked",
+    "same_book_unlinked",
+    "same_book_pair_unlinked",
+    "same_broad_genre_unlinked",
+    "nearby_context_unlinked",
+]
+BenchmarkMetricName = Literal[
+    "recall_at_5",
+    "recall_at_10",
+    "recall_at_20",
+    "mean_reciprocal_rank",
+    "ndcg_at_20",
+    "precision_at_10",
+    "precision_at_k",
+    "coverage",
+]
+BroadGenre = Literal[
+    "torah",
+    "historical",
+    "poetry_and_wisdom",
+    "major_prophets",
+    "minor_prophets",
+    "gospels_and_acts",
+    "pauline_letters",
+    "general_letters",
+    "apocalypse",
+]
+
+_BENCHMARK_BOOK_CODES: frozenset[str] = frozenset(
+    {
+        "GEN",
+        "EXO",
+        "LEV",
+        "NUM",
+        "DEU",
+        "JOS",
+        "JDG",
+        "RUT",
+        "1SA",
+        "2SA",
+        "1KI",
+        "2KI",
+        "1CH",
+        "2CH",
+        "EZR",
+        "NEH",
+        "EST",
+        "JOB",
+        "PSA",
+        "PRO",
+        "ECC",
+        "SNG",
+        "ISA",
+        "JER",
+        "LAM",
+        "EZK",
+        "DAN",
+        "HOS",
+        "JOL",
+        "AMO",
+        "OBA",
+        "JON",
+        "MIC",
+        "NAM",
+        "HAB",
+        "ZEP",
+        "HAG",
+        "ZEC",
+        "MAL",
+        "MAT",
+        "MRK",
+        "LUK",
+        "JHN",
+        "ACT",
+        "ROM",
+        "1CO",
+        "2CO",
+        "GAL",
+        "EPH",
+        "PHP",
+        "COL",
+        "1TH",
+        "2TH",
+        "1TI",
+        "2TI",
+        "TIT",
+        "PHM",
+        "HEB",
+        "JAS",
+        "1PE",
+        "2PE",
+        "1JN",
+        "2JN",
+        "3JN",
+        "JUD",
+        "REV",
+    }
+)
+_REQUIRED_LEAKAGE_GROUPS: frozenset[str] = frozenset(
+    {
+        "exact_directed_pair",
+        "exact_unordered_pair",
+        "duplicate_source_records",
+        "shared_endpoint",
+        "overlapping_endpoint_range",
+        "shared_target_passage",
+        "overlapping_target_passage",
+        "canonical_book_pair",
+        "relationship_family",
+        "shared_source_provenance",
+    }
+)
+_REQUIRED_SPLIT_STRATEGIES: frozenset[str] = frozenset(
+    {
+        "held_out_book",
+        "held_out_book_pair",
+        "held_out_source_passage",
+        "held_out_relationship_family",
+        "held_out_genre",
+    }
+)
+_REQUIRED_NEGATIVE_STRATEGIES: frozenset[str] = frozenset(
+    {
+        "length_matched_random_unlinked",
+        "same_book_unlinked",
+        "same_book_pair_unlinked",
+        "same_broad_genre_unlinked",
+        "nearby_context_unlinked",
+    }
+)
+_REQUIRED_BENCHMARK_METRICS: frozenset[str] = frozenset(
+    {
+        "recall_at_5",
+        "recall_at_10",
+        "recall_at_20",
+        "mean_reciprocal_rank",
+        "ndcg_at_20",
+        "precision_at_10",
+        "precision_at_k",
+        "coverage",
+    }
+)
+
+
+class OpenBibleBenchmarkSource(EchoesModel):
+    """Immutable Tier 3 use permissions for the approved OpenBible snapshot."""
+
+    source_id: Literal["openbible-cross-references"]
+    snapshot_version: str = Field(min_length=1)
+    snapshot_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    source_file: str = Field(min_length=1)
+    source_file_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    source_reference_scheme: str = Field(min_length=1)
+    tier: Literal[3]
+    license_status: Literal["verified"]
+    machine_processing_permission: Literal["permitted"]
+    weak_supervision_eligible: Literal[True]
+    knownness_filter_eligible: Literal[True]
+    primary_evaluation_eligible: Literal[False]
+    tier1_promotion_allowed: Literal[False]
+    source_votes_are_confidence: Literal[False]
+
+    @model_validator(mode="after")
+    def snapshot_hash_is_not_a_placeholder(self) -> Self:
+        if len(set(self.snapshot_sha256)) == 1:
+            raise ValueError("OpenBible snapshot SHA-256 cannot be a placeholder digest")
+        return self
+
+
+class Tier1BenchmarkSource(EchoesModel):
+    """Governance for the deliberately empty human-curated Tier 1 CSV."""
+
+    source_id: Literal["project-echoes-tier1-quotations"]
+    tier: Literal[1]
+    schema_version: Literal[1]
+    schema_location: Literal["data/benchmarks/tier1_quotations.csv"]
+    header_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    require_human_curation: Literal[True]
+    require_independent_review: Literal[True]
+    automated_population_allowed: Literal[False]
+    automated_verification_allowed: Literal[False]
+    expected_current_row_count: Literal[0]
+
+
+class BenchmarkSources(EchoesModel):
+    """Configured source roles and permissions."""
+
+    openbible: OpenBibleBenchmarkSource
+    tier1: Tier1BenchmarkSource
+
+
+class BenchmarkTarget(EchoesModel):
+    """Only the governed Milestone 5 verse targets used in Milestone 6."""
+
+    default_analysis_profile: Literal["edition_complete"]
+    compatibility_analysis_profile: Literal["critical_core"]
+    target_granularity: Literal["verse"]
+    hebrew_analysis_reading: Literal["qere"]
+    greek_analysis_reading: Literal["source"]
+
+
+class BenchmarkMappingPolicy(EchoesModel):
+    """Conservative reference mapping and eligibility rules."""
+
+    silent_reference_mapping_allowed: Literal[False]
+    unmapped_action: Literal["record_explicit_status"]
+    default_method_without_crosswalk: Literal["same_label_extant_reference"]
+    default_confidence_without_crosswalk: Literal["provisional"]
+    expand_ranges_to_ordered_extant_verses: Literal[True]
+    fabricate_missing_verses: Literal[False]
+    partial_ranges_are_explicit: Literal[True]
+    disputed_passages_are_flagged: Literal[True]
+    critical_core_exclusions_are_explicit: Literal[True]
+    weak_supervision_statuses: list[
+        Literal["mapped_verified", "mapped_provisional", "mapped_partial"]
+    ] = Field(min_length=1)
+    primary_evaluation_statuses: list[Literal["mapped_verified"]] = Field(min_length=1)
+    knownness_filter_statuses: list[
+        Literal["mapped_verified", "mapped_provisional", "mapped_partial"]
+    ] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def eligibility_lists_are_unique(self) -> Self:
+        for values in (
+            self.weak_supervision_statuses,
+            self.primary_evaluation_statuses,
+            self.knownness_filter_statuses,
+        ):
+            if len(values) != len(set(values)):
+                raise ValueError("mapping eligibility statuses must be unique")
+        return self
+
+
+class BenchmarkRelationshipPolicies(EchoesModel):
+    """Lossless duplicate, direction, range, self-link, and vote handling."""
+
+    duplicate_policy: Literal["aggregate_relationship_retain_every_source_record"]
+    reverse_pair_policy: Literal["preserve_direction_derive_unordered_pair"]
+    silent_symmetrization_allowed: Literal[False]
+    self_link_policy: Literal["retain_source_record_exclude_relationship_with_issue"]
+    range_policy: Literal["preserve_source_range_expand_only_during_mapping"]
+    vote_policy: Literal["source_ranking_not_probability"]
+
+
+class BenchmarkLeakagePolicy(EchoesModel):
+    """Explicit independent leakage controls, not one unrestricted graph."""
+
+    unrestricted_graph_component_only: Literal[False]
+    group_types: list[LeakageGroupType] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def every_required_group_type_is_declared_once(self) -> Self:
+        if len(self.group_types) != len(set(self.group_types)):
+            raise ValueError("leakage group types must be unique")
+        if set(self.group_types) != _REQUIRED_LEAKAGE_GROUPS:
+            raise ValueError("all governed leakage group strategies must be declared")
+        return self
+
+
+class BenchmarkSplitProportions(EchoesModel):
+    """Deterministic group-level residual allocation proportions."""
+
+    train: float = Field(ge=0.0, le=1.0)
+    development: float = Field(ge=0.0, le=1.0)
+    test: float = Field(ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def proportions_reconcile(self) -> Self:
+        if abs(self.train + self.development + self.test - 1.0) > 1e-12:
+            raise ValueError("split proportions must sum to 1.0")
+        return self
+
+
+class BenchmarkSplitStrategy(EchoesModel):
+    """One named deterministic, leakage-group-level split contract."""
+
+    name: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    strategy: SplitStrategyName
+    enabled: bool
+    seed: int = Field(ge=0)
+    included_tiers: list[Literal[1, 2, 3]] = Field(min_length=1)
+    mapping_required: bool
+    partition_unit: Literal["leakage_group"]
+    random_row_splitting_allowed: Literal[False]
+    enforced_leakage_groups: list[LeakageGroupType] = Field(min_length=1)
+    proportions: BenchmarkSplitProportions
+
+    @model_validator(mode="after")
+    def values_are_unique(self) -> Self:
+        if len(self.included_tiers) != len(set(self.included_tiers)):
+            raise ValueError("split included tiers must be unique")
+        if len(self.enforced_leakage_groups) != len(set(self.enforced_leakage_groups)):
+            raise ValueError("split leakage groups must be unique")
+        return self
+
+
+class BenchmarkNegativeStrategy(EchoesModel):
+    """One deterministic non-lexical presumed-negative strategy."""
+
+    strategy: NegativeStrategyName
+    enabled: bool
+    seed: int = Field(ge=0)
+    ratio_per_eligible_positive: float = Field(ge=0.0)
+    label: Literal["presumed_negative"]
+    length_tolerance_tokens: int = Field(ge=0)
+    check_positive_graph_both_directions: Literal[True]
+    check_passage_overlap: Literal[True]
+    enforce_split_partition: Literal[True]
+    enforce_leakage_groups: Literal[True]
+    uses_lexical_or_semantic_features: Literal[False]
+
+
+class BenchmarkExclusionPolicy(EchoesModel):
+    """Required explicit treatment of uncertain passage inputs."""
+
+    unmapped_relationships: Literal["exclude_from_mapping_dependent_operations"]
+    disputed_passages: Literal["retain_and_flag"]
+    reference_gaps: Literal["retain_and_flag"]
+    unsupported_relationship_families: Literal["exclude_with_reason"]
+
+
+class BenchmarkValidationSeverityPolicy(EchoesModel):
+    """Strict benchmark validation failure behavior."""
+
+    allowed_severities: list[IssueSeverity] = Field(min_length=3)
+    errors_fail_validation: Literal[True]
+    warnings_fail_strict_validation: Literal[True]
+    informational_fail_validation: Literal[False]
+
+    @model_validator(mode="after")
+    def severities_are_complete(self) -> Self:
+        if self.allowed_severities != ["error", "warning", "informational"]:
+            raise ValueError("benchmark severities must be error, warning, informational")
+        return self
+
+
+BenchmarkPartitionField = Literal[
+    "source_id", "tier", "mapping_status", "group_type", "split_strategy", "negative_strategy"
+]
+
+
+class BenchmarkOutputPolicy(EchoesModel):
+    """Deterministic, Git-ignored benchmark storage contract."""
+
+    format: Literal["parquet"]
+    schema_directory: Literal["data/processed/benchmarks/schema-v1"]
+    partition_by: list[BenchmarkPartitionField] = Field(min_length=1)
+    compression: Literal["zstd"]
+    atomic_writes: Literal[True]
+    overwrite_requires_force: Literal[True]
+    include_local_paths_in_logical_identity: Literal[False]
+    include_runtime_in_logical_identity: Literal[False]
+
+    @model_validator(mode="after")
+    def partitions_are_unique(self) -> Self:
+        if len(self.partition_by) != len(set(self.partition_by)):
+            raise ValueError("benchmark partition fields must be unique")
+        return self
+
+
+class BenchmarkMetricsContract(EchoesModel):
+    """Pure metric names and mandatory evaluation metadata."""
+
+    metrics: list[BenchmarkMetricName] = Field(min_length=1)
+    configurable_precision_k: list[int] = Field(min_length=1)
+    require_benchmark_version: Literal[True]
+    require_included_tiers: Literal[True]
+    require_mapping_eligibility: Literal[True]
+    require_split_strategy: Literal[True]
+    require_label_quality: Literal[True]
+    require_eligible_and_excluded_counts: Literal[True]
+    openbible_label: Literal["tier3_weak_supervision_recovery"]
+
+    @model_validator(mode="after")
+    def metrics_are_complete_and_supported(self) -> Self:
+        if len(self.metrics) != len(set(self.metrics)):
+            raise ValueError("benchmark metric names must be unique")
+        if set(self.metrics) != _REQUIRED_BENCHMARK_METRICS:
+            raise ValueError("all and only supported benchmark metrics must be configured")
+        if len(self.configurable_precision_k) != len(set(self.configurable_precision_k)):
+            raise ValueError("configurable precision K values must be unique")
+        if any(value < 1 for value in self.configurable_precision_k):
+            raise ValueError("configurable precision K values must be positive")
+        return self
+
+
+class BenchmarkConfig(EchoesModel):
+    """Complete governed contract for the Milestone 6 benchmark."""
+
+    schema_version: Literal[1]
+    benchmark_schema_version: Literal[1]
+    relationship_id_schema_version: Literal[1]
+    mapping_schema_version: Literal[1]
+    enabled_source_ids: list[Literal["openbible-cross-references"]] = Field(min_length=1)
+    default_source_reference_scheme: str = Field(min_length=1)
+    sources: BenchmarkSources
+    target: BenchmarkTarget
+    mapping: BenchmarkMappingPolicy
+    relationship_policies: BenchmarkRelationshipPolicies
+    leakage: BenchmarkLeakagePolicy
+    splits: list[BenchmarkSplitStrategy] = Field(min_length=5)
+    presumed_negatives: list[BenchmarkNegativeStrategy] = Field(min_length=5)
+    exclusions: BenchmarkExclusionPolicy
+    validation_severity_policy: BenchmarkValidationSeverityPolicy
+    output: BenchmarkOutputPolicy
+    metrics: BenchmarkMetricsContract
+    book_genres: dict[str, BroadGenre]
+
+    @model_validator(mode="after")
+    def benchmark_contract_is_complete(self) -> Self:
+        if self.enabled_source_ids != ["openbible-cross-references"]:
+            raise ValueError("OpenBible must be the only enabled Milestone 6 import source")
+        if self.default_source_reference_scheme != self.sources.openbible.source_reference_scheme:
+            raise ValueError("default source scheme must match the OpenBible source scheme")
+
+        split_names = [split.name for split in self.splits]
+        split_seeds = [split.seed for split in self.splits]
+        split_strategies = [split.strategy for split in self.splits]
+        if len(split_names) != len(set(split_names)):
+            raise ValueError("benchmark split names must be unique")
+        if len(split_seeds) != len(set(split_seeds)):
+            raise ValueError("benchmark split seeds must be unique")
+        if len(split_strategies) != len(set(split_strategies)):
+            raise ValueError("benchmark split strategies must be unique")
+        if set(split_strategies) != _REQUIRED_SPLIT_STRATEGIES:
+            raise ValueError("all governed split strategies must be configured")
+
+        negative_strategies = [item.strategy for item in self.presumed_negatives]
+        negative_seeds = [item.seed for item in self.presumed_negatives]
+        if len(negative_strategies) != len(set(negative_strategies)):
+            raise ValueError("presumed-negative strategies must be unique")
+        if len(negative_seeds) != len(set(negative_seeds)):
+            raise ValueError("presumed-negative seeds must be unique")
+        if set(negative_strategies) != _REQUIRED_NEGATIVE_STRATEGIES:
+            raise ValueError("all governed presumed-negative strategies must be configured")
+        enabled_negative_ratio = sum(
+            item.ratio_per_eligible_positive for item in self.presumed_negatives if item.enabled
+        )
+        if abs(enabled_negative_ratio - 1.0) > 1e-12:
+            raise ValueError("enabled presumed-negative ratios must total 1.0 per positive")
+
+        if set(self.book_genres) != _BENCHMARK_BOOK_CODES:
+            missing = sorted(_BENCHMARK_BOOK_CODES - set(self.book_genres))
+            unexpected = sorted(set(self.book_genres) - _BENCHMARK_BOOK_CODES)
+            raise ValueError(
+                f"book genre registry must cover exactly 66 books; "
+                f"missing={missing}, unexpected={unexpected}"
+            )
+        return self
+
+
 class ScoreComponent(EchoesModel):
     """A disabled or enabled transparent score component."""
 
@@ -873,6 +1344,7 @@ CONFIG_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "hebrew_ingestion.yaml": HebrewIngestionConfig,
     "greek_ingestion.yaml": GreekIngestionConfig,
     "segmentation.yaml": SegmentationConfig,
+    "benchmark.yaml": BenchmarkConfig,
     "scoring.yaml": ScoringConfig,
     "models.yaml": ModelsConfig,
     "review.yaml": ReviewConfig,

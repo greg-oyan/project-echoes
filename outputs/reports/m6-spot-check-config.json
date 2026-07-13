@@ -1,0 +1,153 @@
+{
+  "criteria": [
+    {
+      "absence_policy": "Record an audited absence; do not fabricate a relationship.",
+      "criterion_id": "normal_ot_ot",
+      "kind": "relationship",
+      "selector": "normal_ot_ot_link",
+      "title": "Normal Old Testament to Old Testament link"
+    },
+    {
+      "absence_policy": "Record an audited absence; do not fabricate a relationship.",
+      "criterion_id": "normal_nt_nt",
+      "kind": "relationship",
+      "selector": "normal_nt_nt_link",
+      "title": "Normal New Testament to New Testament link"
+    },
+    {
+      "absence_policy": "Record an audited absence; do not fabricate a relationship.",
+      "criterion_id": "normal_cross_testament",
+      "kind": "relationship",
+      "selector": "normal_cross_testament_link",
+      "title": "Normal cross-testament link"
+    },
+    {
+      "absence_policy": "Record an audited absence if this snapshot has no range endpoint.",
+      "criterion_id": "range_endpoint",
+      "kind": "relationship",
+      "selector": "range_endpoint",
+      "title": "Range endpoint"
+    },
+    {
+      "absence_policy": "Record an audited absence if no weighted relationship exists.",
+      "criterion_id": "highest_weight",
+      "kind": "relationship",
+      "selector": "highest_weight_relationship",
+      "title": "Highest-weight relationship"
+    },
+    {
+      "absence_policy": "Record an audited absence if no weighted relationship exists.",
+      "criterion_id": "lowest_weight",
+      "kind": "relationship",
+      "selector": "lowest_weight_relationship",
+      "title": "Lowest-weight relationship"
+    },
+    {
+      "absence_policy": "The audited snapshot may contain zero duplicates; report that fact.",
+      "criterion_id": "duplicate_source_record",
+      "kind": "relationship",
+      "selector": "duplicate_source_relationship",
+      "title": "Duplicate source record"
+    },
+    {
+      "absence_policy": "Record an audited absence if the snapshot has no reverse pair.",
+      "criterion_id": "reverse_pair",
+      "kind": "relationship",
+      "selector": "reverse_pair",
+      "title": "Reverse pair"
+    },
+    {
+      "absence_policy": "The audited snapshot may contain zero self-links; report that fact.",
+      "criterion_id": "self_link",
+      "kind": "self_link",
+      "selector": "self_link_issue",
+      "title": "Self-link source record"
+    },
+    {
+      "absence_policy": "Record audited absence if no mapped endpoint intersects disputed text.",
+      "criterion_id": "disputed_passage",
+      "kind": "relationship",
+      "selector": "disputed_passage_link",
+      "title": "Disputed-passage link"
+    },
+    {
+      "absence_policy": "Record audited absence if no source reference targets an omitted NT verse.",
+      "criterion_id": "edition_omitted_nt",
+      "kind": "relationship",
+      "selector": "edition_omitted_nt_reference",
+      "title": "Edition-omitted New Testament reference"
+    },
+    {
+      "absence_policy": "Record audited absence if no range maps partially.",
+      "criterion_id": "partial_range",
+      "kind": "relationship",
+      "selector": "partially_mapped_range",
+      "title": "Partially mapped range"
+    },
+    {
+      "absence_policy": "Record audited absence if no provisional or unresolved OT mapping exists.",
+      "criterion_id": "ot_versification_risk",
+      "kind": "relationship",
+      "selector": "ot_provisional_versification_risk",
+      "title": "Old Testament versification/crosswalk risk"
+    },
+    {
+      "absence_policy": "Record audited absence if the split has no held-out relationship.",
+      "criterion_id": "held_out_book",
+      "kind": "relationship",
+      "selector": "held_out_book_split",
+      "title": "Held-out-book split"
+    },
+    {
+      "absence_policy": "Record audited absence if the split has no held-out relationship.",
+      "criterion_id": "held_out_book_pair",
+      "kind": "relationship",
+      "selector": "held_out_book_pair_split",
+      "title": "Held-out-book-pair split"
+    },
+    {
+      "absence_policy": "Record audited absence if the split has no held-out relationship.",
+      "criterion_id": "held_out_source_passage",
+      "kind": "relationship",
+      "selector": "held_out_source_passage_split",
+      "title": "Held-out-source-passage split"
+    },
+    {
+      "absence_policy": "Record audited absence if the split has no held-out relationship.",
+      "criterion_id": "held_out_genre",
+      "kind": "relationship",
+      "selector": "held_out_genre_split",
+      "title": "Held-out-genre split"
+    },
+    {
+      "absence_policy": "Record audited absence if the configured ratio produced no example.",
+      "criterion_id": "length_matched_negative",
+      "kind": "presumed_negative",
+      "selector": "presumed_length_matched_negative",
+      "title": "Presumed length-matched negative"
+    },
+    {
+      "absence_policy": "Record audited absence if the configured ratio produced no example.",
+      "criterion_id": "same_genre_negative",
+      "kind": "presumed_negative",
+      "selector": "presumed_same_genre_negative",
+      "title": "Presumed same-genre negative"
+    },
+    {
+      "absence_policy": "Record audited absence if the configured ratio produced no example.",
+      "criterion_id": "nearby_context_negative",
+      "kind": "presumed_negative",
+      "selector": "presumed_nearby_context_negative",
+      "title": "Presumed nearby-context negative"
+    },
+    {
+      "absence_policy": "Tier 1 must remain header-only during Milestone 6.",
+      "criterion_id": "empty_tier1",
+      "kind": "tier1",
+      "selector": "canonical_tier1_placeholder",
+      "title": "Empty Tier 1 quotation CSV"
+    }
+  ],
+  "schema_version": 1,
+  "selection_policy": "Select the lowest stable identity matching each criterion, except explicit highest/lowest weight criteria. Record audited absence rather than fabricating a missing category."
+}

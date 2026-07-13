@@ -5,8 +5,10 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import stat
 import subprocess
 import urllib.request
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -19,6 +21,84 @@ from echoes.acquire import (
 )
 from echoes.acquire.sources import _configure_canonical_byte_checkout
 from echoes.manifests.sources import SourceManifest, SourceStatus
+
+
+class _HttpResponse(io.BytesIO):
+    def __init__(self, payload: bytes, *, url: str) -> None:
+        super().__init__(payload)
+        self.headers = {
+            "Content-Length": str(len(payload)),
+            "Content-Type": "application/zip",
+            "ETag": '"fixture-etag"',
+            "Last-Modified": "Sun, 12 Jul 2026 00:00:00 GMT",
+        }
+        self.status = 200
+        self._url = url
+
+    def geturl(self) -> str:
+        return self._url
+
+
+def _zip_bytes(
+    data: bytes,
+    *,
+    extra_members: list[tuple[str | zipfile.ZipInfo, bytes]] | None = None,
+) -> bytes:
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("cross_references.txt", data)
+        for name, payload in extra_members or []:
+            archive.writestr(name, payload)
+    return output.getvalue()
+
+
+def _http_zip_source(
+    source: SourceManifest,
+    *,
+    archive_payload: bytes,
+    extracted_payload: bytes,
+) -> SourceManifest:
+    archive_hash = hashlib.sha256(archive_payload).hexdigest()
+    version = f"snapshot-2026-07-12-sha256-{archive_hash[:12]}"
+    values = source.model_dump(mode="json")
+    values.update(
+        {
+            "version_or_commit": version,
+            "download_date": None,
+            "expected_files": ["cross_references.txt"],
+            "file_hashes": {"cross_references.txt": hashlib.sha256(extracted_payload).hexdigest()},
+            "ingest_adapter": "tests.synthetic_delimited",
+            "acquisition": {
+                "method": "http_zip",
+                "version_label": version,
+                "archive_sha256": archive_hash,
+                "files": [
+                    {
+                        "path": "cross-references.zip",
+                        "url": "https://example.invalid/cross-references.zip",
+                        "size_bytes": len(archive_payload),
+                    }
+                ],
+            },
+            "archive_schema": {
+                "archive_format": "zip",
+                "data_file": "cross_references.txt",
+                "encoding": "utf-8",
+                "byte_order_mark": "none",
+                "newline_convention": "lf",
+                "delimiter": "\t",
+                "header": ["From Verse", "To Verse", "Votes"],
+                "column_count": 3,
+                "reference_syntax": "Book.Chapter.Verse",
+                "range_syntax": "Book.Chapter.Verse-Book.Chapter.Verse",
+                "weight_representation": "signed decimal integer vote",
+                "directionality": "a_to_b",
+                "canonical_record_stream_schema_version": "synthetic-tsv-v1",
+            },
+            "status": "approved",
+        }
+    )
+    return SourceManifest.model_validate(values)
 
 
 def _http_source(source: SourceManifest, payload: bytes) -> SourceManifest:
@@ -135,6 +215,167 @@ def test_verification_detects_corruption_and_missing_receipt(
     empty_root = tmp_path / "empty"
     with pytest.raises(AcquisitionError, match="receipt does not exist"):
         verify_acquisition(source, data_root=empty_root)
+
+
+def test_http_zip_acquisition_is_content_addressed_and_verifies_offline(
+    macula_source: SourceManifest,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    extracted = b"From Verse\tTo Verse\tVotes\nGen.1.1\tJohn.1.1\t3\n"
+    archive_payload = _zip_bytes(extracted)
+    source = _http_zip_source(
+        macula_source,
+        archive_payload=archive_payload,
+        extracted_payload=extracted,
+    )
+    url = source.acquisition.files[0].url if source.acquisition is not None else ""
+    monkeypatch.setattr(
+        urllib.request,
+        "urlopen",
+        lambda request, timeout: _HttpResponse(archive_payload, url=url),
+    )
+
+    directory, receipt = acquire_source(source, data_root=tmp_path)
+
+    assert receipt.schema_version == 2
+    assert receipt.upstream_commit is None
+    assert receipt.archive is not None
+    assert receipt.archive.sha256 == source.acquisition.archive_sha256
+    assert receipt.archive.http.etag == '"fixture-etag"'
+    assert receipt.archive.http.last_modified == "Sun, 12 Jul 2026 00:00:00 GMT"
+    assert receipt.archive.http.content_length == len(archive_payload)
+    assert receipt.canonical_record_stream_schema_version == "synthetic-tsv-v1"
+    assert receipt.canonical_record_stream_sha256 is not None
+    assert (directory / "cross_references.txt").read_bytes() == extracted
+    assert (directory / receipt.archive.relative_path).read_bytes() == archive_payload
+
+    def fail_if_networked(*args: object, **kwargs: object) -> object:
+        raise AssertionError("offline verification must not contact the network")
+
+    monkeypatch.setattr(urllib.request, "urlopen", fail_if_networked)
+    verified_directory, verified = verify_acquisition(source, data_root=tmp_path)
+
+    assert verified_directory == directory
+    assert verified == receipt
+
+
+def test_http_zip_force_is_refused_before_network(
+    macula_source: SourceManifest,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    extracted = b"From Verse\tTo Verse\tVotes\nGen.1.1\tJohn.1.1\t3\n"
+    archive_payload = _zip_bytes(extracted)
+    source = _http_zip_source(
+        macula_source,
+        archive_payload=archive_payload,
+        extracted_payload=extracted,
+    )
+    called = False
+
+    def fail_if_called(*args: object, **kwargs: object) -> object:
+        nonlocal called
+        called = True
+        raise AssertionError("network must not be called")
+
+    monkeypatch.setattr(urllib.request, "urlopen", fail_if_called)
+
+    with pytest.raises(AcquisitionError, match="--force may not replace"):
+        acquire_source(source, data_root=tmp_path, force=True)
+
+    assert not called
+
+
+@pytest.mark.parametrize(
+    "unsafe_name",
+    ["../escape.txt", "/absolute.txt", "C:/drive.txt", "nested\\escape.txt", "payload.exe"],
+)
+def test_http_zip_rejects_unsafe_or_executable_members_before_extraction(
+    unsafe_name: str,
+    macula_source: SourceManifest,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    extracted = b"From Verse\tTo Verse\tVotes\nGen.1.1\tJohn.1.1\t3\n"
+    archive_payload = _zip_bytes(extracted, extra_members=[(unsafe_name, b"not allowed")])
+    source = _http_zip_source(
+        macula_source,
+        archive_payload=archive_payload,
+        extracted_payload=extracted,
+    )
+    url = source.acquisition.files[0].url if source.acquisition is not None else ""
+    monkeypatch.setattr(
+        urllib.request,
+        "urlopen",
+        lambda request, timeout: _HttpResponse(archive_payload, url=url),
+    )
+
+    with pytest.raises(AcquisitionError, match=r"ZIP member|executable|inventory"):
+        acquire_source(source, data_root=tmp_path)
+
+    assert source.acquisition is not None
+    assert not (tmp_path / "raw" / source.source_id / source.acquisition.version_label).exists()
+    assert not (tmp_path / "escape.txt").exists()
+
+
+def test_http_zip_rejects_symlink_member(
+    macula_source: SourceManifest,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    extracted = b"From Verse\tTo Verse\tVotes\nGen.1.1\tJohn.1.1\t3\n"
+    symlink = zipfile.ZipInfo("link.txt")
+    symlink.create_system = 3
+    symlink.external_attr = (stat.S_IFLNK | 0o777) << 16
+    archive_payload = _zip_bytes(extracted, extra_members=[(symlink, b"target")])
+    source = _http_zip_source(
+        macula_source,
+        archive_payload=archive_payload,
+        extracted_payload=extracted,
+    )
+    url = source.acquisition.files[0].url if source.acquisition is not None else ""
+    monkeypatch.setattr(
+        urllib.request,
+        "urlopen",
+        lambda request, timeout: _HttpResponse(archive_payload, url=url),
+    )
+
+    with pytest.raises(AcquisitionError, match="symlink or special"):
+        acquire_source(source, data_root=tmp_path)
+
+
+def test_http_zip_verification_detects_archive_and_canonical_stream_corruption(
+    macula_source: SourceManifest,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    extracted = b"From Verse\tTo Verse\tVotes\nGen.1.1\tJohn.1.1\t3\n"
+    archive_payload = _zip_bytes(extracted)
+    source = _http_zip_source(
+        macula_source,
+        archive_payload=archive_payload,
+        extracted_payload=extracted,
+    )
+    url = source.acquisition.files[0].url if source.acquisition is not None else ""
+    monkeypatch.setattr(
+        urllib.request,
+        "urlopen",
+        lambda request, timeout: _HttpResponse(archive_payload, url=url),
+    )
+    directory, receipt = acquire_source(source, data_root=tmp_path)
+    assert receipt.archive is not None
+    archive_path = directory / receipt.archive.relative_path
+    archive_path.write_bytes(archive_payload + b"corruption")
+
+    with pytest.raises(AcquisitionError, match="archive size mismatch"):
+        verify_acquisition(source, data_root=tmp_path)
+
+    archive_path.write_bytes(archive_payload)
+    data_path = directory / "cross_references.txt"
+    data_path.write_bytes(extracted.replace(b"\t3", b"\t4"))
+    with pytest.raises(AcquisitionError, match=r"SHA-256 mismatch|size mismatch"):
+        verify_acquisition(source, data_root=tmp_path)
 
 
 def test_git_checkout_configuration_disables_text_conversion(tmp_path: Path) -> None:

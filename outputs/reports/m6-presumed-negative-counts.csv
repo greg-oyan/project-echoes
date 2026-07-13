@@ -1,0 +1,16 @@
+negative_strategy,split_strategy,partition,count
+length_matched_random_unlinked,held_out_book,development,26
+length_matched_random_unlinked,held_out_book,test,5305
+length_matched_random_unlinked,held_out_book,train,524
+nearby_context_unlinked,held_out_book,development,26
+nearby_context_unlinked,held_out_book,test,5305
+nearby_context_unlinked,held_out_book,train,524
+same_book_pair_unlinked,held_out_book,development,26
+same_book_pair_unlinked,held_out_book,test,5305
+same_book_pair_unlinked,held_out_book,train,524
+same_book_unlinked,held_out_book,development,26
+same_book_unlinked,held_out_book,test,5305
+same_book_unlinked,held_out_book,train,524
+same_broad_genre_unlinked,held_out_book,development,26
+same_broad_genre_unlinked,held_out_book,test,5305
+same_broad_genre_unlinked,held_out_book,train,524

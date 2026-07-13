@@ -1,0 +1,329 @@
+schema_version: 1
+benchmark_schema_version: 1
+relationship_id_schema_version: 1
+mapping_schema_version: 1
+enabled_source_ids:
+  - openbible-cross-references
+default_source_reference_scheme: openbible-english-protestant-v1
+
+sources:
+  openbible:
+    source_id: openbible-cross-references
+    snapshot_version: snapshot-2026-07-12-sha256-18e63e370308
+    snapshot_sha256: 18e63e370308868391a8458cfa7454e3b29bb8f94c0ca11dcac2d267d449c492
+    source_file: cross_references.txt
+    source_file_sha256: eb7a78dbd5a8a88f1a87689de11f6d87806dc9fa20c3e88f7800665deb6b5c37
+    source_reference_scheme: openbible-english-protestant-v1
+    tier: 3
+    license_status: verified
+    machine_processing_permission: permitted
+    weak_supervision_eligible: true
+    knownness_filter_eligible: true
+    primary_evaluation_eligible: false
+    tier1_promotion_allowed: false
+    source_votes_are_confidence: false
+  tier1:
+    source_id: project-echoes-tier1-quotations
+    tier: 1
+    schema_version: 1
+    schema_location: data/benchmarks/tier1_quotations.csv
+    header_sha256: 7d687548139586fe97479429e121e89c2a3f4494806e7e0aaa7ee3e72ea5136b
+    require_human_curation: true
+    require_independent_review: true
+    automated_population_allowed: false
+    automated_verification_allowed: false
+    expected_current_row_count: 0
+
+target:
+  default_analysis_profile: edition_complete
+  compatibility_analysis_profile: critical_core
+  target_granularity: verse
+  hebrew_analysis_reading: qere
+  greek_analysis_reading: source
+
+mapping:
+  silent_reference_mapping_allowed: false
+  unmapped_action: record_explicit_status
+  default_method_without_crosswalk: same_label_extant_reference
+  default_confidence_without_crosswalk: provisional
+  expand_ranges_to_ordered_extant_verses: true
+  fabricate_missing_verses: false
+  partial_ranges_are_explicit: true
+  disputed_passages_are_flagged: true
+  critical_core_exclusions_are_explicit: true
+  weak_supervision_statuses:
+    - mapped_verified
+    - mapped_provisional
+    - mapped_partial
+  primary_evaluation_statuses:
+    - mapped_verified
+  knownness_filter_statuses:
+    - mapped_verified
+    - mapped_provisional
+    - mapped_partial
+
+relationship_policies:
+  duplicate_policy: aggregate_relationship_retain_every_source_record
+  reverse_pair_policy: preserve_direction_derive_unordered_pair
+  silent_symmetrization_allowed: false
+  self_link_policy: retain_source_record_exclude_relationship_with_issue
+  range_policy: preserve_source_range_expand_only_during_mapping
+  vote_policy: source_ranking_not_probability
+
+leakage:
+  unrestricted_graph_component_only: false
+  group_types:
+    - exact_directed_pair
+    - exact_unordered_pair
+    - duplicate_source_records
+    - shared_endpoint
+    - overlapping_endpoint_range
+    - shared_target_passage
+    - overlapping_target_passage
+    - canonical_book_pair
+    - relationship_family
+    - shared_source_provenance
+
+splits:
+  - name: held_out_book
+    strategy: held_out_book
+    enabled: true
+    seed: 6101
+    included_tiers: [3]
+    mapping_required: true
+    partition_unit: leakage_group
+    random_row_splitting_allowed: false
+    enforced_leakage_groups:
+      - exact_unordered_pair
+      - shared_endpoint
+      - overlapping_endpoint_range
+      - shared_target_passage
+      - overlapping_target_passage
+    proportions: {train: 0.8, development: 0.1, test: 0.1}
+  - name: held_out_book_pair
+    strategy: held_out_book_pair
+    enabled: true
+    seed: 6102
+    included_tiers: [3]
+    mapping_required: true
+    partition_unit: leakage_group
+    random_row_splitting_allowed: false
+    enforced_leakage_groups:
+      - exact_unordered_pair
+      - canonical_book_pair
+      - shared_target_passage
+      - overlapping_target_passage
+    proportions: {train: 0.8, development: 0.1, test: 0.1}
+  - name: held_out_source_passage
+    strategy: held_out_source_passage
+    enabled: true
+    seed: 6103
+    included_tiers: [3]
+    mapping_required: true
+    partition_unit: leakage_group
+    random_row_splitting_allowed: false
+    enforced_leakage_groups:
+      - exact_unordered_pair
+      - shared_endpoint
+      - overlapping_endpoint_range
+      - shared_target_passage
+      - overlapping_target_passage
+    proportions: {train: 0.8, development: 0.1, test: 0.1}
+  - name: held_out_relationship_family
+    strategy: held_out_relationship_family
+    enabled: false
+    seed: 6104
+    included_tiers: [3]
+    mapping_required: false
+    partition_unit: leakage_group
+    random_row_splitting_allowed: false
+    enforced_leakage_groups:
+      - exact_unordered_pair
+      - relationship_family
+    proportions: {train: 0.8, development: 0.1, test: 0.1}
+  - name: held_out_genre
+    strategy: held_out_genre
+    enabled: true
+    seed: 6105
+    included_tiers: [3]
+    mapping_required: true
+    partition_unit: leakage_group
+    random_row_splitting_allowed: false
+    enforced_leakage_groups:
+      - exact_unordered_pair
+      - shared_target_passage
+      - overlapping_target_passage
+    proportions: {train: 0.8, development: 0.1, test: 0.1}
+
+presumed_negatives:
+  - strategy: length_matched_random_unlinked
+    enabled: true
+    seed: 6201
+    ratio_per_eligible_positive: 0.2
+    label: presumed_negative
+    length_tolerance_tokens: 5
+    check_positive_graph_both_directions: true
+    check_passage_overlap: true
+    enforce_split_partition: true
+    enforce_leakage_groups: true
+    uses_lexical_or_semantic_features: false
+  - strategy: same_book_unlinked
+    enabled: true
+    seed: 6202
+    ratio_per_eligible_positive: 0.2
+    label: presumed_negative
+    length_tolerance_tokens: 5
+    check_positive_graph_both_directions: true
+    check_passage_overlap: true
+    enforce_split_partition: true
+    enforce_leakage_groups: true
+    uses_lexical_or_semantic_features: false
+  - strategy: same_book_pair_unlinked
+    enabled: true
+    seed: 6203
+    ratio_per_eligible_positive: 0.2
+    label: presumed_negative
+    length_tolerance_tokens: 5
+    check_positive_graph_both_directions: true
+    check_passage_overlap: true
+    enforce_split_partition: true
+    enforce_leakage_groups: true
+    uses_lexical_or_semantic_features: false
+  - strategy: same_broad_genre_unlinked
+    enabled: true
+    seed: 6204
+    ratio_per_eligible_positive: 0.2
+    label: presumed_negative
+    length_tolerance_tokens: 5
+    check_positive_graph_both_directions: true
+    check_passage_overlap: true
+    enforce_split_partition: true
+    enforce_leakage_groups: true
+    uses_lexical_or_semantic_features: false
+  - strategy: nearby_context_unlinked
+    enabled: true
+    seed: 6205
+    ratio_per_eligible_positive: 0.2
+    label: presumed_negative
+    length_tolerance_tokens: 5
+    check_positive_graph_both_directions: true
+    check_passage_overlap: true
+    enforce_split_partition: true
+    enforce_leakage_groups: true
+    uses_lexical_or_semantic_features: false
+
+exclusions:
+  unmapped_relationships: exclude_from_mapping_dependent_operations
+  disputed_passages: retain_and_flag
+  reference_gaps: retain_and_flag
+  unsupported_relationship_families: exclude_with_reason
+
+validation_severity_policy:
+  allowed_severities: [error, warning, informational]
+  errors_fail_validation: true
+  warnings_fail_strict_validation: true
+  informational_fail_validation: false
+
+output:
+  format: parquet
+  schema_directory: data/processed/benchmarks/schema-v1
+  partition_by:
+    - source_id
+    - tier
+    - mapping_status
+    - group_type
+    - split_strategy
+    - negative_strategy
+  compression: zstd
+  atomic_writes: true
+  overwrite_requires_force: true
+  include_local_paths_in_logical_identity: false
+  include_runtime_in_logical_identity: false
+
+metrics:
+  metrics:
+    - recall_at_5
+    - recall_at_10
+    - recall_at_20
+    - mean_reciprocal_rank
+    - ndcg_at_20
+    - precision_at_10
+    - precision_at_k
+    - coverage
+  configurable_precision_k: [5, 10, 20]
+  require_benchmark_version: true
+  require_included_tiers: true
+  require_mapping_eligibility: true
+  require_split_strategy: true
+  require_label_quality: true
+  require_eligible_and_excluded_counts: true
+  openbible_label: tier3_weak_supervision_recovery
+
+# Broad analysis strata only; they are not authorship or fine-grained genre claims.
+book_genres:
+  GEN: torah
+  EXO: torah
+  LEV: torah
+  NUM: torah
+  DEU: torah
+  JOS: historical
+  JDG: historical
+  RUT: historical
+  1SA: historical
+  2SA: historical
+  1KI: historical
+  2KI: historical
+  1CH: historical
+  2CH: historical
+  EZR: historical
+  NEH: historical
+  EST: historical
+  JOB: poetry_and_wisdom
+  PSA: poetry_and_wisdom
+  PRO: poetry_and_wisdom
+  ECC: poetry_and_wisdom
+  SNG: poetry_and_wisdom
+  ISA: major_prophets
+  JER: major_prophets
+  LAM: major_prophets
+  EZK: major_prophets
+  DAN: major_prophets
+  HOS: minor_prophets
+  JOL: minor_prophets
+  AMO: minor_prophets
+  OBA: minor_prophets
+  JON: minor_prophets
+  MIC: minor_prophets
+  NAM: minor_prophets
+  HAB: minor_prophets
+  ZEP: minor_prophets
+  HAG: minor_prophets
+  ZEC: minor_prophets
+  MAL: minor_prophets
+  MAT: gospels_and_acts
+  MRK: gospels_and_acts
+  LUK: gospels_and_acts
+  JHN: gospels_and_acts
+  ACT: gospels_and_acts
+  ROM: pauline_letters
+  1CO: pauline_letters
+  2CO: pauline_letters
+  GAL: pauline_letters
+  EPH: pauline_letters
+  PHP: pauline_letters
+  COL: pauline_letters
+  1TH: pauline_letters
+  2TH: pauline_letters
+  1TI: pauline_letters
+  2TI: pauline_letters
+  TIT: pauline_letters
+  PHM: pauline_letters
+  HEB: general_letters
+  JAS: general_letters
+  1PE: general_letters
+  2PE: general_letters
+  1JN: general_letters
+  2JN: general_letters
+  3JN: general_letters
+  JUD: general_letters
+  REV: apocalypse

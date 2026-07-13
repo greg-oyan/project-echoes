@@ -1,7 +1,7 @@
 # Data licensing and publication governance
 
-Status: **Milestone 4 source determinations recorded; unactivated sources remain preliminary**
-Review date: 2026-07-12
+Status: **Milestone 6 OpenBible snapshot validated for Tier 3; unactivated sources remain preliminary**
+Review date: 2026-07-13
 
 This document records operational governance, not legal advice. Technical accessibility, a public Git repository, or an online reading interface does not by itself grant permission to copy, process in bulk, redistribute, or publish derived data. Uncertainty blocks source approval.
 
@@ -80,11 +80,47 @@ The selected release intentionally predates the SILHA gloss integration found in
 
 ## OpenBible.info Tier 3 determination
 
-The official [Bible Cross References page](https://www.openbible.info/labs/cross-references/) states that the graph contains approximately 340,000 cross references, draws primarily from public-domain sources—especially the *Treasury of Scripture Knowledge*—and provides a downloadable archive. The same page states that its content is licensed under the [Creative Commons Attribution 4.0 license](https://creativecommons.org/licenses/by/4.0/) unless otherwise indicated. It separately identifies displayed ESV Scripture quotations as copyrighted; those quotations are outside this determination and must not be copied into Project Echoes.
+The official [Bible Cross References page](https://www.openbible.info/labs/cross-references/) states that the graph contains approximately 340,000 cross references, draws primarily from public-domain sources—especially the *Treasury of Scripture Knowledge*—and provides a downloadable archive. The same page states that its content is licensed under the [Creative Commons Attribution 4.0 license](https://creativecommons.org/licenses/by/4.0/) unless otherwise indicated. It separately identifies displayed ESV Scripture quotations as copyrighted; those page quotations are outside this determination and must not be copied into Project Echoes.
 
-The downloadable link graph is therefore classified as CC BY 4.0 with redistribution and machine processing permitted, subject to OpenBible.info attribution, a source and license link, preservation of notices, and indication of modifications. Project policy keeps any eventual raw archive in ignored local storage despite the permissive license.
+The Milestone 6 review pins `snapshot-2026-07-12-sha256-18e63e370308`. The complete
+archive SHA-256 is
+`18e63e370308868391a8458cfa7454e3b29bb8f94c0ca11dcac2d267d449c492`; its only
+member is `cross_references.txt`, SHA-256
+`eb7a78dbd5a8a88f1a87689de11f6d87806dc9fa20c3e88f7800665deb6b5c37`.
+The archive contains reference strings, signed vote integers, and an internal CC BY notice.
+It contains no biblical quotation text, ESV text, other modern-translation text, executable
+content, or additional mixed-rights dataset. The downloadable artifact therefore falls
+within the official page's CC BY 4.0 determination; the separately copyrighted quotations
+displayed on the page were neither acquired nor copied.
 
-This completed license review does not activate the source. OpenBible remains planned until an immutable snapshot, archive schema, reference convention, expected-file inventory, and checksums are recorded. Methodologically it is Tier 3 weak supervision and broad knownness filtering only: its heterogeneous thematic, verbal, event, and person links are not scholarly ground truth and cannot serve as the sole positive benchmark or populate Tier 1 automatically.
+Redistribution and machine processing of this exact reference graph are classified as
+permitted with attribution. Required attribution identifies “Bible Cross References” and
+OpenBible.info, links the official source and CC BY 4.0 license, preserves the source
+notice, identifies the exact snapshot, and indicates Project Echoes transformations. This
+determination does not relicense ESV text, biblical editions, TSK editions, or other
+third-party works.
+
+Project policy is deliberately more conservative than the license permits: raw archive
+bytes, extracted source data, the acquisition receipt, normalized benchmark tables, local
+Parquet, and DuckDB remain Git-ignored. Trackable outputs are limited to acquisition
+instructions, exact hashes, schemas, attribution, aggregate statistics, reference-only
+structural reports, and project-authored code and documentation unless a later publication
+review authorizes more.
+
+OpenBible is validated only as Tier 3 weak supervision and broad knownness filtering. Its
+heterogeneous links are not scholarly ground truth, primary evaluation truth, a sole
+positive benchmark, or a basis for Tier 1 promotion. Signed votes are source ranking
+metadata, not calibrated confidence or probabilities of literary dependence. Its source
+reference scheme and direction are preserved, and any same-label mapping to MACULA verse
+passages remains provisional without an independently approved versification crosswalk.
+
+Two complete local builds reproduced benchmark run
+`benchmark-v1-dff1d3ef650c8ccd4930`, version
+`known-links-v1-dff1d3ef650c`, every logical hash, row count, and content-table
+physical hash; strict validation returned zero errors and zero warnings in each
+build. This technical validation supports the manifest lifecycle transition but
+does not broaden the license determination, publication permission, source role,
+or evidentiary claims above.
 
 ## STEPBible activation deferral
 
@@ -151,7 +187,7 @@ No blanket conclusion may be inferred across layers. Swete's printed edition may
 | `oshb-morphhb` | Complete for commit `3d15126` | CC BY 4.0 lemma/morphology data; public-domain WLC text; exact attribution recorded | Permitted with attribution, subject to project publication review | Permitted | Ignored local only | Validated |
 | `stepbible-data` | In progress; activation deferred by ADR 0012 | CC BY 4.0 repository statement only; seven selected-file questions remain unresolved | Acquisition instructions only pending subset audit | Permitted at repository-statement level; no file activated | Ignored local only | Under review; not approved, blocked, acquired, or validated |
 | `septuagint-catss` | In progress | Component-specific CCAT/CATSS terms require separate review | Acquisition instructions only | Restricted | Ignored local only | Blocked |
-| `openbible-cross-references` | Complete | CC BY 4.0 official page notice; ESV quotations excluded | Permitted with attribution | Permitted | Ignored local only | Planned |
+| `openbible-cross-references` | Complete for exact 2026-07-12 snapshot | CC BY 4.0 official page and internal notice; archive contains reference/vote data only; ESV quotations excluded | Permitted with attribution; project keeps raw and normalized data local | Permitted | Ignored local only | Validated for Tier 3; same-label mappings remain provisional |
 | `project-echoes-tier1-quotations` | Complete for project-authored metadata | CC BY 4.0; third-party rights remain separate | Permitted with attribution | Permitted | Trackable | Planned, header only |
 | `ubs-parallel-passages` | Complete | CC BY-SA 4.0 dedicated data license | Permitted with attribution/ShareAlike | Permitted | Metadata only by project policy | Planned |
 | `etcbc-dead-sea-scrolls` | In progress | MIT repository license; upstream transcription scope unresolved | Unknown | Permitted | Ignored local only | Under review |
@@ -159,4 +195,4 @@ No blanket conclusion may be inferred across layers. Swete's printed edition may
 | `greek-critical-apparatus` | Not started | Proprietary; publisher rights page recorded | Prohibited absent permission | Unknown | Prohibited | Planned |
 | `targum-corpus` | Not started | No general bulk-reuse license found | Unknown | Unknown | Prohibited | Planned |
 
-These are operational classifications as of the review date. The pinned MACULA Hebrew, MACULA Greek, and OSHB snapshots are acquired and validated for their approved local roles. OpenBible.info cross references, UBS Parallel Passages, and the future Project Echoes-authored Tier 1 metadata have also completed their stated licensing reviews but remain inactive. Source-specific unresolved questions and publication boundaries, including the MACULA Greek permission-only derived-output question, are preserved in the machine-readable manifest.
+These are operational classifications as of the review date. The pinned MACULA Hebrew, MACULA Greek, OSHB, and exact OpenBible snapshots are acquired and validated for their approved local roles. OpenBible validation authorizes only Tier 3 acquisition, processing, weak supervision, and broad knownness filtering under the conservative publication boundary above. UBS Parallel Passages and the future Project Echoes-authored Tier 1 metadata remain inactive; the Tier 1 file is a header-only schema with no curated evidence. Source-specific unresolved questions and publication boundaries, including the MACULA Greek permission-only derived-output question, are preserved in the machine-readable manifest.

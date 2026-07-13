@@ -102,7 +102,7 @@ def test_amended_benchmark_source_governance_is_explicit() -> None:
 
     assert openbible is not None and tier1 is not None
     assert openbible.role is SourceRole.BENCHMARK
-    assert openbible.status is SourceStatus.PLANNED
+    assert openbible.status in {SourceStatus.APPROVED, SourceStatus.VALIDATED}
     assert openbible.license_review_status is LicenseReviewStatus.COMPLETE
     assert openbible.redistribution_status is RedistributionStatus.PERMITTED
     assert "Tier 3" in openbible.research_purpose

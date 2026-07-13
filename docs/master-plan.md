@@ -2829,6 +2829,27 @@ Acceptance:
 
 time_budget:
 
+Status: **Complete as of 2026-07-13**.
+PR #6 merged as `00f5e84a4a83227585bd77dd9a08a0567cd58a7f`, and the
+Milestone 6 branch began from the verified post-merge state. The official
+OpenBible reference archive passed its source and license audit, is pinned by
+archive SHA-256
+`18e63e370308868391a8458cfa7454e3b29bb8f94c0ca11dcac2d267d449c492`,
+and is validated for its restricted Tier 3 weak-supervision and knownness role
+under ADR 0014. The Tier 1 quotation CSV remains its exact governed header with
+zero rows. Two complete builds reproduced run
+`benchmark-v1-dff1d3ef650c8ccd4930`, version
+`known-links-v1-dff1d3ef650c`, with zero logical, count, or content-table
+physical differences; the expected metadata physical difference contains only
+runtime telemetry. Each strict validation returned zero errors, zero warnings,
+and 18 informational findings. Local quality and repository-audit gates passed.
+PR #7 remains open and unmerged at
+`https://github.com/greg-oyan/project-echoes/pull/7`; CI run
+`https://github.com/greg-oyan/project-echoes/actions/runs/29235763865`
+succeeded for commit `a680c0b4c14cb6e3bab7e8b5305fd6a516ec37de`, with the
+quality job completing in 32 seconds. These results satisfy the Milestone 6
+acceptance gate. Milestone 7 has not begun.
+
 Build:
 
 * Known-relationship schema
@@ -2846,6 +2867,15 @@ Acceptance:
 * OpenBible is not used as scholarly ground truth or the sole positive benchmark, and its exact license and attribution are verified.
 * The Tier 1 quotation CSV contains only its validated header until human curation begins; no rows are invented.
 * Copyrighted quotation and allusion appendices are not copied without explicit permission.
+
+Local acceptance evidence: the two builds took 551.3 and 533.7 seconds wall
+time and persisted runtimes of 501.93041979987174 and 479.37766140000895
+seconds, with a 672,790,515-byte footprint. Each produced 344,799 source records
+and relationships, 689,598 endpoints, 1,379,196 mappings, 4,561,525 leakage
+memberships, 1,723,995 split assignments, 29,275 presumed negatives, 18 issues,
+and one metadata row. The unmerged PR #7 and successful CI run above complete
+the acceptance evidence. The exact next task is Milestone 7 only; it has not
+begun.
 
 ## Milestone 7: Lexical baseline
 

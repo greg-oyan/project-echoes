@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from echoes.manifests.sources import (
+    SourceAcquisitionSpec,
     SourceManifest,
     SourceManifestError,
     SourceStatus,
@@ -70,6 +71,75 @@ def test_download_date_rejects_non_iso_format() -> None:
         SourceManifest.model_validate(values)
 
 
+def test_http_zip_spec_requires_one_content_hash_pinned_zip() -> None:
+    valid = {
+        "method": "http_zip",
+        "version_label": "snapshot-2026-07-12-sha256-aaaaaaaaaaaa",
+        "archive_sha256": "a" * 64,
+        "files": [
+            {
+                "path": "cross-references.zip",
+                "url": "https://example.invalid/cross-references.zip",
+            }
+        ],
+    }
+
+    spec = SourceAcquisitionSpec.model_validate(valid)
+
+    assert spec.upstream_commit is None
+    assert spec.archive_sha256 == "a" * 64
+
+    for update, message in (
+        ({"archive_sha256": None}, "requires archive_sha256"),
+        ({"upstream_commit": "1" * 40}, "may not define upstream_commit"),
+        ({"files": []}, "exactly one archive file"),
+        (
+            {
+                "files": [
+                    {
+                        "path": "cross-references.txt",
+                        "url": "https://example.invalid/cross-references.txt",
+                    }
+                ]
+            },
+            ".zip suffix",
+        ),
+    ):
+        values = {**valid, **update}
+        with pytest.raises(ValidationError, match=message):
+            SourceAcquisitionSpec.model_validate(values)
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("version_prefix", "archive SHA-256 prefix"),
+        ("missing_extracted_hash", "hash for every expected file"),
+        ("missing_archive_schema", "requires archive_schema"),
+    ],
+)
+def test_approved_http_zip_source_requires_complete_content_identity(
+    mutation: str,
+    message: str,
+) -> None:
+    catalog = load_source_catalog(PROJECT_ROOT / "data" / "manifests" / "sources.yaml")
+    source = catalog.find("openbible-cross-references")
+    assert source is not None
+    values = source.model_dump(mode="json")
+    if mutation == "version_prefix":
+        wrong_version = "snapshot-2026-07-12-sha256-ffffffffffff"
+        values["version_or_commit"] = wrong_version
+        assert isinstance(values["acquisition"], dict)
+        values["acquisition"]["version_label"] = wrong_version
+    elif mutation == "missing_extracted_hash":
+        values["file_hashes"] = {}
+    else:
+        values["archive_schema"] = None
+
+    with pytest.raises(ValidationError, match=message):
+        SourceManifest.model_validate(values)
+
+
 def test_production_catalog_contains_the_governed_source_set() -> None:
     catalog = load_source_catalog(PROJECT_ROOT / "data" / "manifests" / "sources.yaml")
 
@@ -118,7 +188,33 @@ def test_production_catalog_contains_the_governed_source_set() -> None:
         "LICENSE.md",
         "wlc/2Kgs.xml",
     }
-    hashed_sources = {"macula-hebrew", "macula-greek", "oshb-morphhb"}
+    openbible = catalog.find("openbible-cross-references")
+    assert openbible is not None
+    assert openbible.acquisition is not None
+    assert openbible.acquisition.method == "http_zip"
+    assert openbible.acquisition.archive_sha256 == (
+        "18e63e370308868391a8458cfa7454e3b29bb8f94c0ca11dcac2d267d449c492"
+    )
+    assert openbible.expected_files == ["cross_references.txt"]
+    assert openbible.archive_schema is not None
+    assert openbible.archive_schema.canonical_record_stream_schema_version == "openbible-tsv-v1"
+    tier1 = catalog.find("project-echoes-tier1-quotations")
+    assert tier1 is not None
+    assert tier1.status is SourceStatus.PLANNED
+    assert tier1.version_or_commit == "schema-v1-header-only-sha256-7d6875481395"
+    assert tier1.expected_files == ["data/benchmarks/tier1_quotations.csv"]
+    assert tier1.file_hashes == {
+        "data/benchmarks/tier1_quotations.csv": (
+            "7d687548139586fe97479429e121e89c2a3f4494806e7e0aaa7ee3e72ea5136b"
+        )
+    }
+    hashed_sources = {
+        "macula-hebrew",
+        "macula-greek",
+        "openbible-cross-references",
+        "oshb-morphhb",
+        "project-echoes-tier1-quotations",
+    }
     assert all(
         not source.file_hashes
         for source in catalog.sources
