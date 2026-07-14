@@ -1,0 +1,303 @@
+schema_version: 1
+experiment_name: m7_lexical_baseline
+experiment_version: m7-lexical-baseline-v1
+status: frozen
+frozen_before_held_out_evaluation: true
+preregistration_sha256: 5e5e29e281acacff88d0b954078d2cf995b7e4e37647430e5a08be74750a481c
+lexical_config_path: config/lexical.yaml
+lexical_config_sha256: 9625a71c7768b25afa1f2d87eca044155c16b81401b91546a780d608655da83d
+
+inputs:
+  hebrew:
+    token_count: 475911
+    identity_sha256: 91e923e6f4234e3d1946ad6fb1487f5894ec4e28f2fd3c919bf6ebd1680693b6
+    content_sha256: 7fb443c3f0c42ada5d89f3abad61dd304145863044107ac86277c9f05f76cc82
+    analytical_sha256: 9464a106684b63ff57bcd9dd754bcd0c875d7ea8157fc7bfe643d7eb66dab173
+  greek:
+    token_count: 137779
+    identity_sha256: 9035fea8d73a2b2078ad2adc70f8389040dbe2051ee535b2ce88412f551df6f2
+    content_sha256: a5ede58d287c2d29d5dacc7adeb07ff5c6a10587e2949875928b2dd935c8c683
+    analytical_sha256: 31404eb29a1f71855f3670f6f895e3fadc3ab0b39e2685c3cf672620df08a2a1
+  oshb_supplement_hashes:
+    ketiv_tokens: 7bb67cebc45c06943a7f1fc2e241202f100a19cf7ad6dd6b0933d999ac01d238
+    locus_registry: ae6e70a8d1dd75cccfef85bb5535051134104f03d57490976d4e30f93c60f022
+    structural_alignments: ac0c9ebffe971ef9178ef47edbf868d9f904a189133dccf907f815651b867df9
+  passages:
+    run_id: passages-v1-00e261abea9ed44ef087
+    passage_count: 914497
+    membership_count: 21530271
+    adjacency_count: 913445
+    exclusion_count: 148948
+    logical_hashes:
+      passages: 00047c9dc16ceaefdc0ff1b18a8fb2b4480a1be0534ed861cf5c11706d2048a0
+      passage_membership: 726c6b9339a78e7806bac90f7d91930c7f86bec7c7c0be6a51bdedb7a54d40bd
+      passage_adjacency: 1ca8c79f92b2742e12586b6c72eaddbcc834d5bce818b909f33b2c10b9db69bd
+      segmentation_exclusions: 6a0e475398e76730b5a7a92370ee319b803c0d17ba45e01b7155fa3b28c7e209
+      segmentation_issues: 2f3a57eada1dda388ca99bf67cd0b6de70fb31afa1abc1980eafbf605359eac3
+      segmentation_metadata: 87b88f0b3d4efa88c9d4668ba1eb0aba5fce244b0350130a033deb1a087578cf
+  benchmark:
+    run_id: benchmark-v1-dff1d3ef650c8ccd4930
+    version: known-links-v1-dff1d3ef650c
+    tier1_row_count: 0
+    logical_hashes:
+      benchmark_source_records: 481e53738ae4f4940277d211176194b97e57908eb31ef172359524165409f1f4
+      benchmark_relationships: 4bd3d602a2604d425c0016eb7d565667a844b353cb16d0d88f3c369c21a13a6f
+      benchmark_relationship_source_records: f215928778e16ef496ec309282a327559d242f520d531240059ecdbe21ba64a1
+      benchmark_endpoints: a9560e443ba32b3900f635421f9390f461fdebe0c23f316ec295b7be28ba13c7
+      benchmark_endpoint_mappings: d56e5211a415b51abbfa5080add85ade3ad8d4f30b6c95313fef19e5c6e956e3
+      benchmark_leakage_groups: 56c356147c61d12074dbdf88e7ea2dd111e8a2d0e34e7caa530d103e6d66f9d7
+      benchmark_split_assignments: bda3c63f2aa15cd60567fd3a8dae3118402df35fc07921910a218a941c9ac5e0
+      benchmark_presumed_negatives: 9bf1ed5dd30c6a93b6ef359cd7d5fd39704f3c0cb3719e17cbcaae5bf524d6ff
+      benchmark_issues: f39d5494a1d13e68e9acf77b44e6c1a38dc419ec52abfb879a26f41165a07de0
+      benchmark_metadata: b406ab043ed90ba59204b1b6937ea742ea6d2e66a552a8678934d94b290086d8
+
+scope:
+  profile: edition_complete
+  granularity: verse
+  hebrew_reading: qere
+  greek_reading: source
+  corpus_pairs: [hb_hb, gnt_gnt, hb_gnt_english_bridge]
+  smoke_test_granularities: [clause, sentence, two_verse, five_verse]
+  exhaustive_smoke_test_calibration_allowed: false
+
+sensitivity_scopes:
+  critical_core_greek:
+    enabled: true
+    analysis_profile: critical_core
+    hebrew_reading: qere
+    greek_reading: source
+    granularity: verse
+    corpus_pairs: [gnt_gnt, hb_gnt_english_bridge]
+    full_tier3_evaluation: true
+    repeated_nulls: false
+  hebrew_qere_ketiv:
+    enabled: true
+    analysis_profile: edition_complete
+    baseline_reading: qere
+    comparison_reading: ketiv
+    granularity: verse
+    corpus_pair: hb_hb
+    query_scope: oshb_affected_verse_references
+    target_scope: full_hebrew_verse_corpus
+    repeated_nulls: false
+
+representations:
+  - original_language_lemma
+  - original_language_root
+  - normalized_surface
+  - part_of_speech_sequence
+  - morphology_sequence
+  - english_gloss_bridge
+
+detectors:
+  - jaccard
+  - weighted_jaccard
+  - tfidf_cosine
+  - bm25
+  - rare_lemma_root
+  - phrase_association
+  - longest_common_subsequence
+  - weighted_sequence_alignment
+  - pos_morphology_support
+
+feature_frequency_thresholds:
+  high_document_frequency_ratio: 0.1
+  formulaic_document_frequency_ratio: 0.05
+  formulaic_minimum_corpus_count: 20
+  proposal_maximum_document_frequency_ratio: 0.25
+  proposal_filter_preserves_persisted_evidence: true
+
+tfidf:
+  dtype: float64
+  sublinear_tf: true
+  smooth_idf: true
+  norm: l2
+  idf_formula: log((1+n_documents)/(1+document_frequency))+1
+
+bm25:
+  dtype: float64
+  k1: 1.2
+  b: 0.75
+  idf_formula: log(1+(n_documents-document_frequency+0.5)/(document_frequency+0.5))
+  query_term_frequency: binary
+
+jaccard:
+  binary_enabled: true
+  weighted_enabled: true
+  weight: inverse_document_frequency
+  empty_union_score: 0.0
+
+phrases:
+  lemma_ngram_sizes: [2, 3]
+  root_ngram_sizes: [2, 3]
+  minimum_corpus_count: 2
+  pmi_cap: 10.0
+  association_methods: [pmi, log_likelihood]
+
+skipgrams:
+  enabled: true
+  maximum_gap: 2
+  minimum_corpus_count: 2
+  cross_passage_boundary: false
+
+sequence:
+  lcs_enabled: true
+  weighted_alignment_enabled: true
+  apply_only_to_candidate_union: true
+  match_weight: 2.0
+  rarity_weight_enabled: true
+  pos_morphology_support_enabled: true
+  mismatch_penalty: -1.0
+  gap_penalty: -1.0
+
+retrieval:
+  candidate_union_k: 250
+  persisted_top_k: 100
+  evaluation_k: 100
+  expensive_sequence_rerank_k: 25
+  persisted_candidate_pool_k: 25
+  sparse_only: true
+  dense_all_pairs_allowed: false
+  tie_break: score_desc_passage_id_asc
+
+composite:
+  method: reciprocal_rank_fusion
+  rrf_k: 60
+  learned_model_allowed: false
+  preserve_detector_contributions: true
+  mix_english_with_original_language: false
+
+score_quantization_decimals: 12
+
+benchmark:
+  included_tiers: [3]
+  eligible_mapping_statuses: [mapped_verified, mapped_provisional, mapped_partial]
+  split_strategies:
+    - held_out_book
+    - held_out_book_pair
+    - held_out_source_passage
+    - held_out_genre
+  vote_strata:
+    - negative
+    - zero
+    - one_to_two
+    - three_to_five
+    - six_to_ten
+    - eleven_to_twenty_five
+    - twenty_six_plus
+  metrics:
+    - recall_at_5
+    - recall_at_10
+    - recall_at_20
+    - mean_reciprocal_rank
+    - ndcg_at_20
+    - precision_at_10
+    - coverage
+  comparison_baselines: [random, length_matched, unweighted_overlap, presumed_negatives]
+  enforce_leakage_groups: true
+  label: tier3_weak_supervision_recovery
+  minimum_eligible_queries_per_primary_stratum: 100
+  minimum_eligible_relationships_per_primary_stratum: 100
+  insufficient_stratum_action: report_no_claim_and_exempt_composite_gate
+
+bootstrap_iterations: 1000
+bootstrap_seed: 7201
+
+null_models:
+  iterations_per_family: 100
+  calibration_pair_sample_size: 20000
+  calibration_pair_scope: deterministic_candidate_union_sample
+  global_all_pairs_calibration_claim_allowed: false
+  within_book_reassignment:
+    enabled: true
+    seed: 7101
+    method: within_book_feature_token_reassignment
+    preserve_passage_counts: true
+    preserve_passage_lengths: true
+    preserve_language_namespace: true
+    label_or_order_shuffle: false
+  frequency_preserving_synthetic:
+    enabled: true
+    seed: 7102
+    method: frequency_preserving_synthetic_passages
+    preserve_passage_counts: true
+    preserve_passage_lengths: true
+    preserve_language_namespace: true
+    label_or_order_shuffle: false
+  english_features_reassigned_by_source_corpus_and_book: true
+  synthetic_primary_conditioning: book_then_genre_when_sparse
+  synthetic_minimum_book_token_count: 100
+  retain_every_replicate: true
+
+candidate_thresholds:
+  selection_method: preregistered_grid_with_empirical_fdr
+  detector_score_grid: [0.02, 0.04, 0.06, 0.08, 0.1]
+  rrf_score_grid: [0.02, 0.04, 0.06, 0.08, 0.1]
+  maximum_empirical_fdr: 0.2
+  require_both_null_families: true
+  calibrate_every_threshold: true
+  inspect_candidate_identities_before_selection: false
+  weaken_to_meet_queue_quota: false
+  freeze_before_queue: true
+
+rare_evidence:
+  maximum_corpus_frequency: 3
+  threshold_source: configuration
+  require_independent_co_signal: true
+  single_rare_item_sufficient: false
+  proper_name_only_sufficient: false
+  allowed_co_signals:
+    - second_distinct_rare_lemma_or_root
+    - phrase_with_additional_lexical_material
+    - ordered_sequence_with_two_additional_features
+    - independent_pos_or_morphology_sequence
+    - non_restatement_detector_family
+  disallowed_correlated_signals:
+    - tfidf_bm25_same_item
+    - lemma_surface_same_token
+    - rare_item_plus_removed_stop_feature
+    - lemma_root_same_item
+    - forward_reverse_same_evidence
+    - english_translation_same_item
+
+penalties:
+  preserve_raw_scores: true
+  formulaic_penalty: 0.5
+  local_context_penalty: 0.5
+  short_passage_penalty: 0.75
+  nearby_verse_distance: 5
+  short_passage_token_count: 5
+  self_pairs: exclude
+  exact_overlap: exclude
+  overlapping_windows: exclude
+  adjacency: retain_flag_normally_ineligible
+  same_book: retain_flag
+  formulaic: retain_score_and_penalty
+  disputed_text: retain_flag_require_sensitivity
+  reference_gap: retain_flag
+  ketiv_uncertainty: retain_flag
+
+ablations:
+  names:
+    - remove_tfidf
+    - remove_bm25
+    - remove_rare_evidence
+    - remove_phrase_evidence
+    - remove_ordered_sequence
+    - remove_formulaic_penalty
+    - remove_local_context_penalty
+    - remove_all_english_derived_features
+  select_new_model_from_ablation_results: false
+
+exclusions:
+  self_pairs: exclude
+  exact_overlap: exclude
+  overlapping_windows: exclude
+  mapping_ineligible: exclude_with_reason
+  unresolved_data_error: exclude_with_reason
+  represented_openbible_pairs_from_unreviewed_queue: exclude_either_direction
+  retain_all_excluded_candidates_with_reason: true
+
+held_out_test_tuning_allowed: false
+failed_results_are_preserved: true
+methodological_change_requires_new_experiment_version: true

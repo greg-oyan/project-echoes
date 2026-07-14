@@ -1,9 +1,37 @@
 # Data sources and provenance
 
-Status: **Milestone 6 OpenBible source validated; unactivated sources remain preliminary**
+Status: **Milestone 7 reuses validated sources; no new dataset is activated**
 Review date: 2026-07-13
 
-The authoritative machine-readable register is [`data/manifests/sources.yaml`](../data/manifests/sources.yaml). MACULA Hebrew and MACULA Greek are the validated primary sources: their pinned snapshots have been acquired, ingested, and checked locally, and the unified DuckDB tables expose both corpora with distinct corpus and provenance values. OSHB is the validated Ketiv/Qere supplementary source. Milestone 6 adds the validated, content-addressed OpenBible.info cross-reference snapshot for Tier 3 weak supervision and broad knownness filtering only; it does not change the primary corpora or passage artifacts. Other records document intent and review state rather than activation. Raw source archives, full processed token tables, passage and benchmark Parquet, acquisition receipts, and the local database remain Git-ignored.
+The authoritative machine-readable register is [`data/manifests/sources.yaml`](../data/manifests/sources.yaml). MACULA Hebrew and MACULA Greek are the validated primary sources: their pinned snapshots have been acquired, ingested, and checked locally, and the unified DuckDB tables expose both corpora with distinct corpus and provenance values. OSHB is the validated Ketiv/Qere supplementary source. Milestone 6 added the validated, content-addressed OpenBible.info cross-reference snapshot for Tier 3 weak supervision and broad knownness filtering only. Milestone 7 activates no new source: it derives transparent lexical features from the existing governed passages and evaluates only against the immutable Tier 3 artifacts. Other records document intent and review state rather than activation. Raw source archives, full processed token tables, passage, benchmark, and lexical Parquet, sparse indexes, acquisition receipts, and the local database remain Git-ignored.
+
+## Milestone 7 derived-feature provenance
+
+The lexical baseline reads authoritative passage membership linked to the pinned MACULA
+Hebrew release `25.08.11` at `7ab368fcb14e4ad2e0f784138241a098fb516ec4`, MACULA Greek
+release `24.06.17` at `b5b7ecec0882a3e9a609ecac99e157391e5d9b46`, and the OSHB
+Ketiv/Qere supplement at `3d15126fb1ef74867fc1434be1942e837932691f`. It does not
+replace, reconcile, or overwrite any source lemma, surface, morphology, gloss, or structural
+annotation. Every complete run authenticates the accepted corpus, passage, and benchmark
+logical hashes before retrieval.
+
+Original-language lemma, normalized-surface, POS, morphology, phrase, and sequence features
+remain separately language-prefixed. The governed full snapshots supply no root values, so
+root outputs remain empty rather than being inferred from another source. Entity,
+participant, predicate-argument, semantic-domain, and embedding fields are outside the
+Milestone 7 detector scope even when upstream annotations exist.
+
+The exploratory cross-testament representation uses the English gloss fields already
+present in the pinned MACULA aggregates. Those fields are marked `en` and English-derived;
+they are neither a new English translation corpus nor direct Hebrew-Greek lexical evidence.
+Every such result is reported separately and undergoes removal of all English-derived
+features. STEPBible and every Septuagint resource remain unactivated.
+
+OpenBible snapshot `snapshot-2026-07-12-sha256-18e63e370308` remains the sole populated
+evaluation reference and retains its Tier 3 weak-supervision role. Its relationship graph,
+direction, provisional passage mappings, and descriptive votes do not become source-text
+evidence or scholarly ground truth merely because a lexical detector recovers them. Tier 1
+remains empty.
 
 ## Layered corpus strategy
 

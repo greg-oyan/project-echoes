@@ -6,6 +6,21 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 ### Added
 
+- Milestone 7 pre-heldout implementation closure on 2026-07-13: ADR 0015 and
+  the authenticated experiment preregistration now explicitly freeze the
+  edition-complete primary verse experiment, full critical-core Greek
+  sensitivity, and OSHB-locus-bounded Qere/Ketiv sensitivity. Typed lexical
+  artifacts cover directional rankings, candidates, decomposed detector
+  evidence, both repeated null families, threshold selection, full Tier 3
+  evaluation strata, all eight recomputed ablations, sensitivity comparisons,
+  an unreviewed queue, issues, and metadata. The audit-driven closure occurred
+  before any held-out result or candidate identity was generated; it adds real
+  presumed-negative discrimination, raw and penalty-adjusted RRF provenance,
+  analytical-overlap and Benjamini-Hochberg scope, evidence/ablation digests,
+  actual split and leakage provenance, and enforced process-memory/thread
+  controls. No Milestone 8 review, semantic retrieval, embedding, or novelty
+  decision has begun.
+
 - Milestone 6 known-link benchmark implementation completed on 2026-07-13:
   ADR 0014
   governs stable source-record, relationship, endpoint, pair, and mapping

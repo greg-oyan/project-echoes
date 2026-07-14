@@ -315,3 +315,49 @@ Final repository acceptance is recorded by unmerged
 [CI run 29235763865](https://github.com/greg-oyan/project-echoes/actions/runs/29235763865)
 for commit `a680c0b4c14cb6e3bab7e8b5305fd6a516ec37de`; its quality
 job completed in 32 seconds. Milestone 7 had not begun when this gate closed.
+
+## Milestone 7
+
+Milestone 7 adds a transparent lexical baseline without modifying any accepted corpus,
+passage, or benchmark artifact. Its exact analytical method is documented in
+[lexical-methodology.md](lexical-methodology.md), its typed outputs in
+[lexical-schema.md](lexical-schema.md), its frozen inputs and parameters in
+`config/experiments/m7-lexical-baseline.yaml`, and its decision boundary in ADR 0015.
+Scientific completion remains pending the two-build, strict-validation, recovery,
+calibration, and CI gates; this documentation does not predeclare their result.
+
+The full calibrated experiment is verse-level v1: Hebrew/Aramaic Qere within language,
+Greek source reading within language, and a separately labeled exploratory cross-testament
+English-gloss bridge. Clause, sentence, two-verse, and five-verse paths are interface and
+bounded-smoke-test coverage only. Hebrew and Greek lemma identities are language-prefixed
+and can never match directly. English-derived features have a separate namespace and
+composite and undergo complete removal ablation.
+
+Authoritative passage membership supplies eligible sequences. Stable sparse CSR indexes
+support binary and weighted Jaccard, TF-IDF cosine, BM25, inverse-frequency rare overlap,
+phrase/skip-gram association, normalized LCS, rarity-weighted ordered alignment, and
+POS/morphology support. Reciprocal-rank fusion combines independent detector families while
+retaining raw scores, ranks, contributions, and explicit formulaic, local-context, and
+short-passage penalties. No learned or semantic model is used.
+
+Statistical calibration has two layers. Hypergeometric overlap with Benjamini-Hochberg
+correction is an analytical independence baseline only. Primary calibration uses 100
+deterministic within-book reassignment replicates and 100 deterministic
+frequency-preserving synthetic-passage replicates per governed scoring experiment. Both
+preserve exact passage lengths and registered conditioning; neither is a label/order
+shuffle. Threshold reports are limited to the frozen 20,000-pair candidate-union sample and
+include observed/null counts, empirical intervals, enrichment, upper-tail probability, and
+estimated empirical FDR.
+
+The rare-evidence rule is conjunctive: a single configured-rare lemma or root cannot confer
+eligibility without a distinct allowed co-signal. Correlated restatements do not count as
+independent. Evaluation uses OpenBible only as Tier 3 weak supervision, separated by corpus
+pair, provisional mapping status, leakage-aware split, partition, and descriptive vote
+stratum, with random, length-only, and unweighted-overlap comparators and fixed query
+bootstrap intervals. Tier 1 remains empty, so no high-confidence quotation-recovery claim
+has been tested.
+
+Generated tracked reports contain safe aggregates, hashes, identifiers, references, flags,
+and bounded positional evidence, never bulk biblical text. The handoff queue is unreviewed;
+no candidate receives a decision, interpretive class, or novelty status in Milestone 7, and
+Milestone 8 has not begun.
