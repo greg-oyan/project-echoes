@@ -410,6 +410,23 @@ def test_finalize_read_and_duckdb_load_are_transactional_and_runtime_hash_neutra
         names = {str(row[0]) for row in connection.execute("SHOW TABLES").fetchall()}
         assert set(LEXICAL_CONVENIENCE_VIEWS).issubset(names)
         assert connection.execute("SELECT count(*) FROM lexical_metadata").fetchone() == (1,)
+        directional_ablation_columns = {
+            str(row[0])
+            for row in connection.execute(
+                "DESCRIBE lexical_directional_english_ablation"
+            ).fetchall()
+        }
+        assert {
+            "ranking_id",
+            "rank_before",
+            "score_before",
+            "score_after",
+            "rank_after",
+            "classification_after_english_ablation",
+        }.issubset(directional_ablation_columns)
+        assert connection.execute(
+            "SELECT count(*) FROM lexical_directional_english_ablation"
+        ).fetchone() == (0,)
     load_lexical_duckdb(
         first,
         database,

@@ -56,6 +56,7 @@ LEXICAL_CONVENIENCE_VIEWS: tuple[str, ...] = (
     "lexical_english_derived_candidates",
     "lexical_ablation_failures",
     "lexical_candidate_ablation_results",
+    "lexical_directional_english_ablation",
     "lexical_disputed_text_candidates",
     "lexical_reference_gap_candidates",
     "lexical_ketiv_sensitivity",
@@ -639,6 +640,21 @@ def load_lexical_duckdb(
                 connection.execute(
                     "CREATE VIEW lexical_candidate_ablation_results AS "
                     "SELECT * FROM lexical_ablation_results WHERE subject_type='candidate_pair'"
+                )
+                connection.execute(
+                    "CREATE VIEW lexical_directional_english_ablation AS "
+                    "SELECT ranking_id, experiment_run_id, query_passage_id, "
+                    "target_passage_id, corpus_pair, experiment_scope, analysis_profile, "
+                    "query_reading, target_reading, granularity, representation_id, detector, "
+                    "rank AS rank_before, raw_score AS score_before, "
+                    "score_after_removing_all_english_features AS score_after, "
+                    "rank_after_removing_all_english_features AS rank_after, "
+                    "query_gloss_feature_count, target_gloss_feature_count, "
+                    "query_gloss_coverage, target_gloss_coverage, gloss_overlap_count, "
+                    "contains_english_derived_evidence, non_english_evidence_remains, "
+                    "english_ablation_survives, classification_after_english_ablation "
+                    "FROM lexical_directional_rankings "
+                    "WHERE corpus_pair='hb_gnt_english_bridge'"
                 )
                 connection.execute(
                     "CREATE VIEW lexical_disputed_text_candidates AS "

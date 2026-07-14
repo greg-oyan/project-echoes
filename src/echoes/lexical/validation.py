@@ -1520,6 +1520,48 @@ def _validate_sparse_indexes(
             )
 
 
+def _validate_directional_english_ablation(
+    state: _State,
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    """Require complete inline English counterfactuals and normalized storage."""
+
+    _count_check(
+        state,
+        connection,
+        artifact="directional_rankings",
+        code="ranking_english_ablation",
+        message="Directional English-removal fields do not reproduce the governed result.",
+        sql=(
+            "SELECT count(*) FROM directional_rankings WHERE "
+            f"(corpus_pair='{_CROSS_CORPUS_PAIR}')<>contains_english_derived_evidence OR "
+            f"(corpus_pair='{_CROSS_CORPUS_PAIR}' AND "
+            "(score_after_removing_all_english_features IS DISTINCT FROM 0.0 OR "
+            "rank_after_removing_all_english_features IS NOT NULL OR "
+            "non_english_evidence_remains OR english_ablation_survives OR "
+            "classification_after_english_ablation<>"
+            "'english_mediated_lead_without_non_english_score')) OR "
+            f"(corpus_pair<>'{_CROSS_CORPUS_PAIR}' AND "
+            "(score_after_removing_all_english_features IS DISTINCT FROM raw_score OR "
+            "rank_after_removing_all_english_features IS DISTINCT FROM rank OR "
+            "NOT non_english_evidence_remains OR NOT english_ablation_survives OR "
+            "classification_after_english_ablation<>"
+            "'original_language_ranking_unchanged'))"
+        ),
+    )
+    _count_check(
+        state,
+        connection,
+        artifact="ablation_results",
+        code="directional_ablation_storage_normalization",
+        message=(
+            "Directional English ablations must be stored inline on content-hashed "
+            "rankings, not duplicated as candidate ablation rows."
+        ),
+        sql="SELECT count(*) FROM ablation_results WHERE subject_type='directional_ranking'",
+    )
+
+
 def _validate_rankings(
     state: _State,
     connection: duckdb.DuckDBPyConnection,
@@ -1637,82 +1679,7 @@ def _validate_rankings(
             f"WHERE (r.corpus_pair='{_CROSS_CORPUS_PAIR}')<>f.has_english"
         ),
     )
-    _count_check(
-        state,
-        connection,
-        artifact="directional_rankings",
-        code="ranking_english_ablation",
-        message="Directional English-removal fields do not reproduce the governed result.",
-        sql=(
-            "SELECT count(*) FROM directional_rankings WHERE "
-            f"(corpus_pair='{_CROSS_CORPUS_PAIR}')<>contains_english_derived_evidence OR "
-            f"(corpus_pair='{_CROSS_CORPUS_PAIR}' AND "
-            "(score_after_removing_all_english_features<>0.0 OR "
-            "rank_after_removing_all_english_features IS NOT NULL OR "
-            "non_english_evidence_remains OR english_ablation_survives)) OR "
-            f"(corpus_pair<>'{_CROSS_CORPUS_PAIR}' AND "
-            "(score_after_removing_all_english_features IS DISTINCT FROM raw_score OR "
-            "rank_after_removing_all_english_features IS DISTINCT FROM rank OR "
-            "NOT non_english_evidence_remains OR NOT english_ablation_survives))"
-        ),
-    )
-    _count_check(
-        state,
-        connection,
-        artifact="ablation_results",
-        code="ranking_english_ablation_cardinality",
-        message="Every English bridge ranking must have one typed removal result.",
-        sql=(
-            "SELECT count(*) FROM (SELECT r.ranking_id,count(a.ablation_result_id) AS n "
-            "FROM directional_rankings r LEFT JOIN ablation_results a ON "
-            "a.ranking_id=r.ranking_id AND a.subject_type='directional_ranking' AND "
-            "a.ablation_name='remove_all_english_derived_features' "
-            f"WHERE r.corpus_pair='{_CROSS_CORPUS_PAIR}' GROUP BY r.ranking_id HAVING n<>1)"
-        ),
-    )
-    _count_check(
-        state,
-        connection,
-        artifact="ablation_results",
-        code="ranking_english_ablation_reconciliation",
-        message="Typed bridge ablation does not reconcile with its directional ranking.",
-        sql=(
-            "SELECT count(*) FROM ablation_results a JOIN directional_rankings r "
-            "ON a.ranking_id=r.ranking_id WHERE a.subject_type='directional_ranking' AND "
-            "(a.subject_id<>r.ranking_id OR a.candidate_pair_id IS NOT NULL OR "
-            "a.ablation_name<>'remove_all_english_derived_features' OR "
-            "a.score_before IS DISTINCT FROM r.raw_score OR a.score_after<>0.0 OR "
-            "a.rank_before IS DISTINCT FROM r.rank OR a.rank_after IS NOT NULL OR "
-            "a.query_gloss_feature_count<>r.query_gloss_feature_count OR "
-            "a.target_gloss_feature_count<>r.target_gloss_feature_count OR "
-            "a.query_gloss_coverage IS DISTINCT FROM r.query_gloss_coverage OR "
-            "a.target_gloss_coverage IS DISTINCT FROM r.target_gloss_coverage OR "
-            "a.gloss_overlap_count<>r.gloss_overlap_count OR "
-            "a.non_english_evidence_remains OR a.review_eligible_after OR "
-            "NOT a.downgrade_required)"
-        ),
-    )
-    directional_ablation_digest_errors = 0
-    cursor = connection.execute(
-        "SELECT * FROM ablation_results WHERE subject_type='directional_ranking'"
-    )
-    columns = [description[0] for description in cursor.description]
-    for raw in _fetchmany(cursor):
-        row = dict(zip(columns, raw, strict=True))
-        try:
-            expected = ablation_result_digest(row)
-        except (KeyError, TypeError, ValueError):
-            directional_ablation_digest_errors += 1
-            continue
-        if row["evidence_digest"] != expected or row["ablation_result_id"] != "LXA_" + expected:
-            directional_ablation_digest_errors += 1
-    if directional_ablation_digest_errors:
-        state.add(
-            "ranking_ablation_digest",
-            f"Directional ablation identities or digests do not reproduce. "
-            f"Count={directional_ablation_digest_errors}.",
-            artifact="ablation_results",
-        )
+    _validate_directional_english_ablation(state, connection)
     _validate_ranking_split_provenance(state, connection, database_path)
 
 

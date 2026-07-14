@@ -156,6 +156,15 @@ features removes the M7 bridge representation and therefore leaves no
 non-English score or rank. Such a result may remain an English-mediated lead,
 but it cannot satisfy a future `strong candidate` gate.
 
+Each directional bridge ranking carries the complete counterfactual inline:
+gloss counts and coverage, overlap, before/after score and rank, survival
+flags, and classification. These content-hashed facts are not duplicated in
+the physical candidate-ablation table. A read-only
+`lexical_directional_english_ablation` DuckDB view presents the normalized
+directional records for analysis, while `ablation_results` retains all eight
+governed candidate-pair ablations. Strict validation requires the inline
+counterfactual and rejects physical directional duplicates.
+
 ## Reporting and review boundary
 
 The complete local Parquet and sparse artifacts remain Git-ignored. Tracked

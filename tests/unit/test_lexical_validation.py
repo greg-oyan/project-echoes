@@ -181,6 +181,71 @@ def test_null_scoring_scope_excludes_registered_sensitivities() -> None:
     assert observed == {("hb_hb", "REP_PRIMARY", "rrf_composite")}
 
 
+def test_inline_directional_english_ablation_is_complete_and_not_duplicated(
+    tmp_path: Path,
+) -> None:
+    with duckdb.connect() as connection:
+        connection.execute(
+            "CREATE TABLE directional_rankings("
+            "corpus_pair VARCHAR, contains_english_derived_evidence BOOLEAN, "
+            "raw_score DOUBLE, rank INTEGER, "
+            "score_after_removing_all_english_features DOUBLE, "
+            "rank_after_removing_all_english_features INTEGER, "
+            "non_english_evidence_remains BOOLEAN, english_ablation_survives BOOLEAN, "
+            "classification_after_english_ablation VARCHAR)"
+        )
+        connection.executemany(
+            "INSERT INTO directional_rankings VALUES (?,?,?,?,?,?,?,?,?)",
+            [
+                (
+                    "hb_gnt_english_bridge",
+                    True,
+                    0.75,
+                    1,
+                    0.0,
+                    None,
+                    False,
+                    False,
+                    "english_mediated_lead_without_non_english_score",
+                ),
+                (
+                    "hb_hb",
+                    False,
+                    0.5,
+                    2,
+                    0.5,
+                    2,
+                    True,
+                    True,
+                    "original_language_ranking_unchanged",
+                ),
+            ],
+        )
+        connection.execute("CREATE TABLE ablation_results(subject_type VARCHAR)")
+
+        valid = lexical_validation._State(output_dir=tmp_path, strict=True)
+        lexical_validation._validate_directional_english_ablation(valid, connection)
+        assert valid.issues == []
+
+        connection.execute(
+            "UPDATE directional_rankings SET "
+            "classification_after_english_ablation='corrupt', "
+            "score_after_removing_all_english_features=NULL "
+            "WHERE corpus_pair='hb_gnt_english_bridge'"
+        )
+        corrupt = lexical_validation._State(output_dir=tmp_path, strict=True)
+        lexical_validation._validate_directional_english_ablation(corrupt, connection)
+        assert {issue.code for issue in corrupt.issues} == {"ranking_english_ablation"}
+
+        connection.execute("INSERT INTO ablation_results VALUES ('directional_ranking')")
+        duplicated = lexical_validation._State(output_dir=tmp_path, strict=True)
+        lexical_validation._validate_directional_english_ablation(duplicated, connection)
+        assert {issue.code for issue in duplicated.issues} == {
+            "directional_ablation_storage_normalization",
+            "ranking_english_ablation",
+        }
+
+
 def test_sparse_physical_hash_is_order_stable_and_content_sensitive(tmp_path: Path) -> None:
     index = tmp_path / "index"
     index.mkdir()

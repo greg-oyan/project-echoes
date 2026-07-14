@@ -99,6 +99,18 @@ hypergeometric p-value, BH q-value and hypothesis family, empirical null rate
 and FDR, independent co-signal count, rare-rule status, explicit penalties,
 overlap exclusion, and `evidence_digest`.
 
+### `ablation_results`
+
+Eight frozen candidate-pair ablations are retained as typed rows with their
+before/after scores, ranks, penalties, classifications, identities, and
+evidence digests. Directional English-removal evidence is normalized inline on
+every content-hashed cross-testament `directional_rankings` row: gloss counts
+and coverage, overlap, before/after score and rank, non-English-survival flags,
+and classification are all explicit there. Those facts are not duplicated as
+millions of `subject_type=directional_ranking` rows. Strict validation checks
+the inline fields for every bridge rank and rejects any duplicate directional
+row in `ablation_results`.
+
 ### `shared_evidence`
 
 One inspectable evidence item per pair: family, feature ID and value, positions

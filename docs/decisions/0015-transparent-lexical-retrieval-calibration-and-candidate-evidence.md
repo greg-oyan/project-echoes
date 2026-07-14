@@ -103,6 +103,16 @@ benchmark database. This design is reproducible and bounded, but intentionally
 requires that anchored database for reconstruction; the compact hashes are not
 a reversible substitute for the source assignment tables.
 
+Directional English ablations are stored once, inline on each content-hashed
+bridge ranking, rather than duplicated into a second physical row containing
+the same ranking ID, query/target IDs, scores, ranks, gloss counts, and flags.
+The typed `ablation_results` artifact retains all eight candidate-pair
+ablations. Strict validation reproduces every inline directional removal fact,
+requires candidate ablation-family completeness, and rejects duplicated
+`subject_type=directional_ranking` rows. This physical normalization changes no
+score, rank, scope, threshold, identity, or ablation conclusion and keeps the
+generated Parquet set above the governed free-disk floor.
+
 ### Sparse retrieval and transparent scores
 
 Indexes are deterministic and sparse. Jaccard, IDF-weighted Jaccard, TF-IDF

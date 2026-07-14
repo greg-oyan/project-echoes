@@ -17,7 +17,7 @@ from echoes.lexical.features import (
     build_passage_feature_statistics,
     combine_feature_vocabularies,
 )
-from echoes.lexical.models import FEATURE_VOCABULARY_SCHEMA
+from echoes.lexical.models import ABLATION_RESULTS_SCHEMA, FEATURE_VOCABULARY_SCHEMA
 from echoes.lexical.phrases import contiguous_ngrams, skip_grams
 from echoes.lexical.retrieval import (
     LexicalRetrievalError,
@@ -714,6 +714,90 @@ def test_cached_retrieval_preserves_frozen_ranking_and_candidate_hashes() -> Non
     )
     assert hashlib.sha256(candidate_payload).hexdigest() == (
         "3faa5c520f16bedcded1adfbd2f8b365da872ae53cf82c690c36501d82972967"
+    )
+
+
+def test_english_directional_ablation_is_inline_and_typed_empty() -> None:
+    sequences = [
+        _passage(
+            "p1",
+            ("hb-a", "hb-b"),
+            corpus="hebrew",
+            book="GEN",
+            glosses=("shared", "covenant"),
+        ),
+        _passage(
+            "p2",
+            ("gk-a", "gk-b"),
+            corpus="greek",
+            book="MAT",
+            glosses=("shared", "covenant"),
+        ),
+    ]
+    index = build_sparse_index(
+        sequences,
+        representation_id="english-bridge-regression",
+        family="english_gloss",
+        namespace="en",
+    )
+
+    batch = next(
+        iter_retrieval_batches(
+            index,
+            sequences,
+            experiment_run_id="english-run",
+            configuration_hash="a" * 64,
+            experiment_scope="primary",
+            corpus_pair="hb_gnt_english_bridge",
+            query_indices=[0],
+            target_indices=[1],
+            candidate_union_k=1,
+            persisted_top_k=1,
+            persisted_candidate_pool_k=1,
+            expensive_sequence_rerank_k=1,
+            block_size=1,
+            maximum_proposal_document_frequency=2,
+            score_quantization_decimals=12,
+            bm25_k1=1.2,
+            bm25_b=0.75,
+            rare_threshold=3,
+            rrf_k=60,
+            gap_penalty=-1.0,
+            mismatch_score=-1.0,
+            nearby_context_distance=5,
+            phrase_ngram_sizes=(2, 3),
+            phrase_minimum_corpus_count=2,
+            phrase_pmi_cap=10.0,
+            skipgram_max_gap=2,
+            skipgram_minimum_corpus_count=2,
+            split_provenance_by_passage_id={},
+        )
+    )
+
+    assert batch.ablation_results.is_empty()
+    assert batch.ablation_results.schema == ABLATION_RESULTS_SCHEMA
+    assert batch.rankings.height == 9
+    assert batch.rankings["contains_english_derived_evidence"].all()
+    assert not batch.rankings["non_english_evidence_remains"].any()
+    assert not batch.rankings["english_ablation_survives"].any()
+    assert (batch.rankings["query_gloss_feature_count"] == 2).all()
+    assert (batch.rankings["target_gloss_feature_count"] == 2).all()
+    assert (batch.rankings["gloss_overlap_count"] == 2).all()
+    assert (batch.rankings["score_after_removing_all_english_features"] == 0.0).all()
+    assert batch.rankings["rank_after_removing_all_english_features"].is_null().all()
+    assert batch.rankings["classification_after_english_ablation"].unique().to_list() == [
+        "english_mediated_lead_without_non_english_score"
+    ]
+    assert logical_frame_hash(batch.rankings, sort_by=["ranking_id"]) == (
+        "e1b524de19ef66e02dcd701553b54d24012ce491998820ac2dcb55fdaea7cb55"
+    )
+    candidate_payload = json.dumps(
+        [asdict(candidate) for candidate in batch.candidates],
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    assert hashlib.sha256(candidate_payload).hexdigest() == (
+        "a36a789eab0474a5f8755f5c2b40946594ff3c3489f431c6dc758136f37adc95"
     )
 
 

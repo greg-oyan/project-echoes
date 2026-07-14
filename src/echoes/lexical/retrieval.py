@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 from collections import Counter, defaultdict
@@ -49,7 +48,6 @@ class RetrievalResourceCheck(Protocol):
 _MEBIBYTE = 1024**2
 _DEFAULT_MATERIALIZATION_TARGET_BYTES = 256 * _MEBIBYTE
 _RANKING_ROW_FIXED_BYTES = 4096
-_ENGLISH_ABLATION_ROW_FIXED_BYTES = 2048
 _CANDIDATE_UPDATE_FIXED_BYTES = 4096
 _FRAME_CONSTRUCTION_MULTIPLIER = 3
 
@@ -876,7 +874,6 @@ def iter_retrieval_batches(
 
     def materialize(
         ranking_rows: list[dict[str, object]],
-        ablation_rows: list[dict[str, object]],
         aggregate_updates: list[CandidateAggregate],
         estimated_bytes: int,
     ) -> RetrievalBatch:
@@ -895,14 +892,9 @@ def iter_retrieval_batches(
             schema=DIRECTIONAL_RANKINGS_SCHEMA,
             orient="row",
         ).sort("query_passage_id", "detector", "rank", "target_passage_id")
-        ablation_frame = pl.DataFrame(
-            ablation_rows,
-            schema=ABLATION_RESULTS_SCHEMA,
-            orient="row",
-        )
         return RetrievalBatch(
             rankings=ranking_frame,
-            ablation_results=ablation_frame,
+            ablation_results=pl.DataFrame(schema=ABLATION_RESULTS_SCHEMA),
             candidates=tuple(aggregate_updates),
         )
 
@@ -950,7 +942,6 @@ def iter_retrieval_batches(
             )
         )
         ranking_rows: list[dict[str, object]] = []
-        ablation_rows: list[dict[str, object]] = []
         aggregate_updates: list[CandidateAggregate] = []
         estimated_materialization_bytes = 0
         emitted_for_proposal_block = False
@@ -959,12 +950,7 @@ def iter_retrieval_batches(
             maximum_rows_for_query = (len(DETECTOR_FAMILIES) + 1) * persisted_top_k
             estimated_query_bytes = (
                 maximum_rows_for_query
-                * (
-                    query_split_bytes
-                    + maximum_target_split_bytes
-                    + _RANKING_ROW_FIXED_BYTES
-                    + (_ENGLISH_ABLATION_ROW_FIXED_BYTES if english_derived else 0)
-                )
+                * (query_split_bytes + maximum_target_split_bytes + _RANKING_ROW_FIXED_BYTES)
                 + persisted_candidate_pool_k * _CANDIDATE_UPDATE_FIXED_BYTES
             )
             if (
@@ -974,13 +960,11 @@ def iter_retrieval_batches(
             ):
                 yield materialize(
                     ranking_rows,
-                    ablation_rows,
                     aggregate_updates,
                     estimated_materialization_bytes,
                 )
                 emitted_for_proposal_block = True
                 ranking_rows = []
-                ablation_rows = []
                 aggregate_updates = []
                 estimated_materialization_bytes = 0
             if resource_check is not None:
@@ -1200,54 +1184,6 @@ def iter_retrieval_batches(
                             "tie_break_key": target.passage_id,
                         }
                     )
-                    if english_derived:
-                        estimated_materialization_bytes += _ENGLISH_ABLATION_ROW_FIXED_BYTES
-                        ablation_payload = {
-                            "experiment_run_id": experiment_run_id,
-                            "ablation_name": "remove_all_english_derived_features",
-                            "subject_type": "directional_ranking",
-                            "subject_id": ranking_id,
-                            "corpus_pair": corpus_pair,
-                            "representation_id": index.representation_id,
-                            "detector": detector,
-                            "direction": ranking_direction,
-                            "query_passage_id": query.passage_id,
-                            "target_passage_id": target.passage_id,
-                            "query_gloss_feature_count": query_gloss_count,
-                            "target_gloss_feature_count": target_gloss_count,
-                            "query_token_count": query.token_count,
-                            "target_token_count": target.token_count,
-                            "query_gloss_coverage": query_gloss_coverage,
-                            "target_gloss_coverage": target_gloss_coverage,
-                            "gloss_overlap_count": gloss_overlap_count,
-                            "score_before": raw_score,
-                            "score_after": 0.0,
-                            "rank_before": rank,
-                            "rank_after": None,
-                            "penalty_before": 0.0,
-                            "penalty_after": 0.0,
-                            "contains_english_derived_evidence": True,
-                            "non_english_evidence_remains": False,
-                            "review_eligible_before": False,
-                            "review_eligible_after": False,
-                            "classification_before": "english_mediated_retrieval_lead",
-                            "classification_after": (
-                                "no_cross_language_lexical_score_after_ablation"
-                            ),
-                            "downgrade_required": True,
-                            "changed": True,
-                            "config_hash": configuration_hash,
-                        }
-                        ablation_digest = evidence_digest(ablation_payload)
-                        ablation_rows.append(
-                            {
-                                "ablation_result_id": "LXA_" + ablation_digest,
-                                **ablation_payload,
-                                "candidate_pair_id": None,
-                                "ranking_id": ranking_id,
-                                "evidence_digest": ablation_digest,
-                            }
-                        )
             for target_index, fused in list(composite_by_target.items())[
                 :persisted_candidate_pool_k
             ]:
@@ -1289,24 +1225,9 @@ def iter_retrieval_batches(
                 )
                 estimated_materialization_bytes += _CANDIDATE_UPDATE_FIXED_BYTES
                 aggregate_updates.append(aggregate)
-        if ranking_rows or ablation_rows or aggregate_updates or not emitted_for_proposal_block:
+        if ranking_rows or aggregate_updates or not emitted_for_proposal_block:
             yield materialize(
                 ranking_rows,
-                ablation_rows,
                 aggregate_updates,
                 estimated_materialization_bytes,
             )
-
-
-def evidence_digest(payload: Mapping[str, object]) -> str:
-    """Hash one decomposed evidence payload."""
-
-    return hashlib.sha256(
-        json.dumps(
-            payload,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-            allow_nan=False,
-        ).encode("utf-8")
-    ).hexdigest()

@@ -21,6 +21,16 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
   controls. No Milestone 8 review, semantic retrieval, embedding, or novelty
   decision has begun.
 
+- Directional remove-English counterfactuals are now stored once on each
+  content-hashed bridge ranking and exposed through the derived
+  `lexical_directional_english_ablation` DuckDB view. The eight governed
+  candidate-pair ablations remain typed rows in `ablation_results`; strict
+  validation rejects any reintroduced directional duplicates. Frozen ranking
+  and candidate hashes are unchanged. This lossless physical normalization
+  removes a projected 6.589 GiB of redundant production output after two
+  incomplete atomic attempts established that the duplication could violate
+  the mandatory 10 GiB free-disk floor.
+
 - Milestone 6 known-link benchmark implementation completed on 2026-07-13:
   ADR 0014
   governs stable source-record, relationship, endpoint, pair, and mapping

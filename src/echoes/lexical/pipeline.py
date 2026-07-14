@@ -165,7 +165,6 @@ class _RetrievalScopeResult:
     candidates: dict[str, CandidateAggregate]
     ranking_count: int
     next_ranking_part: int
-    next_ablation_part: int
 
 
 @contextmanager
@@ -1257,13 +1256,11 @@ def _run_retrieval(
     query_reference_filter: frozenset[str] | None = None,
     collect_candidates: bool = True,
     ranking_part_start: int = 0,
-    ablation_part_start: int = 0,
     resource_check: _ResourceCheck | None = None,
 ) -> _RetrievalScopeResult:
     candidates: dict[str, CandidateAggregate] = {}
     ranking_count = 0
     ranking_part = ranking_part_start
-    ablation_part = ablation_part_start
     for corpus_pair in corpus_pairs:
         index = indexes[corpus_pair]
         sequences = sorted(sequences_by_pair[corpus_pair], key=lambda item: item.passage_id)
@@ -1346,13 +1343,6 @@ def _run_retrieval(
                 writer.write_frame("directional_rankings", batch.rankings, part=ranking_part)
                 ranking_part += 1
                 ranking_count += batch.rankings.height
-                if batch.ablation_results.height:
-                    writer.write_frame(
-                        "ablation_results",
-                        batch.ablation_results,
-                        part=ablation_part,
-                    )
-                    ablation_part += 1
                 if collect_candidates:
                     if resource_check is not None:
                         resource_check(
@@ -1371,7 +1361,6 @@ def _run_retrieval(
         candidates=candidates,
         ranking_count=ranking_count,
         next_ranking_part=ranking_part,
-        next_ablation_part=ablation_part,
     )
 
 
@@ -1787,7 +1776,6 @@ def run_lexical_pipeline(
         candidates = primary_retrieval.candidates
         primary_ranking_count = primary_retrieval.ranking_count
         next_ranking_part = primary_retrieval.next_ranking_part
-        next_ablation_part = primary_retrieval.next_ablation_part
         del primary_indexes, primary_index_metadata, primary_retrieval
         gc.collect()
         resource_check("primary_sparse_indexes:released")
@@ -1832,13 +1820,11 @@ def run_lexical_pipeline(
             split_provenance_by_passage_id=split_provenance,
             collect_candidates=False,
             ranking_part_start=next_ranking_part,
-            ablation_part_start=next_ablation_part,
             resource_check=resource_check,
         )
         retrieval_seconds += time.perf_counter() - retrieval_start
         critical_ranking_count = critical_retrieval.ranking_count
         next_ranking_part = critical_retrieval.next_ranking_part
-        next_ablation_part = critical_retrieval.next_ablation_part
         del critical_indexes, critical_index_by_pair, critical_index_metadata
         del critical_summaries, critical_retrieval
         gc.collect()
@@ -1871,12 +1857,10 @@ def run_lexical_pipeline(
             query_reference_filter=frozenset(affected_references),
             collect_candidates=False,
             ranking_part_start=next_ranking_part,
-            ablation_part_start=next_ablation_part,
             resource_check=resource_check,
         )
         retrieval_seconds += time.perf_counter() - retrieval_start
         ketiv_ranking_count = ketiv_retrieval.ranking_count
-        next_ablation_part = ketiv_retrieval.next_ablation_part
         del ketiv_indexes, ketiv_index_metadata, ketiv_summaries, ketiv_retrieval
         del split_provenance
         gc.collect()
@@ -2079,7 +2063,7 @@ def run_lexical_pipeline(
         queue_spool_directory.mkdir()
         queue_input_count = 0
         candidate_parts = 0
-        ablation_part = next_ablation_part
+        ablation_part = 0
         candidate_count = len(candidates)
         candidate_batches = iter_candidate_artifact_batches(
             candidates,
