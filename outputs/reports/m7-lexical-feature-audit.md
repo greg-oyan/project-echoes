@@ -450,7 +450,7 @@ Raw cross-language lemma serialization overlaps: **0**. Language-prefixed lemma 
 
 Count-CSR estimates include float64 values, int64 column indices, and the int64 row pointer. Binary/TF-IDF matrices, vocabulary metadata, and transient retrieval blocks require additional bounded memory.
 
-Audited physical memory: 7,866,327,040 bytes where available. Governed memory ceiling: 6,442,450,944 bytes. Free disk near the database: 29,871,022,080 bytes; configured minimum: 10,737,418,240 bytes. Governed retrieval block: 1,024 passages. Retrieval uses CSR matrices, stable vocabulary order, blockwise products, bounded candidate unions, and no dense all-pairs matrix.
+Audited physical memory: 7,866,327,040 bytes where available. Governed memory ceiling: 6,442,450,944 bytes. Free disk near the database: 28,464,963,584 bytes; configured minimum: 10,737,418,240 bytes. Governed retrieval block: 1,024 passages. Retrieval uses CSR matrices, stable vocabulary order, blockwise products, bounded candidate unions, and no dense all-pairs matrix.
 
 ## Benchmark feasibility
 

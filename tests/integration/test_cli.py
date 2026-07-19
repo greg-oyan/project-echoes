@@ -1,11 +1,14 @@
 """CLI integration tests."""
 
+import hashlib
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import polars as pl
 from typer.testing import CliRunner
 
+import echoes.cli as cli_module
 from echoes.cli import app
 from echoes.lexical.config import (
     lexical_config_sha256,
@@ -19,6 +22,11 @@ from echoes.lexical.models import (
     LEXICAL_METADATA_SCHEMA,
 )
 from echoes.lexical.storage import LexicalArtifactWriter
+from echoes.manifest import (
+    ExperimentExecutionManifest,
+    ResumeLineage,
+    write_execution_manifest,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 runner = CliRunner()
@@ -26,6 +34,11 @@ runner = CliRunner()
 
 def _canonical(value: object) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+def _named_hash(values: dict[str, str]) -> str:
+    payload = json.dumps(values, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _empty_lexical_run(tmp_path: Path) -> Path:
@@ -72,6 +85,86 @@ def _empty_lexical_run(tmp_path: Path) -> Path:
         )
         writer.finalize(metadata)
     return root
+
+
+def _write_cli_execution_manifest(
+    manifest_root: Path,
+    *,
+    execution_id: str,
+    timestamp: datetime,
+    database: str,
+) -> ExperimentExecutionManifest:
+    run_id = "lexical-v1-cli-fixture"
+    configuration_hashes = {"lexical_yaml": "4" * 64}
+    manifest = ExperimentExecutionManifest(
+        execution_id=execution_id,
+        execution_status="succeeded",
+        run_id=run_id,
+        experiment_name="m7-lexical-baseline",
+        experiment_version="m7-lexical-baseline-v1",
+        timestamp=timestamp,
+        completed_at=timestamp,
+        git_commit="fixture-commit",
+        working_tree_status="clean",
+        working_tree_status_sha256="0" * 64,
+        source_tree_hash="1" * 64,
+        python_version="3.12.0",
+        runtime_versions={"fixture": "1.0"},
+        dependency_lock_hash="2" * 64,
+        config_hash=_named_hash(configuration_hashes),
+        configuration_files={"lexical_yaml": "config/lexical.yaml"},
+        configuration_hashes=configuration_hashes,
+        dataset_manifest_path="data/manifests/sources.yaml",
+        dataset_manifest_hash="5" * 64,
+        source_file_hashes={"fixture:source.txt": "b" * 64},
+        dataset_versions={"source:fixture": "fixture-v1"},
+        random_seed=7201,
+        random_seeds={
+            "bootstrap": 7201,
+            "frequency_preserving_synthetic": 7102,
+            "within_book_reassignment": 7101,
+        },
+        model_names=[],
+        model_versions={},
+        model_status="not_applicable_no_learned_models",
+        input_table_hashes={"fixture:input": "6" * 64},
+        output_table_hashes={"fixture:output": "7" * 64},
+        output_table_physical_hashes={"fixture:output": "8" * 64},
+        output_hash_manifest_sha256="9" * 64,
+        runtime=1.0,
+        stage_runtime_seconds={"total": 1.0},
+        hardware_summary={"system": "fixture"},
+        exact_candidate_generation_method="frozen_m7_fixture",
+        training_data_lineage="not_applicable_no_model_training",
+        evaluation_split_lineage={"fixture:split": "a" * 64},
+        human_review_history="not_started_milestone_8",
+        artifact_output_directory="data/processed/lexical/schema-v1",
+        resume_lineage=ResumeLineage(
+            requested_staging_directory=None,
+            status="not_requested",
+            recovered_composite=False,
+            validated_artifact_part_hashes={},
+            validated_checkpoint_manifest_hashes={},
+            validated_checkpoint_part_hashes={},
+        ),
+        reproduction_command=[
+            "uv",
+            "run",
+            "echoes",
+            "run-lexical-pipeline",
+            "--primary",
+            "--database",
+            database,
+            "--output-dir",
+            "data/processed/lexical/schema-v1",
+        ],
+        warnings=[],
+        errors=[],
+        limitations=[],
+    )
+    path = manifest_root / run_id / f"{execution_id}.json"
+    write_execution_manifest(manifest, path)
+    return manifest
 
 
 def test_cli_help_runs() -> None:
@@ -179,6 +272,228 @@ def test_cli_creates_run_manifest(tmp_path: Path) -> None:
         "warnings",
         "errors",
     }
+
+
+def test_reproduce_is_dry_run_by_default_and_selects_exact_execution(
+    tmp_path: Path,
+    monkeypatch: object,
+) -> None:
+    manifest_root = tmp_path / "execution-manifests"
+    timestamp = datetime(2026, 7, 19, 12, 0, tzinfo=UTC)
+    first = _write_cli_execution_manifest(
+        manifest_root,
+        execution_id="execution-first",
+        timestamp=timestamp,
+        database="data/processed/first.duckdb",
+    )
+    second = _write_cli_execution_manifest(
+        manifest_root,
+        execution_id="execution-second",
+        timestamp=timestamp + timedelta(seconds=1),
+        database="data/processed/second.duckdb",
+    )
+
+    def forbid_execution(*args: object, **kwargs: object) -> object:
+        raise AssertionError("dry-run reproduce must not spawn a process")
+
+    monkeypatch.setattr(cli_module.subprocess, "run", forbid_execution)
+    latest = runner.invoke(
+        app,
+        [
+            "reproduce",
+            first.run_id,
+            "--manifest-root",
+            str(manifest_root),
+        ],
+    )
+    exact = runner.invoke(
+        app,
+        [
+            "reproduce",
+            first.run_id,
+            "--execution-id",
+            first.execution_id,
+            "--manifest-root",
+            str(manifest_root),
+        ],
+    )
+
+    assert latest.exit_code == 0
+    assert second.execution_id in latest.output
+    assert "data/processed/second.duckdb" in latest.output
+    assert "Dry run only" in latest.output
+    assert exact.exit_code == 0
+    assert first.execution_id in exact.output
+    assert "data/processed/first.duckdb" in exact.output
+
+
+def test_validate_run_manifest_surfaces_output_hash_disagreement(
+    tmp_path: Path,
+    monkeypatch: object,
+) -> None:
+    manifest_root = tmp_path / "execution-manifests"
+    manifest = _write_cli_execution_manifest(
+        manifest_root,
+        execution_id="execution-validation",
+        timestamp=datetime(2026, 7, 19, 12, 0, tzinfo=UTC),
+        database="data/processed/project_echoes.duckdb",
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "reproduction_environment_mismatches",
+        lambda *args, **kwargs: [],
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "validate_execution_manifest_outputs",
+        lambda *args, **kwargs: ["execution manifest disagrees with table_logical_sha256"],
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "validate-run-manifest",
+            manifest.run_id,
+            "--execution-id",
+            manifest.execution_id,
+            "--manifest-root",
+            str(manifest_root),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Run-manifest validation failed" in result.output
+    assert "disagrees with table_logical_sha256" in result.output
+
+
+def test_validate_run_manifest_forwards_archived_artifact_root(
+    tmp_path: Path,
+    monkeypatch: object,
+) -> None:
+    manifest_root = tmp_path / "execution-manifests"
+    archived_root = tmp_path / "m7-first-run-reference"
+    manifest = _write_cli_execution_manifest(
+        manifest_root,
+        execution_id="execution-archived-validation",
+        timestamp=datetime(2026, 7, 19, 12, 0, tzinfo=UTC),
+        database="data/processed/project_echoes.duckdb",
+    )
+    observed: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        cli_module,
+        "reproduction_environment_mismatches",
+        lambda *args, **kwargs: [],
+    )
+
+    def validate_outputs(*args: object, **kwargs: object) -> list[str]:
+        observed["artifact_root"] = kwargs.get("artifact_root")
+        return []
+
+    monkeypatch.setattr(
+        cli_module,
+        "validate_execution_manifest_outputs",
+        validate_outputs,
+    )
+    result = runner.invoke(
+        app,
+        [
+            "validate-run-manifest",
+            manifest.run_id,
+            "--execution-id",
+            manifest.execution_id,
+            "--manifest-root",
+            str(manifest_root),
+            "--artifact-root",
+            str(archived_root),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert observed["artifact_root"] == archived_root
+
+
+def test_validate_run_manifest_surfaces_nonfatal_git_provenance_notice(
+    tmp_path: Path,
+    monkeypatch: object,
+) -> None:
+    manifest_root = tmp_path / "execution-manifests"
+    manifest = _write_cli_execution_manifest(
+        manifest_root,
+        execution_id="execution-git-notice",
+        timestamp=datetime(2026, 7, 19, 12, 0, tzinfo=UTC),
+        database="data/processed/project_echoes.duckdb",
+    )
+
+    def environment_check(
+        *args: object,
+        notices: list[str] | None = None,
+        **kwargs: object,
+    ) -> list[str]:
+        if notices is not None:
+            notices.append("git_commit differs; governed executable inputs still match")
+        return []
+
+    monkeypatch.setattr(
+        cli_module,
+        "reproduction_environment_mismatches",
+        environment_check,
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "validate_execution_manifest_outputs",
+        lambda *args, **kwargs: [],
+    )
+    result = runner.invoke(
+        app,
+        [
+            "validate-run-manifest",
+            manifest.run_id,
+            "--manifest-root",
+            str(manifest_root),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Provenance notice: git_commit differs" in result.output
+
+
+def test_reproduce_execute_rejects_database_outside_governed_project_data(
+    tmp_path: Path,
+    monkeypatch: object,
+) -> None:
+    manifest_root = tmp_path / "execution-manifests"
+    manifest = _write_cli_execution_manifest(
+        manifest_root,
+        execution_id="execution-unsafe-database",
+        timestamp=datetime(2026, 7, 19, 12, 0, tzinfo=UTC),
+        database="../outside.duckdb",
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "reproduction_environment_mismatches",
+        lambda *args, **kwargs: [],
+    )
+
+    def forbid_execution(*args: object, **kwargs: object) -> object:
+        raise AssertionError("unsafe reproduction path must not spawn a process")
+
+    monkeypatch.setattr(cli_module.subprocess, "run", forbid_execution)
+    result = runner.invoke(
+        app,
+        [
+            "reproduce",
+            manifest.run_id,
+            "--execution-id",
+            manifest.execution_id,
+            "--manifest-root",
+            str(manifest_root),
+            "--execute",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "--database escapes the project root" in result.output
 
 
 def test_cli_accepts_a_hash_validated_zero_row_review_queue(tmp_path: Path) -> None:

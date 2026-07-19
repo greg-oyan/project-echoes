@@ -113,6 +113,226 @@ requires candidate ablation-family completeness, and rejects duplicated
 score, rank, scope, threshold, identity, or ablation conclusion and keeps the
 generated Parquet set above the governed free-disk floor.
 
+#### Pre-heldout atomic-attempt and resource-feasibility record
+
+The two pre-resume full-build attempts ended before atomic promotion and before
+any candidate or scientific output was inspected. Operational progress, timing,
+memory, and physical table-size telemetry were inspected solely to diagnose
+feasibility. Neither attempt produced an accepted experiment result, and
+neither changed the frozen scientific configuration or preregistration.
+
+The first attempt was stopped after approximately three hours at 2.2 percent
+completion. Its measured rate was 4.626 seconds per query, implying an
+approximately 132-hour retrieval runtime. The staged output was not promoted.
+This led to implementation-only reuse of immutable passage score contexts,
+phrase and skip-gram extraction, LCS masks, rolling alignment state, gloss and
+pair facts, and exact prepared sparse retrieval state. The algorithms, score
+definitions, ranks, seeds, scopes, thresholds, and preregistered scientific
+contract were unchanged.
+
+The second attempt completed the primary Hebrew–Hebrew and GNT–GNT retrieval
+scopes and had entered the primary English-gloss bridge when it was stopped.
+Measured physical output projected that the build would violate the mandatory
+10-GiB free-disk floor before atomic promotion. Its staged output was likewise
+not promoted, and no candidate identities, evidence conclusions, evaluation
+metrics, or other scientific results were inspected. Storage accounting showed
+that physically duplicating directional English-ablation facts would consume a
+projected 6.589 GiB across the primary and critical-core bridge scopes even
+though those facts were already present inline on every content-hashed
+directional ranking. The lossless inline normalization above removes that
+duplication while preserving all registered ablation facts and conclusions.
+
+The same feasibility audit replaced repeated leakage-group identifier arrays
+with compact commitments. In the measured provenance map, this reduced unique
+serialized provenance from approximately 283.3 MB to 33.9 MB. Strict
+validation reconstructs and verifies the exact facts from the anchored
+benchmark database, so this is a physical representation change rather than a
+change to split membership, leakage controls, eligibility, or evaluation.
+
+The first resumed build on 2026-07-17 completed all primary, critical-core, and
+Qere/Ketiv retrieval scopes before the global critical-core sensitivity join
+breached the mandatory free-disk floor. At the last safe inventory, the
+unpromoted tree retained 1,565 ranking parts (5,718,310,351 bytes), three index
+metadata parts, 154 sparse-index files, and the governed feature tables. The
+single DuckDB FULL OUTER JOIN and global sort then accumulated 17 temporary
+files totaling 13,426,360,320 bytes. Free space fell from above the configured
+10,737,418,240-byte floor to 8,606,294,016 bytes and continued declining, so
+the process was stopped before disk exhaustion. No artifact was promoted, and
+no candidate identity, held-out metric, null result, or science-gate outcome
+was inspected. The disposable join spill was removed after its exact footprint
+was recorded; completed staging artifacts were retained while the failure was
+diagnosed.
+
+Sensitivity materialization now executes the identical reference-keyed FULL
+OUTER JOIN and window calculations in deterministic
+`(corpus_pair, detector, query-reference hash bucket)` partitions. Four stable
+SHA-256 prefix buckets keep every target row for one query reference in the
+same partition, so each window remains complete. The partitions emit the same
+governed rows, fields, identities, scores, ranks, overlap, digests, and final
+sort keys. A per-partition DuckDB spill limit is computed from current free
+space after reserving the configured floor and an additional 256 MiB safety
+margin; a join fails before execution when at least 256 MiB of bounded spill
+headroom is unavailable. The maximum spill for one partition is 2 GiB, and the
+sensitivity-only preferred DuckDB memory budget is 1 GiB inside the unchanged
+process-wide memory guard.
+
+Before restarting retrieval, the preserved attempt-3 ranking tree was used for
+a full-scale operational diagnostic of the corrected critical-core join. It
+streamed all 28,336,934 comparison rows in 600 schema-cast frames in
+1,637.97 seconds, with empty stderr, minimum observed free disk of
+21,304,016,896 bytes, and 1,997,938,688 bytes peak RSS at guarded checkpoints.
+Only row/frame counts and resource telemetry were observed; no score,
+candidate identity, held-out metric, or scientific conclusion was inspected.
+The corrected query left no spill directory behind.
+
+The next atomic attempt started at 2026-07-17 19:48:56 local time and ran for
+approximately 3 hours 36 minutes. It completed all 1,565 ranking parts and both
+sensitivity comparisons. The intact staging boundary contains 5,718,310,351
+bytes of rankings and 640 sensitivity parts totaling 4,601,220,953 bytes,
+together with all 14 governed sparse indexes and feature tables. After
+sensitivity cleanup, Tier 3 setup attempted one global Polars distinct-strata
+scan over the complete ranking tree. The Rust allocator could not satisfy a
+708,873,488-byte request, and the process exited before any Tier 3, null,
+candidate-evidence, or queue artifact was written. Stderr contains only that
+allocator failure. No held-out score, candidate identity, null result, or
+science-gate value was inspected.
+
+Interrupted staging may now be adopted only when it is a non-symlinked
+governed sibling of `schema-v1`. Adoption reads, schema-casts, order-checks,
+counts, and hashes every existing Parquet leaf before reuse. Ranking-strata
+discovery projects and deduplicates the three required columns one Parquet
+leaf at a time rather than building a global distinct set over the full
+ranking table. The result set and validation rules are unchanged.
+
+The primary candidate aggregates existed only in process memory when the
+allocator aborted. Recovering their exact proposal-detector and bounded
+alignment traces from persisted top-100 rows alone is not lossless. Therefore
+the resume path reloads the already persisted primary sparse indexes and
+recomputes only primary retrieval. Every regenerated ranking part must match
+the corresponding preserved governed logical rows before its aggregate
+updates are accepted. Those exact updates are written to a private,
+content-hashed completion checkpoint so a later post-retrieval failure does
+not repeat the recovery. Completed critical-core retrieval, Qere/Ketiv
+retrieval, and both sensitivity comparisons are inventoried and skipped.
+Private checkpoints and transient spill are excluded from final promotion.
+Exact primary split-provenance payloads are reconciled one ranking leaf at a
+time and reused during that verification; final strict validation still
+reconstructs them from the anchored benchmark. This avoids recreating the
+measured 8.5-GB provenance spill beside the preserved 9.76-GB staging tree.
+Passages with no retained top-100 row cannot be recovered from ranking leaves.
+For only those missing IDs, recovery performs an exact `json_contains` join
+against the anchored endpoint mappings with a 512-MiB DuckDB spill cap, then
+uses the unchanged assignment grouping, canonical ordering, and digest logic.
+This targeted query is fixture-checked against the original full JSON
+expansion. It must not silently substitute the no-assignment payload for a
+mapped passage.
+
+The next resume verified every regenerated primary ranking leaf and finalized
+968 checkpoint parts plus its completion manifest. It then repeated the exact
+708,873,488-byte allocation failure before writing a Tier 3 row, proving that
+the remaining allocation was the following global candidate-universe
+`group_by`, not the already bounded strata scan. Directory-backed universe
+construction now accumulates each query's target set one Parquet leaf at a
+time, pools repeated IDs, enforces the unchanged configured maximum during
+accumulation, and canonically sorts the same unique targets. Fixture coverage
+compares this bounded path with the original global grouping. The completed
+checkpoint is retained so another resume does not repeat primary retrieval.
+
+The following resume passed the former candidate-universe allocation point but
+then exposed a distinct 1,827,928,004-byte Rust allocation in the next
+per-detector global ranking collection. Evaluation now streams each detector's
+filtered ranking rows one sorted leaf at a time, pools repeated identifiers,
+enforces the unchanged persisted top-100 bound, and validates canonical rank
+order and duplicate identities before constructing the same target and score
+maps. Fixture coverage compares the streamed and materialized results exactly.
+A private last-stage marker is retained only inside the ignored checkpoint
+directory during recovery and is deleted with that directory before promotion.
+
+The next resume completed every edition-complete Tier 3 baseline and detector,
+then every critical-core baseline and detector through the final composite
+aggregation. No evaluation artifact had yet crossed the atomic writer
+boundary. The process retained each completed baseline and detector as Python
+row dictionaries until both profiles finished; Windows private commit grew to
+approximately 10 GiB, the pagefile expanded, and the Rust allocator ultimately
+could not reserve 1,632 bytes at the marker
+`evaluation:critical_core:detector:rrf_composite:leaf-1536:groups-25222`.
+The process and pagefile released their space after exit, leaving the original
+staging and primary-candidate checkpoint intact. No held-out value, candidate
+identity, null result, or science-gate outcome was read.
+
+Tier 3 evaluation now converts each unchanged baseline or detector result batch
+immediately to the governed typed schema and a private Parquet checkpoint.
+Every completed batch is protected by a completion manifest containing the run,
+configuration, preregistration, profile, detector, row count, and physical
+SHA-256 identity. Reuse verifies those identities, the exact schema, nonempty
+row count, unique evaluation IDs, and singleton lineage fields before skipping
+the expensive detector-ranking pass. Incomplete physical files have no
+completion manifest and remain ignored rather than trusted or overwritten.
+The final table is assembled in the same governed sort order, checked for
+global evaluation-ID uniqueness, written to the atomic artifact staging area,
+and released before null calibration. Fixture coverage proves the
+checkpointed, resumed, and original in-memory paths return the identical typed
+evaluation frame and scientific-gate details.
+
+Subsequent launcher recovery exposed a separate Windows process-control hazard.
+A sandboxed background launch exited without creating a worker. Two later
+launchers did create independent child workers, but their transient wrapper
+processes disappeared while those children continued. Because the wrappers
+were initially mistaken for the complete process lifetime, the workers
+overlapped and both failed at approximately 15:04 local time under aggregate
+memory pressure. Their stdout and stderr logs are retained. One worker had
+already written the three edition-complete baseline checkpoint parts; the
+other did not add a trusted completion. A bounded startup probe established
+the child-process behavior, and a complete nonprivileged process census
+confirmed that every earlier worker was gone before the next sole-worker
+resume. That resume reused no checkpoint merely because it existed: each of
+the three completed baseline parts first passed the run, configuration,
+preregistration, schema, lineage, row-count, evaluation-ID, and physical-hash
+checks above. The overlap is an execution-control failure, not an accepted
+scientific replicate or a reason to alter any frozen parameter.
+
+The next sole-worker resume completed and authenticated all 26 Tier 3
+evaluation batches, the complete governed evaluation artifact, all 600 frozen
+null replicates, threshold calibration, and the global candidate-ranking
+preparation. Candidate materialization persisted four aligned parts in each
+governed candidate/evidence table before an internal BM25 reproduction check
+compared `12.867698770178` with `12.867698770179`. The values occupy adjacent
+bins at the already registered 12-decimal precision and arise from different
+deterministic float64 reduction paths. Neither value, its rank, nor any frozen
+parameter was changed. The stopped attempt, its stderr, its posthoc physical
+inventory, every completed checkpoint, all null/calibration results, and all
+complete candidate parts remain preserved.
+
+Evidence reproduction therefore converts both finite values to exact integer
+bins only after fixed-decimal formatting. Exact matches add no trace field. An
+adjacent one-bin result retains both decimals and the signed bin delta in an
+explicit reconciliation object while leaving the persisted score unchanged.
+Differences greater than one bin and all non-finite values still fail closed.
+Existing resumed leaves must compare logically with regenerated leaves and are
+never silently overwritten. Execution-attempt sidecars are created before
+pipeline work and bind the git/source state, lock and configuration hashes,
+pinned inputs, actual seeds, authenticated resume lineage, output inventories,
+runtime, hardware, warnings, errors, and an exact bounded reproduction command.
+Failed, recovered-composite, and independent fresh attempts remain separately
+identifiable.
+
+The reusable private checkpoint tree is no longer deleted before content
+hashing, metadata construction, atomic promotion, DuckDB loading, and execution
+manifest finalization. It moves atomically to a governed ignored sibling just
+before finalization, is restored to staging after any ordinary failure, is
+recovered automatically after an interruption in that narrow move window, and
+is removed only after the successful execution manifest is durable. Fresh full
+builds also preserve their governed atomic staging directory on error so an
+independent second build does not lose completed expensive stages.
+
+This is a physical execution and fail-closed resource correction only. No
+scope, source, representation, detector, threshold, seed, null, evaluation,
+acceptance, or preregistration value changed after held-out data.
+
+The Milestone 7 acceptance state remains pending. Two complete, independently
+validated deterministic builds and the final preregistered science-gate result
+must be recorded before this decision can support milestone closure.
+
 ### Sparse retrieval and transparent scores
 
 Indexes are deterministic and sparse. Jaccard, IDF-weighted Jaccard, TF-IDF

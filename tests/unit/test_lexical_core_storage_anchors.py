@@ -307,6 +307,73 @@ def test_writer_rechecks_the_governed_free_disk_floor_for_each_part(
     assert not list(root.parent.glob(".schema-v1.writing-*"))
 
 
+def test_writer_adopts_validated_staging_replays_logical_content_and_preserves_failure(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "lexical" / "schema-v1"
+    staging = root.parent / ".schema-v1.writing-resume-fixture"
+    artifact_root = staging / "feature_vocabulary"
+    artifact_root.mkdir(parents=True)
+    original = pl.DataFrame(
+        [_feature_row("LF_a", "a")],
+        schema=FEATURE_VOCABULARY_SCHEMA,
+        orient="row",
+    )
+    original.write_parquet(artifact_root / "part-00000.parquet")
+
+    with (
+        pytest.raises(RuntimeError, match="preserve adopted state"),
+        LexicalArtifactWriter(
+            root,
+            force=True,
+            duckdb_memory_limit_bytes=128 * 1024**2,
+            resume_staging_dir=staging,
+        ) as writer,
+    ):
+        assert writer.write_frame("feature_vocabulary", original, part=0).is_file()
+        changed = pl.DataFrame(
+            [_feature_row("LF_a", "changed")],
+            schema=FEATURE_VOCABULARY_SCHEMA,
+            orient="row",
+        )
+        with pytest.raises(LexicalStorageError, match="differs from resumed leaf"):
+            writer.write_frame("feature_vocabulary", changed, part=0)
+        raise RuntimeError("preserve adopted state")
+
+    assert staging.is_dir()
+    assert pl.read_parquet(artifact_root / "part-00000.parquet").equals(original)
+
+
+def test_writer_can_preserve_fresh_staging_for_production_recovery(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "lexical" / "schema-v1"
+    staging: Path | None = None
+
+    with (
+        pytest.raises(RuntimeError, match="preserve fresh production state"),
+        LexicalArtifactWriter(
+            root,
+            duckdb_memory_limit_bytes=128 * 1024**2,
+            preserve_staging_on_error=True,
+        ) as writer,
+    ):
+        staging = writer.staging_dir
+        writer.write_frame(
+            "feature_vocabulary",
+            pl.DataFrame(
+                [_feature_row("LF_a", "a")],
+                schema=FEATURE_VOCABULARY_SCHEMA,
+                orient="row",
+            ),
+        )
+        raise RuntimeError("preserve fresh production state")
+
+    assert staging is not None
+    assert staging.is_dir()
+    assert (staging / "feature_vocabulary" / "part-00000.parquet").is_file()
+
+
 def test_null_runtime_is_excluded_from_global_logical_hash(tmp_path: Path) -> None:
     def null_run(root: Path, runtime_seconds: float):
         row = {

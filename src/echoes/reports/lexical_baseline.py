@@ -40,7 +40,12 @@ from echoes.lexical.models import (
 )
 from echoes.lexical.storage import TABLE_HASH_FILE, processed_from_directory
 from echoes.lexical.validation import LexicalValidationReport, validate_lexical_artifacts
-from echoes.manifest import sha256_file
+from echoes.manifest import (
+    ExperimentExecutionManifest,
+    resolve_execution_manifest,
+    sha256_file,
+    validate_execution_manifest_outputs,
+)
 
 DEFAULT_LEXICAL_ARTIFACT_ROOT: Final = Path("data/processed/lexical/schema-v1")
 DEFAULT_REPORT_DIRECTORY: Final = Path("outputs/reports")
@@ -48,6 +53,7 @@ DEFAULT_SPOT_CHECK_CONFIG: Final = Path("outputs/reports/m7-spot-check-config.js
 DEFAULT_FIRST_RUN_MANIFEST: Final = Path(
     "data/processed/lexical/m7-first-run-reference/table-hashes.json"
 )
+DEFAULT_EXECUTION_MANIFEST_ROOT: Final = Path("data/processed/lexical/execution-manifests")
 PR7_MERGE_COMMIT: Final = "b9637ee2de1840cbc2056dfcec6aea163d1e9194"
 
 REPORT_OUTPUT_NAMES: Final[tuple[str, ...]] = (
@@ -162,9 +168,13 @@ class DeterminismEvidence:
     """Comparison of the first and second complete lexical artifact manifests."""
 
     status: Literal["passed", "failed", "not_verified"]
+    independent_roots: bool
+    first_run_strict_validation_passed: bool
+    table_counts_match: bool
     logical_hashes_match: bool
     physical_hashes_match: bool
     first_manifest_path: str | None
+    differing_count_tables: tuple[str, ...]
     differing_logical_tables: tuple[str, ...]
     differing_physical_tables: tuple[str, ...]
     run_ids_match: bool
@@ -178,6 +188,28 @@ class DeterminismEvidence:
     second_peak_memory_bytes: int | None
     first_storage_footprint_bytes: int | None
     second_storage_footprint_bytes: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionDeterminismEvidence:
+    """Two distinct successful attempts bound to their exact artifact roots."""
+
+    status: Literal["passed", "failed", "not_verified"]
+    first_manifest_path: str | None
+    second_manifest_path: str | None
+    first_manifest_sha256: str | None
+    second_manifest_sha256: str | None
+    first_execution_id: str | None
+    second_execution_id: str | None
+    distinct_execution_ids: bool
+    chronological_order: bool
+    run_ids_match: bool
+    governed_inputs_match: bool
+    first_recovered_composite: bool
+    second_fresh_execution: bool
+    first_output_bound: bool
+    second_output_bound: bool
+    failures: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,6 +257,7 @@ class LexicalReportArtifacts:
     sha256_by_name: dict[str, str]
     acceptance_gate_passed: bool
     determinism: DeterminismEvidence
+    execution_determinism: ExecutionDeterminismEvidence
 
 
 def _json_object(value: object, *, label: str) -> dict[str, object]:
@@ -1099,22 +1132,45 @@ def _first_run_telemetry(comparison_manifest: Path) -> RunTelemetry | None:
     return _run_telemetry(frame.row(0, named=True))
 
 
+def _canonical_manifest_root(path: Path, *, label: str) -> Path:
+    """Return the real artifact root for one canonical, non-symlinked manifest."""
+
+    if path.name != TABLE_HASH_FILE:
+        raise LexicalReportError(f"{label} must be the canonical {TABLE_HASH_FILE}")
+    try:
+        root = path.parent.resolve(strict=True)
+        resolved = path.resolve(strict=True)
+    except OSError as exc:
+        raise LexicalReportError(f"{label} is unavailable: {exc}") from exc
+    if resolved != root / TABLE_HASH_FILE:
+        raise LexicalReportError(
+            f"{label} must be a non-symlinked canonical manifest inside its artifact root"
+        )
+    return root
+
+
 def compare_lexical_manifests(
     current: Mapping[str, object],
     comparison_manifest: Path | None,
     *,
+    current_manifest_path: Path | None = None,
     current_metadata: Mapping[str, object] | None = None,
+    first_run_strict_validation_passed: bool = False,
 ) -> DeterminismEvidence:
     """Compare complete manifests and, when supplied, exact run identity/telemetry."""
 
     if comparison_manifest is None or not comparison_manifest.is_file():
         return DeterminismEvidence(
             status="not_verified",
+            independent_roots=False,
+            first_run_strict_validation_passed=False,
+            table_counts_match=False,
             logical_hashes_match=False,
             physical_hashes_match=False,
             first_manifest_path=(
                 None if comparison_manifest is None else comparison_manifest.as_posix()
             ),
+            differing_count_tables=tuple(LEXICAL_ARTIFACT_NAMES),
             differing_logical_tables=tuple(LEXICAL_ARTIFACT_NAMES),
             differing_physical_tables=tuple(LEXICAL_ARTIFACT_NAMES),
             run_ids_match=False,
@@ -1131,11 +1187,30 @@ def compare_lexical_manifests(
             first_storage_footprint_bytes=None,
             second_storage_footprint_bytes=None,
         )
+    if current_manifest_path is None:
+        raise LexicalReportError(
+            "current manifest path is required to authenticate independent determinism roots"
+        )
+    current_root = _canonical_manifest_root(current_manifest_path, label="current manifest")
+    first_root = _canonical_manifest_root(comparison_manifest, label="first-run manifest")
+    independent_roots = current_root != first_root
+    if not independent_roots:
+        raise LexicalReportError(
+            "first-run comparison manifest must belong to a distinct artifact root"
+        )
+    current_on_disk = _read_manifest(current_manifest_path)
+    if dict(current) != current_on_disk:
+        raise LexicalReportError("current manifest payload is not bound to its canonical path")
     first = _read_manifest(comparison_manifest)
+    current_counts = cast(dict[str, object], current["table_counts"])
+    first_counts = cast(dict[str, object], first["table_counts"])
     current_logical = cast(dict[str, object], current["table_logical_sha256"])
     first_logical = cast(dict[str, object], first["table_logical_sha256"])
     current_physical = cast(dict[str, object], current["table_physical_sha256"])
     first_physical = cast(dict[str, object], first["table_physical_sha256"])
+    count_differences = tuple(
+        name for name in LEXICAL_ARTIFACT_NAMES if current_counts[name] != first_counts[name]
+    )
     logical_differences = tuple(
         name for name in LEXICAL_ARTIFACT_NAMES if current_logical[name] != first_logical[name]
     )
@@ -1145,18 +1220,26 @@ def compare_lexical_manifests(
     first_telemetry = _first_run_telemetry(comparison_manifest)
     second_telemetry = None if current_metadata is None else _run_telemetry(current_metadata)
     run_ids_match = (
-        True
-        if current_metadata is None
-        else first_telemetry is not None
+        current_metadata is not None
+        and first_telemetry is not None
         and second_telemetry is not None
         and first_telemetry.experiment_run_id == second_telemetry.experiment_run_id
     )
-    complete_match = not logical_differences and run_ids_match
+    complete_match = (
+        first_run_strict_validation_passed
+        and not count_differences
+        and not logical_differences
+        and run_ids_match
+    )
     return DeterminismEvidence(
         status="passed" if complete_match else "failed",
+        independent_roots=independent_roots,
+        first_run_strict_validation_passed=first_run_strict_validation_passed,
+        table_counts_match=not count_differences,
         logical_hashes_match=not logical_differences,
         physical_hashes_match=not physical_differences,
         first_manifest_path=comparison_manifest.as_posix(),
+        differing_count_tables=count_differences,
         differing_logical_tables=logical_differences,
         differing_physical_tables=physical_differences,
         run_ids_match=run_ids_match,
@@ -1186,6 +1269,227 @@ def compare_lexical_manifests(
         second_storage_footprint_bytes=(
             None if second_telemetry is None else second_telemetry.storage_footprint_bytes
         ),
+    )
+
+
+_EXECUTION_INPUT_FIELDS: Final[tuple[str, ...]] = (
+    "git_commit",
+    "source_tree_hash",
+    "python_version",
+    "runtime_versions",
+    "dependency_lock_hash",
+    "config_hash",
+    "configuration_files",
+    "configuration_hashes",
+    "dataset_manifest_path",
+    "dataset_manifest_hash",
+    "source_file_hashes",
+    "dataset_versions",
+    "random_seed",
+    "random_seeds",
+    "model_names",
+    "model_versions",
+    "model_status",
+    "input_table_hashes",
+    "exact_candidate_generation_method",
+    "training_data_lineage",
+    "evaluation_split_lineage",
+    "human_review_history",
+    "artifact_output_directory",
+    "reproduction_command",
+)
+
+
+def _relative_report_path(path: Path, *, project_root: Path) -> str:
+    try:
+        return path.resolve().relative_to(project_root.resolve()).as_posix()
+    except ValueError:
+        return path.name
+
+
+def _execution_pair_failures(
+    first: ExperimentExecutionManifest,
+    second: ExperimentExecutionManifest,
+    *,
+    expected_run_id: str,
+) -> list[str]:
+    failures: list[str] = []
+    if first.execution_id == second.execution_id:
+        failures.append("the two deterministic builds use the same execution ID")
+    if not first.timestamp < second.timestamp:
+        failures.append("the second execution does not follow the first chronologically")
+    if first.run_id != expected_run_id or second.run_id != expected_run_id:
+        failures.append("execution run IDs do not match the lexical artifact run ID")
+    differing_inputs = [
+        name for name in _EXECUTION_INPUT_FIELDS if getattr(first, name) != getattr(second, name)
+    ]
+    if differing_inputs:
+        failures.append("governed execution inputs differ: " + ",".join(sorted(differing_inputs)))
+    if not (
+        first.resume_lineage.status == "validated_and_reused"
+        and first.resume_lineage.recovered_composite
+    ):
+        failures.append("the first execution is not an authenticated recovered composite")
+    if not (
+        second.resume_lineage.status == "not_requested"
+        and not second.resume_lineage.recovered_composite
+    ):
+        failures.append("the second execution is not an independent fresh build")
+    return failures
+
+
+def verify_execution_determinism(
+    *,
+    project_root: Path,
+    manifest_root: Path,
+    run_id: str,
+    first_execution_id: str | None,
+    second_execution_id: str | None,
+    first_artifact_root: Path | None,
+    second_artifact_root: Path,
+) -> ExecutionDeterminismEvidence:
+    """Authenticate two exact successful attempts against two exact output roots."""
+
+    if first_execution_id is None or second_execution_id is None:
+        return ExecutionDeterminismEvidence(
+            status="not_verified",
+            first_manifest_path=None,
+            second_manifest_path=None,
+            first_manifest_sha256=None,
+            second_manifest_sha256=None,
+            first_execution_id=first_execution_id,
+            second_execution_id=second_execution_id,
+            distinct_execution_ids=False,
+            chronological_order=False,
+            run_ids_match=False,
+            governed_inputs_match=False,
+            first_recovered_composite=False,
+            second_fresh_execution=False,
+            first_output_bound=False,
+            second_output_bound=False,
+            failures=("both exact successful execution IDs are required",),
+        )
+    if first_artifact_root is None:
+        return ExecutionDeterminismEvidence(
+            status="failed",
+            first_manifest_path=None,
+            second_manifest_path=None,
+            first_manifest_sha256=None,
+            second_manifest_sha256=None,
+            first_execution_id=first_execution_id,
+            second_execution_id=second_execution_id,
+            distinct_execution_ids=first_execution_id != second_execution_id,
+            chronological_order=False,
+            run_ids_match=False,
+            governed_inputs_match=False,
+            first_recovered_composite=False,
+            second_fresh_execution=False,
+            first_output_bound=False,
+            second_output_bound=False,
+            failures=("the first complete artifact root is unavailable",),
+        )
+
+    root = project_root.resolve()
+    expected_manifest_root = (
+        root / "data" / "processed" / "lexical" / "execution-manifests"
+    ).resolve(strict=False)
+    if manifest_root.resolve(strict=False) != expected_manifest_root:
+        return ExecutionDeterminismEvidence(
+            status="failed",
+            first_manifest_path=None,
+            second_manifest_path=None,
+            first_manifest_sha256=None,
+            second_manifest_sha256=None,
+            first_execution_id=first_execution_id,
+            second_execution_id=second_execution_id,
+            distinct_execution_ids=first_execution_id != second_execution_id,
+            chronological_order=False,
+            run_ids_match=False,
+            governed_inputs_match=False,
+            first_recovered_composite=False,
+            second_fresh_execution=False,
+            first_output_bound=False,
+            second_output_bound=False,
+            failures=("execution manifests are outside the governed sidecar root",),
+        )
+
+    try:
+        first_path, first = resolve_execution_manifest(
+            manifest_root,
+            run_id=run_id,
+            execution_id=first_execution_id,
+        )
+        second_path, second = resolve_execution_manifest(
+            manifest_root,
+            run_id=run_id,
+            execution_id=second_execution_id,
+        )
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        return ExecutionDeterminismEvidence(
+            status="failed",
+            first_manifest_path=None,
+            second_manifest_path=None,
+            first_manifest_sha256=None,
+            second_manifest_sha256=None,
+            first_execution_id=first_execution_id,
+            second_execution_id=second_execution_id,
+            distinct_execution_ids=first_execution_id != second_execution_id,
+            chronological_order=False,
+            run_ids_match=False,
+            governed_inputs_match=False,
+            first_recovered_composite=False,
+            second_fresh_execution=False,
+            first_output_bound=False,
+            second_output_bound=False,
+            failures=(f"could not resolve exact execution manifests: {type(exc).__name__}",),
+        )
+
+    pair_failures = _execution_pair_failures(
+        first,
+        second,
+        expected_run_id=run_id,
+    )
+    first_output_failures = validate_execution_manifest_outputs(
+        first,
+        project_root=root,
+        artifact_root=first_artifact_root,
+    )
+    second_output_failures = validate_execution_manifest_outputs(
+        second,
+        project_root=root,
+        artifact_root=second_artifact_root,
+    )
+    failures = [
+        *pair_failures,
+        *(f"first output: {failure}" for failure in first_output_failures),
+        *(f"second output: {failure}" for failure in second_output_failures),
+    ]
+    governed_inputs_match = not any(
+        failure.startswith("governed execution inputs differ") for failure in pair_failures
+    )
+    return ExecutionDeterminismEvidence(
+        status="passed" if not failures else "failed",
+        first_manifest_path=_relative_report_path(first_path, project_root=root),
+        second_manifest_path=_relative_report_path(second_path, project_root=root),
+        first_manifest_sha256=sha256_file(first_path),
+        second_manifest_sha256=sha256_file(second_path),
+        first_execution_id=first.execution_id,
+        second_execution_id=second.execution_id,
+        distinct_execution_ids=first.execution_id != second.execution_id,
+        chronological_order=first.timestamp < second.timestamp,
+        run_ids_match=first.run_id == run_id and second.run_id == run_id,
+        governed_inputs_match=governed_inputs_match,
+        first_recovered_composite=(
+            first.resume_lineage.status == "validated_and_reused"
+            and first.resume_lineage.recovered_composite
+        ),
+        second_fresh_execution=(
+            second.resume_lineage.status == "not_requested"
+            and not second.resume_lineage.recovered_composite
+        ),
+        first_output_bound=not first_output_failures,
+        second_output_bound=not second_output_failures,
+        failures=tuple(failures),
     )
 
 
@@ -1376,6 +1680,7 @@ def _render_report(
     manifest: Mapping[str, object],
     preregistration: LexicalExperimentPreregistration,
     determinism: DeterminismEvidence,
+    execution_determinism: ExecutionDeterminismEvidence,
     strict_validation: LexicalValidationReport,
     *,
     pr7_merge_commit: str,
@@ -1429,8 +1734,21 @@ def _render_report(
         _acceptance_status_passes(metadata["acceptance_status"])
         and strict_validation.passed
         and strict_validation.scientific_gate_passed is True
+        and determinism.status == "passed"
+        and determinism.independent_roots
+        and determinism.first_run_strict_validation_passed
+        and determinism.table_counts_match
         and determinism.logical_hashes_match
         and determinism.run_ids_match
+        and execution_determinism.status == "passed"
+        and execution_determinism.distinct_execution_ids
+        and execution_determinism.chronological_order
+        and execution_determinism.run_ids_match
+        and execution_determinism.governed_inputs_match
+        and execution_determinism.first_recovered_composite
+        and execution_determinism.second_fresh_execution
+        and execution_determinism.first_output_bound
+        and execution_determinism.second_output_bound
         and errors == 0
         and warnings == 0
         and missing_expected == 0
@@ -1677,14 +1995,41 @@ def _render_report(
         "## Determinism, runtime, memory, and storage",
         "",
         f"- Two-build logical determinism: **{determinism.status.upper()}**",
+        f"- Independent artifact roots: `{str(determinism.independent_roots).lower()}`",
+        "- First run strict validation passed: "
+        f"`{str(determinism.first_run_strict_validation_passed).lower()}`",
         f"- First run ID: `{_cell(determinism.first_run_id)}`",
         f"- Second run ID: `{_cell(determinism.second_run_id)}`",
         f"- Run IDs match: `{str(determinism.run_ids_match).lower()}`",
+        f"- Table counts match: `{str(determinism.table_counts_match).lower()}`",
         f"- Logical hashes match: `{str(determinism.logical_hashes_match).lower()}`",
         f"- Physical hashes match: `{str(determinism.physical_hashes_match).lower()}`",
+        f"- Differing count tables: `{','.join(determinism.differing_count_tables) or 'none'}`",
         f"- Differing logical tables: `{','.join(determinism.differing_logical_tables) or 'none'}`",
         "- Differing physical tables: "
         f"`{','.join(determinism.differing_physical_tables) or 'none'}`",
+        f"- Two-execution provenance: **{execution_determinism.status.upper()}**",
+        f"- First execution ID: `{_cell(execution_determinism.first_execution_id)}`",
+        f"- Second execution ID: `{_cell(execution_determinism.second_execution_id)}`",
+        f"- Distinct execution IDs: `{str(execution_determinism.distinct_execution_ids).lower()}`",
+        "- Chronological execution order: "
+        f"`{str(execution_determinism.chronological_order).lower()}`",
+        "- Governed execution inputs match: "
+        f"`{str(execution_determinism.governed_inputs_match).lower()}`",
+        "- First execution is an authenticated recovered composite: "
+        f"`{str(execution_determinism.first_recovered_composite).lower()}`",
+        "- Second execution is an independent fresh build: "
+        f"`{str(execution_determinism.second_fresh_execution).lower()}`",
+        "- First execution manifest/output binding passed: "
+        f"`{str(execution_determinism.first_output_bound).lower()}`",
+        "- Second execution manifest/output binding passed: "
+        f"`{str(execution_determinism.second_output_bound).lower()}`",
+        f"- First execution manifest SHA-256: "
+        f"`{_cell(execution_determinism.first_manifest_sha256)}`",
+        f"- Second execution manifest SHA-256: "
+        f"`{_cell(execution_determinism.second_manifest_sha256)}`",
+        "- Execution-provenance failures: "
+        f"`{' | '.join(execution_determinism.failures) or 'none'}`",
         f"- First persisted runtime: `{_cell(determinism.first_runtime_seconds)}` seconds",
         f"- Second persisted runtime: `{_cell(determinism.second_runtime_seconds)}` seconds",
         f"- First approximate peak RSS: `{_cell(determinism.first_peak_memory_bytes)}` bytes",
@@ -1794,6 +2139,9 @@ def generate_lexical_baseline_reports(
     lexical_config_path: Path = LEXICAL_CONFIG_PATH,
     preregistration_path: Path = LEXICAL_PREREGISTRATION_PATH,
     pr7_merge_commit: str = PR7_MERGE_COMMIT,
+    execution_manifest_root: Path = DEFAULT_EXECUTION_MANIFEST_ROOT,
+    first_execution_id: str | None = None,
+    second_execution_id: str | None = None,
 ) -> LexicalReportArtifacts:
     """Generate the complete deterministic sanitized Milestone 7 report bundle."""
 
@@ -1808,17 +2156,13 @@ def generate_lexical_baseline_reports(
         lexical_config_path=lexical_config_path,
         preregistration_path=preregistration_path,
     )
-    determinism = compare_lexical_manifests(
-        manifest,
-        comparison_manifest,
-        current_metadata=tables.metadata,
-    )
     production_root = artifact_root.resolve(strict=False) == DEFAULT_LEXICAL_ARTIFACT_ROOT.resolve(
         strict=False
     )
+    validation_database = Path("data/processed/project_echoes.duckdb") if production_root else None
     strict_validation = validate_lexical_artifacts(
         artifact_root,
-        database_path=Path("data/processed/project_echoes.duckdb") if production_root else None,
+        database_path=validation_database,
         config_path=lexical_config_path,
         preregistration_path=preregistration_path,
         verify_anchors=production_root,
@@ -1826,11 +2170,63 @@ def generate_lexical_baseline_reports(
         verify_sparse_indexes=production_root,
         strict=True,
     )
+    first_run_strict_validation_passed = False
+    first_artifact_root: Path | None = None
+    if comparison_manifest is not None and comparison_manifest.is_file():
+        current_manifest_path = artifact_root / TABLE_HASH_FILE
+        current_root = _canonical_manifest_root(
+            current_manifest_path,
+            label="current manifest",
+        )
+        first_root = _canonical_manifest_root(
+            comparison_manifest,
+            label="first-run manifest",
+        )
+        first_artifact_root = first_root
+        if current_root == first_root:
+            raise LexicalReportError(
+                "first-run comparison manifest must belong to a distinct artifact root"
+            )
+        first_manifest_sha256 = sha256_file(comparison_manifest)
+        first_validation = validate_lexical_artifacts(
+            first_root,
+            database_path=validation_database,
+            config_path=lexical_config_path,
+            preregistration_path=preregistration_path,
+            verify_anchors=production_root,
+            verify_duckdb=production_root,
+            verify_sparse_indexes=production_root,
+            strict=True,
+        )
+        if sha256_file(comparison_manifest) != first_manifest_sha256:
+            raise LexicalReportError("first-run manifest changed during strict validation")
+        first_run_strict_validation_passed = (
+            first_validation.passed
+            and first_validation.error_count == 0
+            and first_validation.warning_count == 0
+        )
+    determinism = compare_lexical_manifests(
+        manifest,
+        comparison_manifest,
+        current_manifest_path=artifact_root / TABLE_HASH_FILE,
+        current_metadata=tables.metadata,
+        first_run_strict_validation_passed=first_run_strict_validation_passed,
+    )
+    execution_determinism = verify_execution_determinism(
+        project_root=Path.cwd(),
+        manifest_root=execution_manifest_root,
+        run_id=str(tables.metadata["experiment_run_id"]),
+        first_execution_id=first_execution_id,
+        second_execution_id=second_execution_id,
+        first_artifact_root=first_artifact_root,
+        second_artifact_root=artifact_root,
+    )
     report, gate_passed = _render_report(
         tables,
         manifest,
         preregistration,
         determinism,
+        execution_determinism,
         strict_validation,
         pr7_merge_commit=pr7_merge_commit,
     )
@@ -1863,4 +2259,5 @@ def generate_lexical_baseline_reports(
         sha256_by_name=hashes,
         acceptance_gate_passed=gate_passed,
         determinism=determinism,
+        execution_determinism=execution_determinism,
     )

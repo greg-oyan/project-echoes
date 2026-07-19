@@ -6,6 +6,88 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 ### Added
 
+- Execution-attempt provenance and exact interrupted-build preservation for
+  Milestone 7. A sidecar is created before pipeline work and binds the governed
+  source tree, dependency lock, configuration and preregistration, pinned
+  datasets and upstream table hashes, all three actual seeds, authenticated
+  resume parts and checkpoints, promoted table/file inventories, runtime,
+  hardware, warnings, errors, and a bounded `echoes reproduce <run_id>`
+  command. Separate failed, recovered-composite, and fresh attempts are
+  retained. Archived deterministic-build roots can be authenticated against
+  the exact successful execution that produced them, and report acceptance
+  requires distinct successful executions rather than copied directories.
+  Private recovery checkpoints are quarantined transactionally across
+  promotion, DuckDB loading, and manifest finalization, while fresh full builds
+  preserve governed staging on error.
+
+- Fail-closed adjacent-bin reconciliation for deterministic float64 detector
+  evidence. Sole-worker attempt 5k completed all 26 Tier 3 checkpoint batches,
+  all 600 frozen null replicates, calibration, global candidate ranking, and
+  four aligned candidate/evidence parts before BM25 recomputation differed
+  from the persisted score by one unit at the frozen 12-decimal precision.
+  Exact matches remain byte-compatible; an adjacent one-bin result records
+  both fixed decimals and the signed delta without changing either score or
+  rank; larger or non-finite differences still fail. The failed attempt,
+  stderr, posthoc inventory, checkpoints, null results, and partial candidate
+  leaves remain preserved.
+
+- Fail-closed Milestone 7 interrupted-build recovery after the fourth atomic
+  attempt completed all ranking and sensitivity artifacts but hit a
+  708,873,488-byte Rust allocator failure during Tier 3 strata discovery.
+  Governed staging adoption now validates and hashes every preserved leaf,
+  strata discovery projects one bounded Parquet leaf at a time, and a private
+  content-hashed primary-candidate checkpoint prevents repeated recovery work.
+  The one lost in-memory aggregate set is reconstructed exactly from persisted
+  primary indexes while every regenerated ranking leaf is compared with the
+  preserved logical rows; completed critical, Qere/Ketiv, and sensitivity
+  stages are skipped. Ranking-derived split provenance is completed for the
+  eight zero-ranking passages by an exact, spill-capped anchored mapping lookup
+  whose canonical payload matches the original full expansion. After all 968
+  regenerated primary batches matched and checkpointed, the repeated allocator
+  failure isolated the next global candidate-universe grouping; directory
+  inputs now build that identical sorted unique-target mapping one bounded leaf
+  at a time. A subsequent 1,827,928,004-byte allocator failure isolated the
+  next global per-detector ranking collection; evaluation now streams those
+  filtered rows per leaf and produces the same canonically validated target
+  and score maps. A later 1,632-byte allocation failure at the final
+  critical-core composite exposed cumulative retention of all Tier 3 Python
+  result rows. Each unchanged baseline/detector batch now receives a typed,
+  identity- and SHA-256-validated private Parquet completion checkpoint and is
+  released immediately; validated resumes skip completed detector passes, and
+  the assembled governed frame is written and released before null
+  calibration. Direct, checkpointed, and resumed outputs are fixture-equal.
+  Windows background-launch diagnostics also exposed transient wrapper
+  processes whose child workers could persist; two mistakenly overlapping
+  resumes failed under combined memory pressure and remain preserved as failed
+  attempts. A subsequent sole-worker resume validates every reusable
+  checkpoint part by frozen run/configuration/preregistration identity, schema,
+  lineage, row count, evaluation IDs, and physical SHA-256 before reuse.
+  No frozen scope, method, seed, threshold, null, or acceptance parameter
+  changed.
+
+- Bounded Milestone 7 sensitivity materialization after the third unpromoted
+  atomic attempt exposed a 13.4-GB global-join spill. The unchanged
+  reference-keyed comparison now runs in deterministic
+  corpus-pair/detector/query-reference-hash partitions with a 2-GiB
+  per-partition spill cap and a pre-query reserve for the governed disk floor
+  plus a 256-MiB safety margin. A full-scale operational diagnostic streamed
+  all 28.3 million critical-sensitivity rows while retaining more than
+  21.3 GB free. The failed attempt, exact staging/spill footprint, absence of
+  held-out inspection, and physical-only correction are recorded in ADR 0015
+  and the experiment log.
+
+- Build Week demonstration export governance and implementation: ADR 0016
+  defines a tracked `demo/data/echoes-demo-v1/` bundle of authenticated run
+  metadata, real Tier 3 recoveries, a frozen unreviewed queue sample, and
+  Qere/Ketiv and disputed-profile sensitivity examples. The deterministic
+  exporter exposes stable lexical feature IDs, positions, frequencies, scores,
+  ranks, flags, null comparisons, hashes, and attribution while prohibiting
+  source lexical values, reconstructed text, glosses, morphology strings, raw
+  records, and local paths. A recursive fail-closed schema validator and tests
+  prevent restricted or unresolved redistribution fields from entering the
+  public JSON. The export records no candidate review, interpretation, or
+  novelty decision and does not begin Milestone 8.
+
 - Milestone 7 pre-heldout implementation closure on 2026-07-13: ADR 0015 and
   the authenticated experiment preregistration now explicitly freeze the
   edition-complete primary verse experiment, full critical-core Greek

@@ -10,12 +10,13 @@ import math
 import platform
 import shutil
 import time
+import warnings
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, cast
+from typing import Literal, Protocol, cast
 
 from echoes.lexical.resources import (
     MEBIBYTE,
@@ -44,6 +45,8 @@ from echoes.lexical.candidates import (
     load_known_pair_index,
 )
 from echoes.lexical.config import (
+    LEXICAL_CONFIG_PATH,
+    LEXICAL_PREREGISTRATION_PATH,
     AnalysisProfile,
     CorpusPair,
     FeatureFamily,
@@ -55,10 +58,10 @@ from echoes.lexical.config import (
     load_lexical_preregistration,
     validate_preregistration_against_config,
 )
+from echoes.lexical.evaluation import REQUIRED_BASELINES
 from echoes.lexical.experiment import (
     LexicalExperimentError,
     Tier3EvaluationScope,
-    combine_lexical_experiment_artifacts,
     governed_detectors_by_corpus_pair,
     run_null_calibration_experiment,
     run_tier3_evaluation_experiment,
@@ -83,19 +86,32 @@ from echoes.lexical.models import (
     LEXICAL_METADATA_SCHEMA,
     SENSITIVITY_RESULTS_SCHEMA,
 )
-from echoes.lexical.retrieval import CandidateAggregate, iter_retrieval_batches
+from echoes.lexical.retrieval import (
+    DETECTOR_FAMILIES,
+    CandidateAggregate,
+    CandidateDirection,
+    iter_retrieval_batches,
+)
 from echoes.lexical.sequences import (
     PassageLexicalSequence,
     iter_passage_sequences,
     sequence_digest,
 )
-from echoes.lexical.sparse import SparseLexicalIndex, build_sparse_index, persist_sparse_index
+from echoes.lexical.sparse import (
+    SparseIndexError,
+    SparseLexicalIndex,
+    build_sparse_index,
+    load_sparse_index,
+    persist_sparse_index,
+)
 from echoes.lexical.storage import (
     LexicalArtifactWriter,
     ProcessedLexical,
     load_lexical_duckdb,
 )
 from echoes.lexical.validation import sparse_index_physical_hash
+from echoes.manifest import ExperimentExecutionRecorder, sha256_file
+from echoes.manifests.sources import load_source_catalog
 from echoes.settings import BenchmarkConfig, load_config
 
 DEFAULT_DATABASE_PATH = Path("data/processed/project_echoes.duckdb")
@@ -105,7 +121,26 @@ DEFAULT_OSHB_ROOT = Path("data/processed/oshb-morphhb/master-3d15126")
 DEFAULT_TIER1_PATH = Path("data/benchmarks/tier1_quotations.csv")
 DEFAULT_LEXICAL_ROOT = Path("data/processed/lexical/schema-v1")
 
+_M7_SOURCE_IDS = (
+    "macula-hebrew",
+    "macula-greek",
+    "oshb-morphhb",
+    "openbible-cross-references",
+    "project-echoes-tier1-quotations",
+)
+_M7_DATASET_MANIFEST_PATH = Path("data/manifests/sources.yaml")
+_M7_CONFIGURATION_FILES = {
+    "benchmark_yaml": Path("config/benchmark.yaml"),
+    "lexical_preregistration_yaml": LEXICAL_PREREGISTRATION_PATH,
+    "lexical_yaml": LEXICAL_CONFIG_PATH,
+    "models_yaml": Path("config/models.yaml"),
+    "normalization_yaml": Path("config/normalization.yaml"),
+    "scoring_yaml": Path("config/scoring.yaml"),
+    "segmentation_yaml": Path("config/segmentation.yaml"),
+}
+
 _DUCKDB_PREFERRED_MEMORY_BYTES = 512 * MEBIBYTE
+_SENSITIVITY_DUCKDB_PREFERRED_MEMORY_BYTES = 1024 * MEBIBYTE
 _PROVENANCE_DUCKDB_PREFERRED_MEMORY_BYTES = 1536 * MEBIBYTE
 _DUCKDB_PYTHON_RESERVE_BYTES = 512 * MEBIBYTE
 _SEQUENCE_LOAD_RESERVATION_BYTES = 512 * MEBIBYTE
@@ -113,6 +148,16 @@ _FEATURE_VOCABULARY_RESERVATION_BYTES = 768 * MEBIBYTE
 _PASSAGE_STATISTICS_RESERVATION_BYTES = 512 * MEBIBYTE
 _CANDIDATE_EVIDENCE_RESERVATION_BYTES = 768 * MEBIBYTE
 _REVIEW_QUEUE_READ_BATCH_SIZE = 10_000
+_CANDIDATE_REVIEW_QUEUE_SPOOL_DIRECTORY = ".candidate-review-queue-spool"
+_SENSITIVITY_MAX_SPILL_BYTES = 2 * 1024 * MEBIBYTE
+_SENSITIVITY_SPILL_SAFETY_BYTES = 256 * MEBIBYTE
+_SENSITIVITY_MINIMUM_SPILL_BYTES = 256 * MEBIBYTE
+_SENSITIVITY_QUERY_REFERENCE_BUCKETS = (
+    ("0", "1", "2", "3"),
+    ("4", "5", "6", "7"),
+    ("8", "9", "a", "b"),
+    ("c", "d", "e", "f"),
+)
 
 
 class LexicalPipelineError(RuntimeError):
@@ -121,6 +166,10 @@ class LexicalPipelineError(RuntimeError):
 
 class _ResourceCheck(Protocol):
     def __call__(self, stage: str, *, estimated_additional_bytes: int = 0) -> None: ...
+
+
+class _CandidateCheckpoint(Protocol):
+    def write_updates(self, updates: Sequence[CandidateAggregate]) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,6 +214,368 @@ class _RetrievalScopeResult:
     candidates: dict[str, CandidateAggregate]
     ranking_count: int
     next_ranking_part: int
+
+
+_CANDIDATE_CHECKPOINT_SCHEMA = pl.Schema(
+    {
+        "candidate_pair_id": pl.String,
+        "canonical_unordered_pair_id": pl.String,
+        "passage_a_id": pl.String,
+        "passage_b_id": pl.String,
+        "corpus_pair": pl.String,
+        "analysis_profile": pl.String,
+        "granularity": pl.String,
+        "direction": pl.String,
+        "query_passage_id": pl.String,
+        "target_passage_id": pl.String,
+        "scores_json": pl.String,
+        "ranks_json": pl.String,
+        "rrf_score": pl.Float64,
+        "proposal_detectors_json": pl.String,
+        "alignment_evaluated": pl.Boolean,
+        "score_trace_version": pl.String,
+    }
+)
+_CANDIDATE_CHECKPOINT_DIRECTORY = ".resume-primary-candidates"
+_CANDIDATE_CHECKPOINT_MANIFEST = "complete.json"
+_TIER3_CHECKPOINT_DIRECTORY = "tier3-evaluation"
+_TIER3_CHECKPOINT_SCHEMA_VERSION = 1
+
+
+@dataclass(slots=True)
+class _PrivateCheckpointQuarantine:
+    """Keep private recovery state outside promotion until manifest success."""
+
+    output_dir: Path
+    staging_dir: Path | None = None
+    quarantine_dir: Path | None = None
+
+    def _expected_quarantine(self, staging_dir: Path) -> Path:
+        token = hashlib.sha256(staging_dir.as_posix().encode("utf-8")).hexdigest()[:20]
+        resolved_output = self.output_dir.resolve()
+        return resolved_output.parent / f".{resolved_output.name}.checkpoint-quarantine-{token}"
+
+    def register_staging(self, staging_dir: Path) -> None:
+        resolved_output = self.output_dir.resolve()
+        if staging_dir.is_symlink():
+            raise LexicalPipelineError("private-checkpoint staging path is not governed")
+        resolved_staging = staging_dir.resolve()
+        if (
+            resolved_staging.parent != resolved_output.parent
+            or not resolved_staging.name.startswith(f".{resolved_output.name}.writing-")
+        ):
+            raise LexicalPipelineError("private-checkpoint staging path is not governed")
+        if self.staging_dir is not None and self.staging_dir != resolved_staging:
+            raise LexicalPipelineError("private-checkpoint staging path changed during execution")
+        self.staging_dir = resolved_staging
+        quarantine = self._expected_quarantine(resolved_staging)
+        if quarantine.exists() or quarantine.is_symlink():
+            destination = resolved_staging / _CANDIDATE_CHECKPOINT_DIRECTORY
+            if (
+                quarantine.is_symlink()
+                or not quarantine.is_dir()
+                or quarantine.resolve().parent != resolved_output.parent
+            ):
+                raise LexicalPipelineError(
+                    f"private checkpoint quarantine is not governed: {quarantine}"
+                )
+            if destination.exists() or destination.is_symlink():
+                raise LexicalPipelineError(
+                    "both staging and quarantine contain private checkpoints"
+                )
+            quarantine.replace(destination)
+
+    def quarantine_before_promotion(self) -> None:
+        if self.staging_dir is None:
+            raise LexicalPipelineError("private-checkpoint staging path is unavailable")
+        checkpoint_root = self.staging_dir / _CANDIDATE_CHECKPOINT_DIRECTORY
+        if not checkpoint_root.exists():
+            return
+        if checkpoint_root.is_symlink():
+            raise LexicalPipelineError("private checkpoint path escaped staging")
+        resolved_checkpoint = checkpoint_root.resolve()
+        if resolved_checkpoint.parent != self.staging_dir or not resolved_checkpoint.is_dir():
+            raise LexicalPipelineError("private checkpoint path escaped staging")
+        quarantine = self._expected_quarantine(self.staging_dir)
+        if quarantine.exists() or quarantine.is_symlink():
+            raise LexicalPipelineError(
+                f"private checkpoint quarantine already exists: {quarantine}"
+            )
+        resolved_checkpoint.replace(quarantine)
+        self.quarantine_dir = quarantine
+
+    def preserve_after_failure(self, error: BaseException) -> None:
+        """Restore resumable state when possible and never mask the primary failure."""
+
+        staging = self.staging_dir
+        quarantine = self.quarantine_dir
+        if quarantine is not None and quarantine.exists():
+            destination = None if staging is None else staging / _CANDIDATE_CHECKPOINT_DIRECTORY
+            if staging is not None and staging.is_dir() and destination is not None:
+                if destination.exists() or destination.is_symlink():
+                    error.add_note(
+                        "private checkpoint quarantine was preserved because its staging "
+                        f"destination already exists: {quarantine}"
+                    )
+                else:
+                    try:
+                        quarantine.replace(destination)
+                    except OSError as restore_error:
+                        error.add_note(
+                            "private checkpoint quarantine could not be restored and remains "
+                            f"at {quarantine}: {restore_error}"
+                        )
+                    else:
+                        self.quarantine_dir = None
+                        quarantine = None
+            if quarantine is not None:
+                error.add_note(f"preserved private checkpoint quarantine: {quarantine}")
+        if staging is not None and staging.is_dir():
+            error.add_note(f"preserved lexical staging directory: {staging}")
+
+    def cleanup_after_success(self) -> str | None:
+        """Remove quarantined state only after the successful manifest is durable."""
+
+        quarantine = self.quarantine_dir
+        if quarantine is None or not quarantine.exists():
+            self.quarantine_dir = None
+            return None
+        if quarantine.is_symlink():
+            return f"refusing to clean ungoverned checkpoint quarantine: {quarantine}"
+        resolved_output = self.output_dir.resolve()
+        resolved_quarantine = quarantine.resolve()
+        expected_prefix = f".{resolved_output.name}.checkpoint-quarantine-"
+        if (
+            resolved_quarantine.parent != resolved_output.parent
+            or not resolved_quarantine.name.startswith(expected_prefix)
+        ):
+            return f"refusing to clean ungoverned checkpoint quarantine: {quarantine}"
+        try:
+            shutil.rmtree(quarantine)
+        except OSError as error:
+            return f"could not clean successful checkpoint quarantine {quarantine}: {error}"
+        self.quarantine_dir = None
+        return None
+
+
+class _CandidateCheckpointWriter:
+    """Persist exact primary aggregate updates behind a completion marker."""
+
+    def __init__(
+        self,
+        staging_dir: Path,
+        *,
+        experiment_run_id: str,
+        configuration_hash: str,
+    ) -> None:
+        self.root = staging_dir / _CANDIDATE_CHECKPOINT_DIRECTORY
+        if self.root.exists():
+            if self.root.is_symlink():
+                raise LexicalPipelineError("candidate checkpoint path escaped staging")
+            resolved = self.root.resolve()
+            if resolved.parent != staging_dir.resolve() or not resolved.is_dir():
+                raise LexicalPipelineError("candidate checkpoint path escaped staging")
+            for path in sorted(resolved.iterdir()):
+                if path.name == _TIER3_CHECKPOINT_DIRECTORY:
+                    if path.is_symlink() or not path.is_dir() or path.resolve().parent != resolved:
+                        raise LexicalPipelineError(
+                            "candidate checkpoint contains an unsafe Tier 3 checkpoint"
+                        )
+                    continue
+                if path.name == "progress.txt":
+                    if path.is_symlink() or not path.is_file() or path.resolve().parent != resolved:
+                        raise LexicalPipelineError(
+                            "candidate checkpoint contains an unsafe progress marker"
+                        )
+                    continue
+                if path.is_symlink() or not path.is_file():
+                    raise LexicalPipelineError(
+                        f"candidate checkpoint contains ungoverned direct residue: {path.name}"
+                    )
+                if path.name != _CANDIDATE_CHECKPOINT_MANIFEST and not (
+                    path.name.startswith("part-") and path.suffix == ".parquet"
+                ):
+                    raise LexicalPipelineError(
+                        f"candidate checkpoint contains unexpected direct residue: {path.name}"
+                    )
+                path.unlink()
+        self.root.mkdir(exist_ok=True)
+        self.experiment_run_id = experiment_run_id
+        self.configuration_hash = configuration_hash
+        self.parts: list[dict[str, object]] = []
+        self.row_count = 0
+
+    def write_updates(self, updates: Sequence[CandidateAggregate]) -> None:
+        rows: list[dict[str, object]] = []
+        for candidate in updates:
+            for direction in candidate.directions.values():
+                rows.append(
+                    {
+                        "candidate_pair_id": candidate.candidate_pair_id,
+                        "canonical_unordered_pair_id": candidate.canonical_unordered_pair_id,
+                        "passage_a_id": candidate.passage_a_id,
+                        "passage_b_id": candidate.passage_b_id,
+                        "corpus_pair": candidate.corpus_pair,
+                        "analysis_profile": candidate.analysis_profile,
+                        "granularity": candidate.granularity,
+                        "direction": direction.direction,
+                        "query_passage_id": direction.query_passage_id,
+                        "target_passage_id": direction.target_passage_id,
+                        "scores_json": _canonical_json(direction.scores),
+                        "ranks_json": _canonical_json(direction.ranks),
+                        "rrf_score": direction.rrf_score,
+                        "proposal_detectors_json": _canonical_json(
+                            list(direction.proposal_detectors)
+                        ),
+                        "alignment_evaluated": direction.alignment_evaluated,
+                        "score_trace_version": direction.score_trace_version,
+                    }
+                )
+        frame = pl.DataFrame(rows, schema=_CANDIDATE_CHECKPOINT_SCHEMA, orient="row").sort(
+            "candidate_pair_id",
+            "direction",
+            "query_passage_id",
+            "target_passage_id",
+        )
+        part = len(self.parts)
+        path = self.root / f"part-{part:05d}.parquet"
+        frame.write_parquet(
+            path,
+            compression="zstd",
+            compression_level=6,
+            statistics=True,
+        )
+        self.parts.append(
+            {
+                "path": path.name,
+                "row_count": frame.height,
+                "sha256": sha256_file(path),
+            }
+        )
+        self.row_count += frame.height
+
+    def finalize(self) -> None:
+        if not self.parts or self.row_count < 1:
+            raise LexicalPipelineError("primary candidate checkpoint is empty")
+        payload = {
+            "schema_version": 1,
+            "experiment_run_id": self.experiment_run_id,
+            "configuration_hash": self.configuration_hash,
+            "row_count": self.row_count,
+            "parts": self.parts,
+        }
+        (self.root / _CANDIDATE_CHECKPOINT_MANIFEST).write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+
+def _load_candidate_checkpoint(
+    staging_dir: Path,
+    *,
+    experiment_run_id: str,
+    configuration_hash: str,
+    resource_check: _ResourceCheck | None = None,
+) -> dict[str, CandidateAggregate] | None:
+    root = staging_dir / _CANDIDATE_CHECKPOINT_DIRECTORY
+    manifest_path = root / _CANDIDATE_CHECKPOINT_MANIFEST
+    if not root.exists():
+        return None
+    if root.is_symlink() or not root.is_dir() or root.resolve().parent != staging_dir.resolve():
+        raise LexicalPipelineError("candidate checkpoint path escaped staging")
+    if not manifest_path.is_file():
+        return None
+    if manifest_path.is_symlink() or manifest_path.resolve().parent != root.resolve():
+        raise LexicalPipelineError("candidate checkpoint manifest escaped its root")
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise LexicalPipelineError(f"candidate checkpoint manifest is unreadable: {exc}") from exc
+    if (
+        not isinstance(manifest, dict)
+        or manifest.get("schema_version") != 1
+        or manifest.get("experiment_run_id") != experiment_run_id
+        or manifest.get("configuration_hash") != configuration_hash
+        or not isinstance(manifest.get("parts"), list)
+    ):
+        raise LexicalPipelineError("candidate checkpoint identity does not match the resumed run")
+    merged: dict[str, CandidateAggregate] = {}
+    observed_rows = 0
+    parts = cast(list[object], manifest["parts"])
+    for part, item in enumerate(parts):
+        if not isinstance(item, dict):
+            raise LexicalPipelineError("candidate checkpoint part metadata is invalid")
+        expected_name = f"part-{part:05d}.parquet"
+        if item.get("path") != expected_name:
+            raise LexicalPipelineError("candidate checkpoint parts are not contiguous")
+        path = root / expected_name
+        if (
+            not path.is_file()
+            or sha256_file(path) != item.get("sha256")
+            or path.resolve().parent != root.resolve()
+        ):
+            raise LexicalPipelineError(
+                f"candidate checkpoint physical hash mismatch: {expected_name}"
+            )
+        try:
+            frame = pl.read_parquet(path, rechunk=True).cast(
+                _CANDIDATE_CHECKPOINT_SCHEMA, strict=True
+            )
+        except (OSError, pl.exceptions.PolarsError) as exc:
+            raise LexicalPipelineError(
+                f"candidate checkpoint part is unreadable: {expected_name}: {exc}"
+            ) from exc
+        if tuple(frame.columns) != tuple(_CANDIDATE_CHECKPOINT_SCHEMA):
+            raise LexicalPipelineError("candidate checkpoint schema differs")
+        if frame.height != item.get("row_count"):
+            raise LexicalPipelineError("candidate checkpoint row count differs")
+        updates: list[CandidateAggregate] = []
+        for row in frame.iter_rows(named=True):
+            try:
+                scores = json.loads(cast(str, row["scores_json"]))
+                ranks = json.loads(cast(str, row["ranks_json"]))
+                proposals = json.loads(cast(str, row["proposal_detectors_json"]))
+            except json.JSONDecodeError as exc:
+                raise LexicalPipelineError("candidate checkpoint contains invalid JSON") from exc
+            if (
+                not isinstance(scores, dict)
+                or not isinstance(ranks, dict)
+                or not isinstance(proposals, list)
+            ):
+                raise LexicalPipelineError("candidate checkpoint trace payload is invalid")
+            direction_value = str(row["direction"])
+            if direction_value not in {"a_to_b", "b_to_a"}:
+                raise LexicalPipelineError("candidate checkpoint direction is invalid")
+            candidate = CandidateAggregate(
+                candidate_pair_id=cast(str, row["candidate_pair_id"]),
+                canonical_unordered_pair_id=cast(str, row["canonical_unordered_pair_id"]),
+                passage_a_id=cast(str, row["passage_a_id"]),
+                passage_b_id=cast(str, row["passage_b_id"]),
+                corpus_pair=cast(str, row["corpus_pair"]),
+                analysis_profile=cast(str, row["analysis_profile"]),
+                granularity=cast(str, row["granularity"]),
+            )
+            candidate.add_direction(
+                CandidateDirection(
+                    direction=cast(Literal["a_to_b", "b_to_a"], direction_value),
+                    query_passage_id=cast(str, row["query_passage_id"]),
+                    target_passage_id=cast(str, row["target_passage_id"]),
+                    scores={str(key): float(value) for key, value in scores.items()},
+                    ranks={str(key): int(value) for key, value in ranks.items()},
+                    rrf_score=float(cast(float, row["rrf_score"])),
+                    proposal_detectors=tuple(str(value) for value in proposals),
+                    alignment_evaluated=bool(row["alignment_evaluated"]),
+                    score_trace_version=cast(str, row["score_trace_version"]),
+                )
+            )
+            updates.append(candidate)
+        _merge_updates(merged, updates)
+        observed_rows += frame.height
+        if resource_check is not None:
+            resource_check(f"candidate_checkpoint:part-{part}")
+    if observed_rows != manifest.get("row_count") or not merged:
+        raise LexicalPipelineError("candidate checkpoint completion count differs")
+    return merged
 
 
 @contextmanager
@@ -242,6 +653,259 @@ def _retrieval_reservation_bytes(config: LexicalConfig) -> int:
     return max(256 * MEBIBYTE, estimated)
 
 
+def _m7_source_versions() -> dict[str, str]:
+    catalog = load_source_catalog(_M7_DATASET_MANIFEST_PATH)
+    versions: dict[str, str] = {}
+    for source_id in _M7_SOURCE_IDS:
+        source = catalog.find(source_id)
+        if source is None or source.version_or_commit is None:
+            raise LexicalPipelineError(f"M7 source manifest lacks a pinned version for {source_id}")
+        versions[f"source:{source_id}"] = source.version_or_commit
+    return versions
+
+
+def _prefixed_hashes(prefix: str, values: Mapping[str, str]) -> dict[str, str]:
+    return {f"{prefix}:{key}": value for key, value in sorted(values.items())}
+
+
+def _m7_anchor_input_hashes(anchors: AnchorVerification) -> dict[str, str]:
+    return {
+        **_prefixed_hashes("corpus_identity", anchors.corpus_identity_digests),
+        **_prefixed_hashes("corpus_content", anchors.corpus_content_digests),
+        **_prefixed_hashes("corpus_analytical", anchors.corpus_analytical_digests),
+        **_prefixed_hashes("oshb", anchors.oshb_logical_hashes),
+        **_prefixed_hashes("passage", anchors.passage_logical_hashes),
+        **_prefixed_hashes("benchmark", anchors.benchmark_logical_hashes),
+        "openbible:archive": anchors.openbible_archive_sha256,
+        "openbible:canonical_stream": anchors.openbible_canonical_stream_sha256,
+        "tier1:quotations": anchors.tier1_sha256,
+    }
+
+
+def _m7_anchor_dataset_versions(anchors: AnchorVerification) -> dict[str, str]:
+    return {
+        "benchmark:run_id": anchors.benchmark_run_id,
+        "benchmark:version": anchors.benchmark_version,
+        "openbible:snapshot": anchors.openbible_snapshot,
+        "passages:run_id": anchors.passage_run_id,
+    }
+
+
+def _command_path(path: Path, *, project_root: Path) -> str:
+    root = project_root.resolve()
+    resolved = (root / path).resolve() if not path.is_absolute() else path.resolve()
+    try:
+        return resolved.relative_to(root).as_posix()
+    except ValueError:
+        return resolved.as_posix()
+
+
+def _m7_reproduction_command(
+    *,
+    database_path: Path,
+    output_dir: Path,
+    force: bool,
+    project_root: Path,
+) -> list[str]:
+    command = [
+        "uv",
+        "run",
+        "echoes",
+        "run-lexical-pipeline",
+        "--primary",
+        "--database",
+        _command_path(database_path, project_root=project_root),
+        "--output-dir",
+        _command_path(output_dir, project_root=project_root),
+    ]
+    if force:
+        command.append("--force")
+    return command
+
+
+def _validated_resume_file_hashes(
+    staging_dir: Path,
+    *,
+    candidate_checkpoint_reused: bool,
+) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
+    resolved = staging_dir.resolve()
+    artifact_parts: dict[str, str] = {}
+    for path in sorted(resolved.glob("*/part-*.parquet")):
+        if (
+            not path.is_file()
+            or path.is_symlink()
+            or path.parent.name == _CANDIDATE_CHECKPOINT_DIRECTORY
+        ):
+            continue
+        artifact_parts[path.relative_to(resolved).as_posix()] = sha256_file(path)
+
+    checkpoint_manifests: dict[str, str] = {}
+    checkpoint_parts: dict[str, str] = {}
+    if candidate_checkpoint_reused:
+        checkpoint_root = resolved / _CANDIDATE_CHECKPOINT_DIRECTORY
+        manifest_path = checkpoint_root / _CANDIDATE_CHECKPOINT_MANIFEST
+        if not manifest_path.is_file() or manifest_path.is_symlink():
+            raise LexicalPipelineError("validated candidate checkpoint manifest disappeared")
+        checkpoint_manifests[manifest_path.relative_to(resolved).as_posix()] = sha256_file(
+            manifest_path
+        )
+        for path in sorted(checkpoint_root.glob("part-*.parquet")):
+            if not path.is_file() or path.is_symlink():
+                raise LexicalPipelineError("validated candidate checkpoint part disappeared")
+            checkpoint_parts[path.relative_to(resolved).as_posix()] = sha256_file(path)
+    if not artifact_parts:
+        raise LexicalPipelineError("validated resume contains no reusable artifact parts")
+    return artifact_parts, checkpoint_manifests, checkpoint_parts
+
+
+def _expected_tier3_checkpoint_manifest_names(
+    *,
+    analysis_profiles: Sequence[str],
+    enabled_detectors: Sequence[str],
+) -> tuple[str, ...]:
+    detectors = (*enabled_detectors, "rrf_composite")
+    names = {
+        f"{profile}-baseline-{baseline}.json"
+        for profile in analysis_profiles
+        for baseline in REQUIRED_BASELINES
+    }
+    names.update(
+        f"{profile}-detector-{detector}.json"
+        for profile in analysis_profiles
+        for detector in detectors
+    )
+    return tuple(sorted(names))
+
+
+def _validated_existing_tier3_checkpoint_hashes(
+    staging_dir: Path,
+    *,
+    expected_manifest_names: Sequence[str],
+    experiment_run_id: str,
+    configuration_hash: str,
+    preregistration_hash: str,
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Authenticate the expected pre-existing Tier 3 checkpoint inventory."""
+
+    resolved_staging = staging_dir.resolve()
+    checkpoint_root = resolved_staging / _CANDIDATE_CHECKPOINT_DIRECTORY
+    tier3_root = checkpoint_root / _TIER3_CHECKPOINT_DIRECTORY
+    if not tier3_root.exists():
+        return {}, {}
+    if (
+        checkpoint_root.is_symlink()
+        or checkpoint_root.resolve().parent != resolved_staging
+        or tier3_root.is_symlink()
+        or not tier3_root.is_dir()
+        or tier3_root.resolve().parent != checkpoint_root.resolve()
+    ):
+        raise LexicalPipelineError("Tier 3 checkpoint path escaped resumed staging")
+
+    expected_names = set(expected_manifest_names)
+    actual_entries = sorted(tier3_root.iterdir(), key=lambda path: path.name)
+    unexpected_directories = [path.name for path in actual_entries if not path.is_file()]
+    if unexpected_directories:
+        raise LexicalPipelineError(
+            f"Tier 3 checkpoint contains unexpected directories: {unexpected_directories[:5]}"
+        )
+    actual_manifests = {
+        path.name for path in actual_entries if path.suffix == ".json" and not path.is_symlink()
+    }
+    unexpected_manifests = sorted(actual_manifests.difference(expected_names))
+    if unexpected_manifests:
+        raise LexicalPipelineError(
+            f"Tier 3 checkpoint contains unexpected manifests: {unexpected_manifests[:5]}"
+        )
+
+    manifest_hashes: dict[str, str] = {}
+    part_hashes: dict[str, str] = {}
+    referenced_names: set[str] = set()
+    for manifest_name in sorted(actual_manifests):
+        manifest_path = tier3_root / manifest_name
+        if manifest_path.is_symlink() or manifest_path.resolve().parent != tier3_root.resolve():
+            raise LexicalPipelineError(f"Tier 3 checkpoint manifest is unsafe: {manifest_name}")
+        try:
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise LexicalPipelineError(
+                f"Tier 3 checkpoint manifest is unreadable: {manifest_name}: {exc}"
+            ) from exc
+        if not isinstance(payload, dict):
+            raise LexicalPipelineError(
+                f"Tier 3 checkpoint manifest is not an object: {manifest_name}"
+            )
+        expected_identity = {
+            "schema_version": _TIER3_CHECKPOINT_SCHEMA_VERSION,
+            "experiment_run_id": experiment_run_id,
+            "configuration_hash": configuration_hash,
+            "preregistration_hash": preregistration_hash,
+        }
+        if any(payload.get(field) != value for field, value in expected_identity.items()):
+            raise LexicalPipelineError(f"Tier 3 checkpoint identity differs: {manifest_name}")
+        part_name = payload.get("path")
+        declared_hash = payload.get("sha256")
+        if (
+            not isinstance(part_name, str)
+            or Path(part_name).name != part_name
+            or not isinstance(declared_hash, str)
+        ):
+            raise LexicalPipelineError(f"Tier 3 checkpoint metadata is invalid: {manifest_name}")
+        part_path = tier3_root / part_name
+        if (
+            not part_path.is_file()
+            or part_path.is_symlink()
+            or part_path.resolve().parent != tier3_root.resolve()
+        ):
+            raise LexicalPipelineError(f"Tier 3 checkpoint part is unsafe: {part_name}")
+        observed_hash = sha256_file(part_path)
+        if observed_hash != declared_hash:
+            raise LexicalPipelineError(f"Tier 3 checkpoint physical hash differs: {part_name}")
+        relative_manifest = manifest_path.relative_to(resolved_staging).as_posix()
+        relative_part = part_path.relative_to(resolved_staging).as_posix()
+        manifest_hashes[relative_manifest] = sha256_file(manifest_path)
+        part_hashes[relative_part] = observed_hash
+        referenced_names.add(part_name)
+
+    actual_nonmanifest_files = {
+        path.name
+        for path in actual_entries
+        if path.is_file() and path.suffix != ".json" and not path.is_symlink()
+    }
+    unexpected_parts = sorted(actual_nonmanifest_files.difference(referenced_names))
+    missing_parts = sorted(referenced_names.difference(actual_nonmanifest_files))
+    unsafe_symlinks = sorted(path.name for path in actual_entries if path.is_symlink())
+    if unexpected_parts or missing_parts or unsafe_symlinks:
+        raise LexicalPipelineError(
+            "Tier 3 checkpoint inventory is not governed: "
+            f"unexpected={unexpected_parts[:5]}, missing={missing_parts[:5]}, "
+            f"symlinks={unsafe_symlinks[:5]}"
+        )
+    return manifest_hashes, part_hashes
+
+
+def _confirmed_tier3_checkpoint_reuse(
+    *,
+    before_manifests: Mapping[str, str],
+    before_parts: Mapping[str, str],
+    after_manifests: Mapping[str, str],
+    after_parts: Mapping[str, str],
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Return only pre-existing Tier 3 files unchanged after successful reuse."""
+
+    changed_manifests = sorted(
+        path for path, digest in before_manifests.items() if after_manifests.get(path) != digest
+    )
+    changed_parts = sorted(
+        path for path, digest in before_parts.items() if after_parts.get(path) != digest
+    )
+    if changed_manifests or changed_parts:
+        raise LexicalPipelineError(
+            "Tier 3 checkpoint changed while confirming reuse: "
+            f"manifests={changed_manifests[:5]}, parts={changed_parts[:5]}"
+        )
+    return dict(sorted(before_manifests.items())), dict(sorted(before_parts.items()))
+
+
 def build_experiment_run_id(
     *,
     configuration_hash: str,
@@ -289,15 +953,16 @@ def _book_genres() -> dict[str, str]:
 
 def _load_split_provenance(
     database_path: Path,
-    sequences: Sequence[PassageLexicalSequence],
+    sequences: Sequence[PassageLexicalSequence | str],
     *,
     duckdb_memory_limit_bytes: int,
     duckdb_temp_directory: Path,
     resource_check: _ResourceCheck | None = None,
+    targeted_lookup: bool = False,
 ) -> dict[str, str]:
     """Load compact, actual Tier-3 split/leakage facts for ranked passages once."""
 
-    passage_ids = sorted({item.passage_id for item in sequences})
+    passage_ids = sorted({item if isinstance(item, str) else item.passage_id for item in sequences})
     if not passage_ids:
         return {}
     if resource_check is not None:
@@ -305,7 +970,29 @@ def _load_split_provenance(
             "benchmark_split_provenance:before",
             estimated_additional_bytes=(duckdb_memory_limit_bytes + 768 * MEBIBYTE),
         )
-    query = """
+    mapped_query = (
+        """
+        WITH requested AS (
+          SELECT unnest(?) AS passage_id
+        ),
+        mapped AS (
+          SELECT requested.passage_id,
+                 r.relationship_id,
+                 m.mapping_status
+          FROM requested
+          JOIN benchmark_endpoint_mappings m
+            ON json_contains(
+                 m.target_passage_ids_json,
+                 to_json(requested.passage_id)
+               )
+          JOIN benchmark_endpoints e USING (endpoint_id)
+          JOIN benchmark_relationships r USING (relationship_id)
+          WHERE r.tier=3
+            AND m.target_granularity='verse'
+        )
+        """
+        if targeted_lookup
+        else """
         WITH mapped AS (
           SELECT json_extract_string(j.value, '$') AS passage_id,
                  r.relationship_id,
@@ -318,6 +1005,11 @@ def _load_split_provenance(
             AND m.target_granularity='verse'
             AND json_extract_string(j.value, '$') = ANY(?)
         )
+        """
+    )
+    query = (
+        mapped_query
+        + """
         SELECT mapped.passage_id,
                s.benchmark_version,
                s.split_strategy,
@@ -340,6 +1032,7 @@ def _load_split_provenance(
         ORDER BY mapped.passage_id, s.split_strategy, s.partition,
                  s.eligibility_status, mapped.mapping_status
     """
+    )
     grouped: dict[str, list[dict[str, object]]] = defaultdict(list)
     try:
         with duckdb.connect(str(database_path), read_only=True) as connection:
@@ -349,6 +1042,8 @@ def _load_split_provenance(
                 temp_directory=duckdb_temp_directory,
                 thread_count=1,
             )
+            if targeted_lookup:
+                connection.execute("SET max_temp_directory_size='512MiB'")
             cursor = connection.execute(query, [passage_ids])
             while rows := cursor.fetchmany(50_000):
                 for (
@@ -536,6 +1231,7 @@ def _iter_sensitivity_result_frames(
     preregistration_hash: str,
     resource_guard: ProcessResourceGuard,
     spill_directory: Path,
+    minimum_free_disk_bytes: int,
 ) -> Iterator[pl.DataFrame]:
     """Externally join profile/reading top-K rankings on stable verse references."""
 
@@ -545,6 +1241,8 @@ def _iter_sensitivity_result_frames(
         raise LexicalPipelineError(
             f"{sensitivity_type} representation maps do not match governed corpus pairs"
         )
+    if minimum_free_disk_bytes < 0:
+        raise LexicalPipelineError("sensitivity minimum free disk cannot be negative")
     try:
         reference_frame_reservation = max(
             128 * MEBIBYTE,
@@ -584,7 +1282,6 @@ def _iter_sensitivity_result_frames(
         orient="row",
     )
     ranking_glob = (ranking_root / "part-*.parquet").as_posix().replace("'", "''")
-    pair_sql = ",".join(_sql_string(pair) for pair in corpus_pairs)
     affected_filter = (
         "AND q.reference IN (SELECT reference FROM affected_references)"
         if affected_references
@@ -593,15 +1290,16 @@ def _iter_sensitivity_result_frames(
     try:
         duckdb_limit = resource_guard.bounded_duckdb_memory_bytes(
             f"sensitivity:{sensitivity_type}:join:before",
-            preferred_bytes=_DUCKDB_PREFERRED_MEMORY_BYTES,
+            preferred_bytes=_SENSITIVITY_DUCKDB_PREFERRED_MEMORY_BYTES,
             reserve_for_python_bytes=_DUCKDB_PYTHON_RESERVE_BYTES,
         )
     except LexicalResourceError as exc:
         raise LexicalPipelineError(str(exc)) from exc
-    query = f"""
+    query_template = """
         WITH rankings AS (
           SELECT * FROM read_parquet('{ranking_glob}', union_by_name=true)
-          WHERE corpus_pair IN ({pair_sql})
+          WHERE corpus_pair={corpus_pair}
+            AND detector={detector}
         ),
         baseline AS (
           SELECT r.*, q.corpus AS query_corpus, q.reference AS query_reference,
@@ -616,9 +1314,10 @@ def _iter_sensitivity_result_frames(
           JOIN baseline_passages q ON q.passage_id=r.query_passage_id
           JOIN baseline_passages t ON t.passage_id=r.target_passage_id
           JOIN representation_pairs p USING (corpus_pair)
-          WHERE r.experiment_scope={_sql_string(baseline_scope)}
-            AND r.analysis_profile={_sql_string(baseline_profile)}
+          WHERE r.experiment_scope={baseline_scope}
+            AND r.analysis_profile={baseline_profile}
             AND r.representation_id=p.baseline_representation_id
+            AND substr(sha256(q.reference),1,1) IN ({query_reference_bucket})
             {affected_filter}
         ),
         comparison AS (
@@ -634,9 +1333,10 @@ def _iter_sensitivity_result_frames(
           JOIN comparison_passages q ON q.passage_id=r.query_passage_id
           JOIN comparison_passages t ON t.passage_id=r.target_passage_id
           JOIN representation_pairs p USING (corpus_pair)
-          WHERE r.experiment_scope={_sql_string(comparison_scope)}
-            AND r.analysis_profile={_sql_string(comparison_profile)}
+          WHERE r.experiment_scope={comparison_scope}
+            AND r.analysis_profile={comparison_profile}
             AND r.representation_id=p.comparison_representation_id
+            AND substr(sha256(q.reference),1,1) IN ({query_reference_bucket})
             {affected_filter}
         ),
         paired AS (
@@ -717,20 +1417,20 @@ def _iter_sensitivity_result_frames(
           )
         )
         SELECT 'LXS_' || sha256(concat_ws(chr(31),
-                 {_sql_string(sensitivity_type)}, corpus_pair, detector,
+                 {sensitivity_type}, corpus_pair, detector,
                  query_corpus || '_to_' || target_corpus,
                  query_reference, target_reference)) AS sensitivity_id,
-               {_sql_string(experiment_run_id)} AS experiment_run_id,
-               {_sql_string(sensitivity_type)} AS sensitivity_type,
+               {experiment_run_id} AS experiment_run_id,
+               {sensitivity_type} AS sensitivity_type,
                corpus_pair,
                detector,
                query_corpus || '_to_' || target_corpus AS direction,
-               {_sql_string(baseline_profile)} AS baseline_profile,
-               {_sql_string(comparison_profile)} AS comparison_profile,
+               {baseline_profile} AS baseline_profile,
+               {comparison_profile} AS comparison_profile,
                CASE WHEN corpus_pair='gnt_gnt' THEN 'source'
-                    ELSE {_sql_string(baseline_reading)} END AS baseline_reading,
+                    ELSE {baseline_reading} END AS baseline_reading,
                CASE WHEN corpus_pair='gnt_gnt' THEN 'source'
-                    ELSE {_sql_string(comparison_reading)} END AS comparison_reading,
+                    ELSE {comparison_reading} END AS comparison_reading,
                query_reference,
                target_reference,
                coalesce(baseline_query_passage_id,resolved_baseline_query_id)
@@ -765,27 +1465,76 @@ def _iter_sensitivity_result_frames(
                END AS excluded_reason,
                baseline_sequence_digest,
                comparison_sequence_digest,
-               {_sql_string(configuration_hash)} AS config_hash,
-               {_sql_string(preregistration_hash)} AS preregistration_hash
+               {configuration_hash} AS config_hash,
+               {preregistration_hash} AS preregistration_hash
         FROM measured
-        ORDER BY sensitivity_type, corpus_pair, detector, direction, sensitivity_id
+        ORDER BY direction, sensitivity_id
     """
     try:
-        with _bounded_duckdb_connection(
-            memory_limit_bytes=duckdb_limit,
-            temp_directory=spill_directory,
-        ) as connection:
-            connection.register("baseline_passages", baseline_passages.to_arrow())
-            connection.register("comparison_passages", comparison_passages.to_arrow())
-            connection.register("representation_pairs", representations.to_arrow())
-            connection.register("affected_references", affected.to_arrow())
-            reader = connection.execute(query).to_arrow_reader(50_000)
-            for part, batch in enumerate(reader):
-                frame = cast(pl.DataFrame, pl.from_arrow(batch, rechunk=False)).cast(
-                    SENSITIVITY_RESULTS_SCHEMA, strict=True
-                )
-                resource_guard.check(f"sensitivity:{sensitivity_type}:part-{part}")
-                yield frame
+        output_part = 0
+        detectors = (*sorted(DETECTOR_FAMILIES), "rrf_composite")
+        for corpus_pair in sorted(corpus_pairs):
+            for detector in detectors:
+                for bucket_index, bucket in enumerate(_SENSITIVITY_QUERY_REFERENCE_BUCKETS):
+                    stage = (
+                        f"sensitivity:{sensitivity_type}:{corpus_pair}:{detector}:"
+                        f"bucket-{bucket_index}"
+                    )
+                    resource_guard.check(f"{stage}:before")
+                    free_bytes = shutil.disk_usage(spill_directory.parent).free
+                    spill_headroom = (
+                        free_bytes - minimum_free_disk_bytes - _SENSITIVITY_SPILL_SAFETY_BYTES
+                    )
+                    if spill_headroom < _SENSITIVITY_MINIMUM_SPILL_BYTES:
+                        raise LexicalPipelineError(
+                            "insufficient disk headroom for bounded sensitivity spill at "
+                            f"{sensitivity_type}/{corpus_pair}/{detector}/"
+                            f"bucket-{bucket_index}: free={free_bytes}, "
+                            f"minimum={minimum_free_disk_bytes}, "
+                            f"safety={_SENSITIVITY_SPILL_SAFETY_BYTES}, "
+                            f"required_spill={_SENSITIVITY_MINIMUM_SPILL_BYTES}"
+                        )
+                    spill_limit = min(_SENSITIVITY_MAX_SPILL_BYTES, spill_headroom)
+                    spill_limit = (spill_limit // MEBIBYTE) * MEBIBYTE
+                    query = query_template.format(
+                        ranking_glob=ranking_glob,
+                        corpus_pair=_sql_string(corpus_pair),
+                        detector=_sql_string(detector),
+                        baseline_scope=_sql_string(baseline_scope),
+                        baseline_profile=_sql_string(baseline_profile),
+                        comparison_scope=_sql_string(comparison_scope),
+                        comparison_profile=_sql_string(comparison_profile),
+                        query_reference_bucket=",".join(_sql_string(value) for value in bucket),
+                        affected_filter=affected_filter,
+                        sensitivity_type=_sql_string(sensitivity_type),
+                        experiment_run_id=_sql_string(experiment_run_id),
+                        baseline_reading=_sql_string(baseline_reading),
+                        comparison_reading=_sql_string(comparison_reading),
+                        configuration_hash=_sql_string(configuration_hash),
+                        preregistration_hash=_sql_string(preregistration_hash),
+                    )
+                    with _bounded_duckdb_connection(
+                        memory_limit_bytes=duckdb_limit,
+                        temp_directory=spill_directory,
+                    ) as connection:
+                        connection.execute(
+                            f"SET max_temp_directory_size='{spill_limit // MEBIBYTE}MiB'"
+                        )
+                        connection.register("baseline_passages", baseline_passages.to_arrow())
+                        connection.register("comparison_passages", comparison_passages.to_arrow())
+                        connection.register("representation_pairs", representations.to_arrow())
+                        connection.register("affected_references", affected.to_arrow())
+                        reader = connection.execute(query).to_arrow_reader(50_000)
+                        for batch in reader:
+                            frame = cast(pl.DataFrame, pl.from_arrow(batch, rechunk=False)).cast(
+                                SENSITIVITY_RESULTS_SCHEMA, strict=True
+                            )
+                            resource_guard.check(
+                                f"sensitivity:{sensitivity_type}:part-{output_part}"
+                            )
+                            output_part += 1
+                            yield frame
+                    resource_guard.check(f"{stage}:after")
     except (duckdb.Error, OSError, pl.exceptions.PolarsError, LexicalResourceError) as exc:
         raise LexicalPipelineError(
             f"could not materialize {sensitivity_type} comparison: {exc}"
@@ -1257,6 +2006,7 @@ def _run_retrieval(
     collect_candidates: bool = True,
     ranking_part_start: int = 0,
     resource_check: _ResourceCheck | None = None,
+    candidate_checkpoint: _CandidateCheckpoint | None = None,
 ) -> _RetrievalScopeResult:
     candidates: dict[str, CandidateAggregate] = {}
     ranking_count = 0
@@ -1352,6 +2102,8 @@ def _run_retrieval(
                             ),
                         )
                     _merge_updates(candidates, batch.candidates)
+                    if candidate_checkpoint is not None:
+                        candidate_checkpoint.write_updates(batch.candidates)
                 if resource_check is not None:
                     resource_check(
                         f"retrieval:{experiment_scope}:{corpus_pair}:part-{ranking_part - 1}"
@@ -1444,6 +2196,31 @@ def _iter_ranked_review_queue_frames(
         raise LexicalPipelineError(f"could not rank the review-queue spool: {exc}") from exc
 
 
+def _prepare_candidate_review_queue_spool(
+    staging_dir: Path,
+    *,
+    resumed: bool,
+) -> Path:
+    """Create a fresh private queue spool, discarding only a verified empty resume remnant."""
+
+    spool = staging_dir / _CANDIDATE_REVIEW_QUEUE_SPOOL_DIRECTORY
+    if spool.is_symlink():
+        raise LexicalPipelineError("candidate review-queue spool cannot be a symlink")
+    if spool.exists():
+        if not resumed:
+            raise LexicalPipelineError("candidate review-queue spool already exists")
+        if not spool.is_dir() or spool.resolve().parent != staging_dir.resolve():
+            raise LexicalPipelineError("resumed candidate review-queue spool is not governed")
+        residual = sorted(path.name for path in spool.iterdir())
+        if residual:
+            raise LexicalPipelineError(
+                f"refusing to discard nonempty resumed candidate review-queue spool: {residual[:5]}"
+            )
+        spool.rmdir()
+    spool.mkdir()
+    return spool
+
+
 def _issue_frame(
     experiment_run_id: str,
     *,
@@ -1513,11 +2290,314 @@ def _issue_frame(
     return pl.DataFrame(rows, schema=LEXICAL_ISSUES_SCHEMA, orient="row")
 
 
-def run_lexical_pipeline(
+@dataclass(frozen=True, slots=True)
+class _ResumeArtifactInventory:
+    ranking_rows_by_scope: dict[str, int]
+    ranking_parts_by_scope: dict[str, int]
+    sensitivity_rows_by_type: dict[str, int]
+    sensitivity_parts_by_type: dict[str, int]
+
+    @property
+    def ranking_count(self) -> int:
+        return sum(self.ranking_rows_by_scope.values())
+
+
+def _resume_artifact_inventory(
+    staging_dir: Path,
+    *,
+    experiment_run_id: str,
+) -> _ResumeArtifactInventory:
+    ranking_rows: Counter[str] = Counter()
+    ranking_parts: Counter[str] = Counter()
+    observed_scope_order: list[str] = []
+    ranking_paths = sorted((staging_dir / "directional_rankings").glob("part-*.parquet"))
+    if not ranking_paths:
+        raise LexicalPipelineError("resume staging has no directional rankings")
+    for part, path in enumerate(ranking_paths):
+        if path.name != f"part-{part:05d}.parquet":
+            raise LexicalPipelineError("resume ranking parts are not contiguous")
+        try:
+            frame = pl.read_parquet(
+                path,
+                columns=["experiment_run_id", "experiment_scope"],
+                rechunk=False,
+            )
+        except (OSError, pl.exceptions.PolarsError) as exc:
+            raise LexicalPipelineError(
+                f"could not inventory resume ranking leaf {path.name}: {exc}"
+            ) from exc
+        identities = frame.select("experiment_run_id", "experiment_scope").unique()
+        if identities.height != 1:
+            raise LexicalPipelineError(
+                f"resume ranking leaf mixes run or scope identities: {path.name}"
+            )
+        run_id, scope = identities.row(0)
+        if run_id != experiment_run_id:
+            raise LexicalPipelineError(
+                f"resume ranking leaf belongs to a different run: {path.name}"
+            )
+        scope_text = str(scope)
+        ranking_rows[scope_text] += frame.height
+        ranking_parts[scope_text] += 1
+        if not observed_scope_order or observed_scope_order[-1] != scope_text:
+            observed_scope_order.append(scope_text)
+    expected_scopes = [
+        "primary",
+        "critical_core_greek_sensitivity",
+        "hebrew_qere_ketiv_sensitivity",
+    ]
+    if observed_scope_order != expected_scopes:
+        raise LexicalPipelineError(
+            f"resume ranking scope order is incomplete or invalid: observed={observed_scope_order}"
+        )
+
+    sensitivity_rows: Counter[str] = Counter()
+    sensitivity_parts: Counter[str] = Counter()
+    observed_type_order: list[str] = []
+    sensitivity_paths = sorted((staging_dir / "sensitivity_results").glob("part-*.parquet"))
+    if not sensitivity_paths:
+        raise LexicalPipelineError("resume staging has no sensitivity results")
+    for part, path in enumerate(sensitivity_paths):
+        if path.name != f"part-{part:05d}.parquet":
+            raise LexicalPipelineError("resume sensitivity parts are not contiguous")
+        try:
+            frame = pl.read_parquet(
+                path,
+                columns=["experiment_run_id", "sensitivity_type"],
+                rechunk=False,
+            )
+        except (OSError, pl.exceptions.PolarsError) as exc:
+            raise LexicalPipelineError(
+                f"could not inventory resume sensitivity leaf {path.name}: {exc}"
+            ) from exc
+        identities = frame.select("experiment_run_id", "sensitivity_type").unique()
+        if identities.height != 1:
+            raise LexicalPipelineError(
+                f"resume sensitivity leaf mixes run or type identities: {path.name}"
+            )
+        run_id, sensitivity_type = identities.row(0)
+        if run_id != experiment_run_id:
+            raise LexicalPipelineError(
+                f"resume sensitivity leaf belongs to a different run: {path.name}"
+            )
+        type_text = str(sensitivity_type)
+        sensitivity_rows[type_text] += frame.height
+        sensitivity_parts[type_text] += 1
+        if not observed_type_order or observed_type_order[-1] != type_text:
+            observed_type_order.append(type_text)
+    expected_types = ["critical_core_profile", "hebrew_qere_ketiv"]
+    if observed_type_order != expected_types or any(
+        sensitivity_rows[name] < 1 for name in expected_types
+    ):
+        raise LexicalPipelineError(
+            f"resume sensitivity scopes are incomplete or invalid: observed={observed_type_order}"
+        )
+    return _ResumeArtifactInventory(
+        ranking_rows_by_scope=dict(ranking_rows),
+        ranking_parts_by_scope=dict(ranking_parts),
+        sensitivity_rows_by_type=dict(sensitivity_rows),
+        sensitivity_parts_by_type=dict(sensitivity_parts),
+    )
+
+
+def _resume_split_provenance(
+    staging_dir: Path,
+    *,
+    database_path: Path,
+    experiment_run_id: str,
+    expected_passage_ids: set[str],
+    duckdb_memory_limit_bytes: int,
+    duckdb_temp_directory: Path,
+    resource_check: _ResourceCheck | None = None,
+) -> dict[str, str]:
+    """Reconcile exact primary split payloads from bounded persisted ranking leaves."""
+
+    provenance: dict[str, str] = {}
+
+    def register(passage_id: object, payload: object, *, leaf: str) -> None:
+        passage_text = str(passage_id)
+        payload_text = str(payload)
+        previous = provenance.setdefault(passage_text, payload_text)
+        if previous != payload_text:
+            raise LexicalPipelineError(
+                f"resumed split provenance conflicts for {passage_text} in {leaf}"
+            )
+
+    paths = sorted((staging_dir / "directional_rankings").glob("part-*.parquet"))
+    for part, path in enumerate(paths):
+        try:
+            frame = pl.read_parquet(
+                path,
+                columns=[
+                    "experiment_run_id",
+                    "experiment_scope",
+                    "query_passage_id",
+                    "target_passage_id",
+                    "query_split",
+                    "target_split",
+                ],
+                rechunk=False,
+            )
+        except (OSError, pl.exceptions.PolarsError) as exc:
+            raise LexicalPipelineError(
+                f"could not read resumed split provenance from {path.name}: {exc}"
+            ) from exc
+        identities = frame.select("experiment_run_id", "experiment_scope").unique()
+        if identities.height != 1:
+            raise LexicalPipelineError(
+                f"resume ranking leaf mixes run or scope identities: {path.name}"
+            )
+        run_id, scope = identities.row(0)
+        if run_id != experiment_run_id:
+            raise LexicalPipelineError(
+                f"resume ranking leaf belongs to a different run: {path.name}"
+            )
+        if scope != "primary":
+            continue
+        for query_id, target_id, query_split, target_split in frame.select(
+            "query_passage_id",
+            "target_passage_id",
+            "query_split",
+            "target_split",
+        ).iter_rows():
+            register(query_id, query_split, leaf=path.name)
+            register(target_id, target_split, leaf=path.name)
+        if resource_check is not None and part % 32 == 0:
+            resource_check(f"resume_split_provenance:part-{part}")
+    missing = sorted(expected_passage_ids.difference(provenance))
+    if missing:
+        recovered = _load_split_provenance(
+            database_path,
+            missing,
+            duckdb_memory_limit_bytes=duckdb_memory_limit_bytes,
+            duckdb_temp_directory=duckdb_temp_directory,
+            resource_check=resource_check,
+            targeted_lookup=True,
+        )
+        default_payload = _canonical_json({"status": "no_eligible_benchmark_assignment"})
+        for passage_id in missing:
+            register(
+                passage_id,
+                recovered.get(passage_id, default_payload),
+                leaf="anchored benchmark targeted recovery",
+            )
+    missing = sorted(expected_passage_ids.difference(provenance))
+    unexpected = sorted(set(provenance).difference(expected_passage_ids))
+    if missing or unexpected:
+        raise LexicalPipelineError(
+            "resumed split provenance passage coverage differs: "
+            f"missing={missing[:10]}, unexpected={unexpected[:10]}"
+        )
+    return provenance
+
+
+def _resume_index_state(
+    staging_dir: Path,
+    *,
+    experiment_run_id: str,
+    configuration_hash: str,
+) -> tuple[
+    dict[str, str],
+    dict[str, str],
+    str,
+    dict[str, dict[str, object]],
+]:
+    paths = sorted((staging_dir / "lexical_index_metadata").glob("part-*.parquet"))
+    if not paths:
+        raise LexicalPipelineError("resume staging has no lexical index metadata")
+    try:
+        metadata = pl.read_parquet(paths, rechunk=True).cast(
+            LEXICAL_INDEX_METADATA_SCHEMA, strict=True
+        )
+    except (OSError, pl.exceptions.PolarsError) as exc:
+        raise LexicalPipelineError(f"could not read resumed index metadata: {exc}") from exc
+    if metadata.get_column("experiment_run_id").unique().to_list() != [
+        experiment_run_id
+    ] or metadata.get_column("index_config_hash").unique().to_list() != [configuration_hash]:
+        raise LexicalPipelineError("resumed index metadata identity differs from the run")
+
+    def representation(
+        *,
+        corpus_scope: str,
+        profile: str,
+        reading: str,
+        feature_family: str,
+    ) -> str:
+        selected = metadata.filter(
+            (pl.col("corpus_scope") == corpus_scope)
+            & (pl.col("profile") == profile)
+            & (pl.col("reading") == reading)
+            & (pl.col("feature_family") == feature_family)
+        )
+        if selected.height != 1:
+            raise LexicalPipelineError(
+                "resumed index metadata does not expose exactly one governed "
+                f"{profile}/{corpus_scope}/{reading}/{feature_family} representation"
+            )
+        return str(selected.item(0, "representation_id"))
+
+    primary = {
+        "hb_hb": representation(
+            corpus_scope="hebrew",
+            profile="edition_complete",
+            reading="qere",
+            feature_family="lemma",
+        ),
+        "gnt_gnt": representation(
+            corpus_scope="greek",
+            profile="edition_complete",
+            reading="source",
+            feature_family="lemma",
+        ),
+        "hb_gnt_english_bridge": representation(
+            corpus_scope="hebrew+greek",
+            profile="edition_complete",
+            reading="qere+source",
+            feature_family="english_gloss",
+        ),
+    }
+    critical = {
+        "gnt_gnt": representation(
+            corpus_scope="greek",
+            profile="critical_core",
+            reading="source",
+            feature_family="lemma",
+        ),
+        "hb_gnt_english_bridge": representation(
+            corpus_scope="hebrew+greek",
+            profile="critical_core",
+            reading="qere+source",
+            feature_family="english_gloss",
+        ),
+    }
+    ketiv = representation(
+        corpus_scope="hebrew",
+        profile="edition_complete",
+        reading="ketiv",
+        feature_family="lemma",
+    )
+    summaries = {
+        str(row["index_id"]): {
+            "index_id": str(row["index_id"]),
+            "representation_id": str(row["representation_id"]),
+            "shape": json.loads(str(row["matrix_shape_json"])),
+            "nonzero_count": int(row["nonzero_count"]),
+            "logical_hash": str(row["logical_matrix_hash"]),
+            "physical_hash": str(row["physical_file_hash"]),
+        }
+        for row in metadata.iter_rows(named=True)
+    }
+    return primary, critical, ketiv, summaries
+
+
+def _run_lexical_pipeline_impl(
     *,
     database_path: Path = DEFAULT_DATABASE_PATH,
     output_dir: Path = DEFAULT_LEXICAL_ROOT,
     force: bool = False,
+    resume_staging_dir: Path | None = None,
+    execution_recorder: ExperimentExecutionRecorder | None = None,
+    checkpoint_quarantine: _PrivateCheckpointQuarantine | None = None,
 ) -> LexicalPipelineResult:
     """Run every frozen verse-level M7 stage and atomically replace lexical artifacts."""
 
@@ -1538,7 +2618,23 @@ def run_lexical_pipeline(
     except LexicalResourceError as exc:
         raise LexicalPipelineError(f"could not initialize resource guard: {exc}") from exc
 
+    resume_progress_path: Path | None = None
+    last_resume_progress_stage: str | None = None
+
     def resource_check(stage: str, *, estimated_additional_bytes: int = 0) -> None:
+        nonlocal last_resume_progress_stage
+        if (
+            resume_progress_path is not None
+            and stage != last_resume_progress_stage
+            and stage.startswith(("evaluation:", "null:", "candidates:", "finalize:"))
+        ):
+            try:
+                resume_progress_path.write_text(stage + "\n", encoding="utf-8")
+            except OSError as exc:
+                raise LexicalPipelineError(
+                    f"could not write private resume progress marker: {exc}"
+                ) from exc
+            last_resume_progress_stage = stage
         try:
             resource_guard.check(
                 stage,
@@ -1550,6 +2646,22 @@ def run_lexical_pipeline(
     resource_check("pipeline:start")
     configuration_hash = lexical_config_sha256(config)
     preregistration_hash = lexical_preregistration_sha256(preregistration)
+    if execution_recorder is not None:
+        execution_recorder.bind_configuration(
+            canonical_hashes={
+                "lexical_canonical": configuration_hash,
+                "lexical_preregistration_canonical": preregistration_hash,
+            },
+            random_seed=config.statistics.bootstrap_seed,
+            random_seeds={
+                "bootstrap": config.statistics.bootstrap_seed,
+                "frequency_preserving_synthetic": (
+                    config.null_models.frequency_preserving_synthetic.seed
+                ),
+                "within_book_reassignment": (config.null_models.within_book_reassignment.seed),
+            },
+            dataset_versions=_m7_source_versions(),
+        )
     try:
         database_duckdb_memory = resource_guard.bounded_duckdb_memory_bytes(
             "pipeline_database:duckdb-budget",
@@ -1582,9 +2694,32 @@ def run_lexical_pipeline(
         preregistration_hash=preregistration_hash,
         anchors=anchors,
     )
+    if execution_recorder is not None:
+        execution_recorder.bind_run(
+            run_id=experiment_run_id,
+            input_table_hashes=_m7_anchor_input_hashes(anchors),
+            dataset_versions=_m7_anchor_dataset_versions(anchors),
+            evaluation_split_lineage=_prefixed_hashes(
+                "benchmark",
+                anchors.benchmark_logical_hashes,
+            ),
+        )
     database_spill_directory = (
         output_dir.parent / f".{output_dir.name}.{experiment_run_id}.duckdb-spill"
     )
+    if resume_staging_dir is not None and database_spill_directory.exists():
+        resolved_spill = database_spill_directory.resolve()
+        expected_parent = output_dir.resolve().parent
+        spill_entries = list(resolved_spill.rglob("*"))
+        if (
+            resolved_spill.parent != expected_parent
+            or resolved_spill.is_symlink()
+            or any(path.is_file() or path.is_symlink() for path in spill_entries)
+        ):
+            raise LexicalPipelineError(
+                "resume found a nonempty or ungoverned prior DuckDB spill directory"
+            )
+        shutil.rmtree(resolved_spill)
 
     with (
         _managed_temp_directory(database_spill_directory),
@@ -1592,6 +2727,8 @@ def run_lexical_pipeline(
             output_dir,
             force=force,
             duckdb_memory_limit_bytes=database_duckdb_memory,
+            resume_staging_dir=resume_staging_dir,
+            preserve_staging_on_error=True,
             required_free_bytes=(
                 config.resource_limits.minimum_free_disk_bytes
                 if config.resource_limits.check_disk_before_build
@@ -1599,9 +2736,39 @@ def run_lexical_pipeline(
             ),
         ) as writer,
     ):
+        if checkpoint_quarantine is not None:
+            checkpoint_quarantine.register_staging(writer.staging_dir)
+        if resume_staging_dir is not None:
+            resume_progress_path = (
+                writer.staging_dir / _CANDIDATE_CHECKPOINT_DIRECTORY / "progress.txt"
+            )
         primary = config.primary_scope
         critical_scope = config.sensitivity_scopes.critical_core_greek
         reading_scope = config.sensitivity_scopes.hebrew_qere_ketiv
+        resume_inventory: _ResumeArtifactInventory | None = None
+        resumed_primary_representation_ids: dict[str, str] | None = None
+        resumed_critical_representation_ids: dict[str, str] | None = None
+        resumed_ketiv_representation_id: str | None = None
+        resumed_index_summaries: dict[str, dict[str, object]] | None = None
+        reused_tier3_manifest_hashes: dict[str, str] = {}
+        reused_tier3_part_hashes: dict[str, str] = {}
+        if resume_staging_dir is not None:
+            resume_inventory = _resume_artifact_inventory(
+                writer.staging_dir,
+                experiment_run_id=experiment_run_id,
+            )
+            (
+                resumed_primary_representation_ids,
+                resumed_critical_representation_ids,
+                resumed_ketiv_representation_id,
+                resumed_index_summaries,
+            ) = _resume_index_state(
+                writer.staging_dir,
+                experiment_run_id=experiment_run_id,
+                configuration_hash=configuration_hash,
+            )
+            timings["resume_existing_artifacts_validated"] = time.perf_counter() - start
+            resource_check("resume_existing_artifacts:validated")
 
         def load_sequences(
             *, corpus: str, profile: str, reading: str, stage: str
@@ -1659,81 +2826,165 @@ def run_lexical_pipeline(
             reading=critical_scope.greek_reading,
             stage="load_critical_greek_sequences",
         )
-        ketiv_hebrew = load_sequences(
-            corpus="hebrew",
-            profile=reading_scope.analysis_profile,
-            reading=reading_scope.comparison_reading,
-            stage="load_ketiv_hebrew_sequences",
+        ketiv_hebrew = (
+            []
+            if resume_inventory is not None
+            else load_sequences(
+                corpus="hebrew",
+                profile=reading_scope.analysis_profile,
+                reading=reading_scope.comparison_reading,
+                stage="load_ketiv_hebrew_sequences",
+            )
         )
         all_sequences = [*hebrew, *greek]
         critical_all_sequences = [*critical_hebrew, *critical_greek]
         book_genres = _book_genres()
-        resource_check(
-            "feature_vocabulary:before",
-            estimated_additional_bytes=_FEATURE_VOCABULARY_RESERVATION_BYTES,
-        )
-        vocabulary = cast(
-            pl.DataFrame,
-            _time_stage(
-                timings,
-                "feature_vocabulary",
-                lambda: build_all_feature_vocabulary(
-                    hebrew, greek, config=config, book_genres=book_genres
+        if resume_inventory is not None:
+            try:
+                vocabulary = pl.read_parquet(
+                    sorted((writer.staging_dir / "feature_vocabulary").glob("part-*.parquet")),
+                    rechunk=True,
+                ).cast(FEATURE_VOCABULARY_SCHEMA, strict=True)
+            except (OSError, pl.exceptions.PolarsError) as exc:
+                raise LexicalPipelineError(
+                    f"could not load resumed feature vocabulary: {exc}"
+                ) from exc
+            timings["feature_vocabulary"] = 0.0
+            timings["passage_feature_statistics"] = 0.0
+        else:
+            resource_check(
+                "feature_vocabulary:before",
+                estimated_additional_bytes=_FEATURE_VOCABULARY_RESERVATION_BYTES,
+            )
+            vocabulary = cast(
+                pl.DataFrame,
+                _time_stage(
+                    timings,
+                    "feature_vocabulary",
+                    lambda: build_all_feature_vocabulary(
+                        hebrew, greek, config=config, book_genres=book_genres
+                    ),
                 ),
-            ),
-        )
-        resource_check("feature_vocabulary:after")
-        passage_statistics_start = time.perf_counter()
-        resource_check(
-            "passage_feature_statistics:before",
-            estimated_additional_bytes=_PASSAGE_STATISTICS_RESERVATION_BYTES,
-        )
-        passage_statistics = build_passage_feature_statistics(all_sequences, vocabulary)
-        timings["passage_feature_statistics"] = time.perf_counter() - passage_statistics_start
-        resource_check("passage_feature_statistics:after")
+            )
+            resource_check("feature_vocabulary:after")
+            passage_statistics_start = time.perf_counter()
+            resource_check(
+                "passage_feature_statistics:before",
+                estimated_additional_bytes=_PASSAGE_STATISTICS_RESERVATION_BYTES,
+            )
+            passage_statistics = build_passage_feature_statistics(all_sequences, vocabulary)
+            timings["passage_feature_statistics"] = time.perf_counter() - passage_statistics_start
+            resource_check("passage_feature_statistics:after")
+            writer.write_frame("feature_vocabulary", vocabulary)
+            writer.write_frame("passage_feature_statistics", passage_statistics)
+            del passage_statistics
+            gc.collect()
+            resource_check("passage_feature_statistics:released")
         feature_counts = {
             f"{namespace}:{family}": int(group.height)
             for (namespace, family), group in vocabulary.group_by(
                 "language_namespace", "feature_family", maintain_order=False
             )
         }
-        writer.write_frame("feature_vocabulary", vocabulary)
-        writer.write_frame("passage_feature_statistics", passage_statistics)
-        del passage_statistics
-        gc.collect()
-        resource_check("passage_feature_statistics:released")
 
+        resumed_candidates = (
+            _load_candidate_checkpoint(
+                writer.staging_dir,
+                experiment_run_id=experiment_run_id,
+                configuration_hash=configuration_hash,
+                resource_check=resource_check,
+            )
+            if resume_inventory is not None
+            else None
+        )
+        if resume_inventory is not None and execution_recorder is not None:
+            (
+                resumed_artifact_hashes,
+                resumed_checkpoint_manifest_hashes,
+                resumed_checkpoint_part_hashes,
+            ) = _validated_resume_file_hashes(
+                writer.staging_dir,
+                candidate_checkpoint_reused=resumed_candidates is not None,
+            )
+            execution_recorder.bind_resume_lineage(
+                artifact_part_hashes=resumed_artifact_hashes,
+                checkpoint_manifest_hashes=resumed_checkpoint_manifest_hashes,
+                checkpoint_part_hashes=resumed_checkpoint_part_hashes,
+            )
+            (
+                reused_tier3_manifest_hashes,
+                reused_tier3_part_hashes,
+            ) = _validated_existing_tier3_checkpoint_hashes(
+                writer.staging_dir,
+                expected_manifest_names=_expected_tier3_checkpoint_manifest_names(
+                    analysis_profiles=(
+                        primary.analysis_profile,
+                        critical_scope.analysis_profile,
+                    ),
+                    enabled_detectors=config.enabled_detectors,
+                ),
+                experiment_run_id=experiment_run_id,
+                configuration_hash=configuration_hash,
+                preregistration_hash=preregistration_hash,
+            )
         provenance_start = time.perf_counter()
-        try:
-            provenance_duckdb_memory = resource_guard.bounded_duckdb_memory_bytes(
-                "benchmark_split_provenance:duckdb-budget",
-                preferred_bytes=_PROVENANCE_DUCKDB_PREFERRED_MEMORY_BYTES,
-                reserve_for_python_bytes=_DUCKDB_PYTHON_RESERVE_BYTES,
+        if resume_inventory is not None and resumed_candidates is not None:
+            split_provenance: dict[str, str] = {}
+            affected_references: dict[str, int] = {}
+            qere_references: set[str] = set()
+            ketiv_references: set[str] = set()
+        elif resume_inventory is not None:
+            try:
+                provenance_duckdb_memory = resource_guard.bounded_duckdb_memory_bytes(
+                    "resume_split_provenance:duckdb-budget",
+                    preferred_bytes=_DUCKDB_PREFERRED_MEMORY_BYTES,
+                    reserve_for_python_bytes=_DUCKDB_PYTHON_RESERVE_BYTES,
+                )
+            except LexicalResourceError as exc:
+                raise LexicalPipelineError(str(exc)) from exc
+            split_provenance = _resume_split_provenance(
+                writer.staging_dir,
+                database_path=database_path,
+                experiment_run_id=experiment_run_id,
+                expected_passage_ids={item.passage_id for item in all_sequences},
+                duckdb_memory_limit_bytes=provenance_duckdb_memory,
+                duckdb_temp_directory=database_spill_directory,
+                resource_check=resource_check,
             )
-        except LexicalResourceError as exc:
-            raise LexicalPipelineError(str(exc)) from exc
-        split_provenance = _load_split_provenance(
-            database_path,
-            [*all_sequences, *critical_all_sequences, *ketiv_hebrew],
-            duckdb_memory_limit_bytes=provenance_duckdb_memory,
-            duckdb_temp_directory=database_spill_directory,
-            resource_check=resource_check,
-        )
-        affected_references = _oshb_affected_verse_references(
-            database_path,
-            duckdb_memory_limit_bytes=provenance_duckdb_memory,
-            duckdb_temp_directory=database_spill_directory,
-        )
-        qere_references = {item.start_reference for item in hebrew}
-        ketiv_references = {item.start_reference for item in ketiv_hebrew}
-        missing_affected = sorted(
-            set(affected_references).difference(qere_references.intersection(ketiv_references))
-        )
-        if missing_affected:
-            raise LexicalPipelineError(
-                "OSHB sensitivity references do not resolve in both Qere and Ketiv verse "
-                f"streams: {missing_affected[:10]}"
+            affected_references = {}
+            qere_references = set()
+            ketiv_references = set()
+        else:
+            try:
+                provenance_duckdb_memory = resource_guard.bounded_duckdb_memory_bytes(
+                    "benchmark_split_provenance:duckdb-budget",
+                    preferred_bytes=_PROVENANCE_DUCKDB_PREFERRED_MEMORY_BYTES,
+                    reserve_for_python_bytes=_DUCKDB_PYTHON_RESERVE_BYTES,
+                )
+            except LexicalResourceError as exc:
+                raise LexicalPipelineError(str(exc)) from exc
+            split_provenance = _load_split_provenance(
+                database_path,
+                [*all_sequences, *critical_all_sequences, *ketiv_hebrew],
+                duckdb_memory_limit_bytes=provenance_duckdb_memory,
+                duckdb_temp_directory=database_spill_directory,
+                resource_check=resource_check,
             )
+            affected_references = _oshb_affected_verse_references(
+                database_path,
+                duckdb_memory_limit_bytes=provenance_duckdb_memory,
+                duckdb_temp_directory=database_spill_directory,
+            )
+            qere_references = {item.start_reference for item in hebrew}
+            ketiv_references = {item.start_reference for item in ketiv_hebrew}
+            missing_affected = sorted(
+                set(affected_references).difference(qere_references.intersection(ketiv_references))
+            )
+            if missing_affected:
+                raise LexicalPipelineError(
+                    "OSHB sensitivity references do not resolve in both Qere and Ketiv "
+                    f"verse streams: {missing_affected[:10]}"
+                )
         timings["split_provenance_and_sensitivity_scope"] = time.perf_counter() - provenance_start
 
         primary_sequences_by_pair = {
@@ -1744,124 +2995,201 @@ def run_lexical_pipeline(
         index_seconds = 0.0
         retrieval_seconds = 0.0
 
-        index_start = time.perf_counter()
-        primary_indexes, primary_index_metadata, index_summaries = _build_indexes(
-            writer=writer,
-            definitions=_primary_index_definitions(hebrew, greek, config=config),
-            config=config,
-            configuration_hash=configuration_hash,
-            experiment_run_id=experiment_run_id,
-            resource_check=resource_check,
-        )
-        index_seconds += time.perf_counter() - index_start
-        writer.write_frame("lexical_index_metadata", primary_index_metadata, part=0)
-        primary_representation_ids = {
-            pair: primary_indexes[pair].representation_id
-            for pair in ("hb_hb", "gnt_gnt", "hb_gnt_english_bridge")
-        }
-        retrieval_start = time.perf_counter()
-        primary_retrieval = _run_retrieval(
-            writer=writer,
-            indexes=primary_indexes,
-            sequences_by_pair=primary_sequences_by_pair,
-            experiment_run_id=experiment_run_id,
-            configuration_hash=configuration_hash,
-            config=config,
-            experiment_scope="primary",
-            corpus_pairs=("hb_hb", "gnt_gnt", "hb_gnt_english_bridge"),
-            split_provenance_by_passage_id=split_provenance,
-            resource_check=resource_check,
-        )
-        retrieval_seconds += time.perf_counter() - retrieval_start
-        candidates = primary_retrieval.candidates
-        primary_ranking_count = primary_retrieval.ranking_count
-        next_ranking_part = primary_retrieval.next_ranking_part
-        del primary_indexes, primary_index_metadata, primary_retrieval
-        gc.collect()
-        resource_check("primary_sparse_indexes:released")
+        if resume_inventory is not None:
+            if resumed_primary_representation_ids is None or resumed_index_summaries is None:
+                raise LexicalPipelineError("resume primary index state is unavailable")
+            primary_representation_ids = resumed_primary_representation_ids
+            index_summaries = resumed_index_summaries
+            primary_ranking_count = resume_inventory.ranking_rows_by_scope["primary"]
+            next_ranking_part = resume_inventory.ranking_parts_by_scope["primary"]
+            if resumed_candidates is not None:
+                candidates = resumed_candidates
+                timings["resume_primary_candidate_checkpoint"] = 0.0
+            else:
+                checkpoint_writer = _CandidateCheckpointWriter(
+                    writer.staging_dir,
+                    experiment_run_id=experiment_run_id,
+                    configuration_hash=configuration_hash,
+                )
+                retrieval_start = time.perf_counter()
+                try:
+                    primary_indexes = {
+                        pair: load_sparse_index(writer.staging_dir / "indexes" / representation_id)
+                        for pair, representation_id in primary_representation_ids.items()
+                    }
+                except (OSError, ValueError, SparseIndexError) as exc:
+                    raise LexicalPipelineError(
+                        f"could not load resumed primary sparse indexes: {exc}"
+                    ) from exc
+                primary_retrieval = _run_retrieval(
+                    writer=writer,
+                    indexes=primary_indexes,
+                    sequences_by_pair=primary_sequences_by_pair,
+                    experiment_run_id=experiment_run_id,
+                    configuration_hash=configuration_hash,
+                    config=config,
+                    experiment_scope="primary",
+                    corpus_pairs=("hb_hb", "gnt_gnt", "hb_gnt_english_bridge"),
+                    split_provenance_by_passage_id=split_provenance,
+                    resource_check=resource_check,
+                    candidate_checkpoint=checkpoint_writer,
+                )
+                if (
+                    primary_retrieval.ranking_count != primary_ranking_count
+                    or primary_retrieval.next_ranking_part != next_ranking_part
+                ):
+                    raise LexicalPipelineError(
+                        "regenerated primary ranking inventory differs from resumed artifacts"
+                    )
+                checkpoint_writer.finalize()
+                candidates = primary_retrieval.candidates
+                timings["resume_primary_candidate_reconstruction"] = (
+                    time.perf_counter() - retrieval_start
+                )
+                del primary_indexes, primary_retrieval
+                gc.collect()
+                resource_check("resume_primary_sparse_indexes:released")
+        else:
+            index_start = time.perf_counter()
+            primary_indexes, primary_index_metadata, index_summaries = _build_indexes(
+                writer=writer,
+                definitions=_primary_index_definitions(hebrew, greek, config=config),
+                config=config,
+                configuration_hash=configuration_hash,
+                experiment_run_id=experiment_run_id,
+                resource_check=resource_check,
+            )
+            index_seconds += time.perf_counter() - index_start
+            writer.write_frame("lexical_index_metadata", primary_index_metadata, part=0)
+            primary_representation_ids = {
+                pair: primary_indexes[pair].representation_id
+                for pair in ("hb_hb", "gnt_gnt", "hb_gnt_english_bridge")
+            }
+            retrieval_start = time.perf_counter()
+            primary_retrieval = _run_retrieval(
+                writer=writer,
+                indexes=primary_indexes,
+                sequences_by_pair=primary_sequences_by_pair,
+                experiment_run_id=experiment_run_id,
+                configuration_hash=configuration_hash,
+                config=config,
+                experiment_scope="primary",
+                corpus_pairs=("hb_hb", "gnt_gnt", "hb_gnt_english_bridge"),
+                split_provenance_by_passage_id=split_provenance,
+                resource_check=resource_check,
+            )
+            retrieval_seconds += time.perf_counter() - retrieval_start
+            candidates = primary_retrieval.candidates
+            primary_ranking_count = primary_retrieval.ranking_count
+            next_ranking_part = primary_retrieval.next_ranking_part
+            del primary_indexes, primary_index_metadata, primary_retrieval
+            gc.collect()
+            resource_check("primary_sparse_indexes:released")
 
         critical_sequences_by_pair = {
             "gnt_gnt": critical_greek,
             "hb_gnt_english_bridge": critical_all_sequences,
         }
-        index_start = time.perf_counter()
-        critical_indexes, critical_index_metadata, critical_summaries = _build_indexes(
-            writer=writer,
-            definitions=_critical_index_definitions(
-                critical_hebrew=critical_hebrew,
-                critical_greek=critical_greek,
+        if resume_inventory is not None:
+            if resumed_critical_representation_ids is None:
+                raise LexicalPipelineError("resume critical index state is unavailable")
+            critical_representation_ids = resumed_critical_representation_ids
+            critical_ranking_count = resume_inventory.ranking_rows_by_scope[
+                "critical_core_greek_sensitivity"
+            ]
+            next_ranking_part += resume_inventory.ranking_parts_by_scope[
+                "critical_core_greek_sensitivity"
+            ]
+        else:
+            index_start = time.perf_counter()
+            critical_indexes, critical_index_metadata, critical_summaries = _build_indexes(
+                writer=writer,
+                definitions=_critical_index_definitions(
+                    critical_hebrew=critical_hebrew,
+                    critical_greek=critical_greek,
+                    config=config,
+                ),
                 config=config,
-            ),
-            config=config,
-            configuration_hash=configuration_hash,
-            experiment_run_id=experiment_run_id,
-            resource_check=resource_check,
-        )
-        index_seconds += time.perf_counter() - index_start
-        index_summaries.update(critical_summaries)
-        writer.write_frame("lexical_index_metadata", critical_index_metadata, part=1)
-        critical_index_by_pair = {
-            "gnt_gnt": critical_indexes["critical_gnt_gnt"],
-            "hb_gnt_english_bridge": critical_indexes["critical_hb_gnt_english_bridge"],
-        }
-        critical_representation_ids = {
-            pair: index.representation_id for pair, index in critical_index_by_pair.items()
-        }
-        retrieval_start = time.perf_counter()
-        critical_retrieval = _run_retrieval(
-            writer=writer,
-            indexes=critical_index_by_pair,
-            sequences_by_pair=critical_sequences_by_pair,
-            experiment_run_id=experiment_run_id,
-            configuration_hash=configuration_hash,
-            config=config,
-            experiment_scope="critical_core_greek_sensitivity",
-            corpus_pairs=critical_scope.corpus_pairs,
-            split_provenance_by_passage_id=split_provenance,
-            collect_candidates=False,
-            ranking_part_start=next_ranking_part,
-            resource_check=resource_check,
-        )
-        retrieval_seconds += time.perf_counter() - retrieval_start
-        critical_ranking_count = critical_retrieval.ranking_count
-        next_ranking_part = critical_retrieval.next_ranking_part
-        del critical_indexes, critical_index_by_pair, critical_index_metadata
-        del critical_summaries, critical_retrieval
-        gc.collect()
-        resource_check("critical_sparse_indexes:released")
+                configuration_hash=configuration_hash,
+                experiment_run_id=experiment_run_id,
+                resource_check=resource_check,
+            )
+            index_seconds += time.perf_counter() - index_start
+            index_summaries.update(critical_summaries)
+            writer.write_frame("lexical_index_metadata", critical_index_metadata, part=1)
+            critical_index_by_pair = {
+                "gnt_gnt": critical_indexes["critical_gnt_gnt"],
+                "hb_gnt_english_bridge": critical_indexes["critical_hb_gnt_english_bridge"],
+            }
+            critical_representation_ids = {
+                pair: index.representation_id for pair, index in critical_index_by_pair.items()
+            }
+            retrieval_start = time.perf_counter()
+            critical_retrieval = _run_retrieval(
+                writer=writer,
+                indexes=critical_index_by_pair,
+                sequences_by_pair=critical_sequences_by_pair,
+                experiment_run_id=experiment_run_id,
+                configuration_hash=configuration_hash,
+                config=config,
+                experiment_scope="critical_core_greek_sensitivity",
+                corpus_pairs=critical_scope.corpus_pairs,
+                split_provenance_by_passage_id=split_provenance,
+                collect_candidates=False,
+                ranking_part_start=next_ranking_part,
+                resource_check=resource_check,
+            )
+            retrieval_seconds += time.perf_counter() - retrieval_start
+            critical_ranking_count = critical_retrieval.ranking_count
+            next_ranking_part = critical_retrieval.next_ranking_part
+            del critical_indexes, critical_index_by_pair, critical_index_metadata
+            del critical_summaries, critical_retrieval
+            gc.collect()
+            resource_check("critical_sparse_indexes:released")
 
-        index_start = time.perf_counter()
-        ketiv_indexes, ketiv_index_metadata, ketiv_summaries = _build_indexes(
-            writer=writer,
-            definitions=_ketiv_index_definitions(ketiv_hebrew, config=config),
-            config=config,
-            configuration_hash=configuration_hash,
-            experiment_run_id=experiment_run_id,
-            resource_check=resource_check,
-        )
-        index_seconds += time.perf_counter() - index_start
-        index_summaries.update(ketiv_summaries)
-        writer.write_frame("lexical_index_metadata", ketiv_index_metadata, part=2)
-        ketiv_representation_id = ketiv_indexes["ketiv_hb_hb"].representation_id
-        retrieval_start = time.perf_counter()
-        ketiv_retrieval = _run_retrieval(
-            writer=writer,
-            indexes={"hb_hb": ketiv_indexes["ketiv_hb_hb"]},
-            sequences_by_pair={"hb_hb": ketiv_hebrew},
-            experiment_run_id=experiment_run_id,
-            configuration_hash=configuration_hash,
-            config=config,
-            experiment_scope="hebrew_qere_ketiv_sensitivity",
-            corpus_pairs=("hb_hb",),
-            split_provenance_by_passage_id=split_provenance,
-            query_reference_filter=frozenset(affected_references),
-            collect_candidates=False,
-            ranking_part_start=next_ranking_part,
-            resource_check=resource_check,
-        )
-        retrieval_seconds += time.perf_counter() - retrieval_start
-        ketiv_ranking_count = ketiv_retrieval.ranking_count
-        del ketiv_indexes, ketiv_index_metadata, ketiv_summaries, ketiv_retrieval
+        if resume_inventory is not None:
+            if resumed_ketiv_representation_id is None:
+                raise LexicalPipelineError("resume Qere/Ketiv index state is unavailable")
+            ketiv_representation_id = resumed_ketiv_representation_id
+            ketiv_ranking_count = resume_inventory.ranking_rows_by_scope[
+                "hebrew_qere_ketiv_sensitivity"
+            ]
+            next_ranking_part += resume_inventory.ranking_parts_by_scope[
+                "hebrew_qere_ketiv_sensitivity"
+            ]
+        else:
+            index_start = time.perf_counter()
+            ketiv_indexes, ketiv_index_metadata, ketiv_summaries = _build_indexes(
+                writer=writer,
+                definitions=_ketiv_index_definitions(ketiv_hebrew, config=config),
+                config=config,
+                configuration_hash=configuration_hash,
+                experiment_run_id=experiment_run_id,
+                resource_check=resource_check,
+            )
+            index_seconds += time.perf_counter() - index_start
+            index_summaries.update(ketiv_summaries)
+            writer.write_frame("lexical_index_metadata", ketiv_index_metadata, part=2)
+            ketiv_representation_id = ketiv_indexes["ketiv_hb_hb"].representation_id
+            retrieval_start = time.perf_counter()
+            ketiv_retrieval = _run_retrieval(
+                writer=writer,
+                indexes={"hb_hb": ketiv_indexes["ketiv_hb_hb"]},
+                sequences_by_pair={"hb_hb": ketiv_hebrew},
+                experiment_run_id=experiment_run_id,
+                configuration_hash=configuration_hash,
+                config=config,
+                experiment_scope="hebrew_qere_ketiv_sensitivity",
+                corpus_pairs=("hb_hb",),
+                split_provenance_by_passage_id=split_provenance,
+                query_reference_filter=frozenset(affected_references),
+                collect_candidates=False,
+                ranking_part_start=next_ranking_part,
+                resource_check=resource_check,
+            )
+            retrieval_seconds += time.perf_counter() - retrieval_start
+            ketiv_ranking_count = ketiv_retrieval.ranking_count
+            del ketiv_indexes, ketiv_index_metadata, ketiv_summaries, ketiv_retrieval
         del split_provenance
         gc.collect()
         resource_check("ketiv_sparse_indexes_and_split_provenance:released")
@@ -1871,62 +3199,69 @@ def run_lexical_pipeline(
         timings["retrieval_and_reranking"] = retrieval_seconds
 
         sensitivity_start = time.perf_counter()
-        sensitivity_part = 0
-        sensitivity_counts = {
-            "critical_core_profile": 0,
-            "hebrew_qere_ketiv": 0,
-        }
         ranking_root = writer.staging_dir / "directional_rankings"
-        for frame in _iter_sensitivity_result_frames(
-            ranking_root=ranking_root,
-            baseline_scope="primary",
-            comparison_scope="critical_core_greek_sensitivity",
-            sensitivity_type="critical_core_profile",
-            corpus_pairs=critical_scope.corpus_pairs,
-            baseline_profile=primary.analysis_profile,
-            comparison_profile=critical_scope.analysis_profile,
-            baseline_reading=f"{primary.hebrew_reading}+{primary.greek_reading}",
-            comparison_reading=(f"{critical_scope.hebrew_reading}+{critical_scope.greek_reading}"),
-            baseline_sequences=all_sequences,
-            comparison_sequences=critical_all_sequences,
-            baseline_representation_ids={
-                pair: primary_representation_ids[pair] for pair in critical_scope.corpus_pairs
-            },
-            comparison_representation_ids=critical_representation_ids,
-            affected_references={},
-            experiment_run_id=experiment_run_id,
-            configuration_hash=configuration_hash,
-            preregistration_hash=preregistration_hash,
-            resource_guard=resource_guard,
-            spill_directory=writer.staging_dir / ".critical-sensitivity-spill",
-        ):
-            writer.write_frame("sensitivity_results", frame, part=sensitivity_part)
-            sensitivity_part += 1
-            sensitivity_counts["critical_core_profile"] += frame.height
-        for frame in _iter_sensitivity_result_frames(
-            ranking_root=ranking_root,
-            baseline_scope="primary",
-            comparison_scope="hebrew_qere_ketiv_sensitivity",
-            sensitivity_type="hebrew_qere_ketiv",
-            corpus_pairs=("hb_hb",),
-            baseline_profile=primary.analysis_profile,
-            comparison_profile=reading_scope.analysis_profile,
-            baseline_reading=reading_scope.baseline_reading,
-            comparison_reading=reading_scope.comparison_reading,
-            baseline_sequences=hebrew,
-            comparison_sequences=ketiv_hebrew,
-            baseline_representation_ids={"hb_hb": primary_representation_ids["hb_hb"]},
-            comparison_representation_ids={"hb_hb": ketiv_representation_id},
-            affected_references=affected_references,
-            experiment_run_id=experiment_run_id,
-            configuration_hash=configuration_hash,
-            preregistration_hash=preregistration_hash,
-            resource_guard=resource_guard,
-            spill_directory=writer.staging_dir / ".qere-ketiv-sensitivity-spill",
-        ):
-            writer.write_frame("sensitivity_results", frame, part=sensitivity_part)
-            sensitivity_part += 1
-            sensitivity_counts["hebrew_qere_ketiv"] += frame.height
+        if resume_inventory is not None:
+            sensitivity_counts = dict(resume_inventory.sensitivity_rows_by_type)
+        else:
+            sensitivity_part = 0
+            sensitivity_counts = {
+                "critical_core_profile": 0,
+                "hebrew_qere_ketiv": 0,
+            }
+            for frame in _iter_sensitivity_result_frames(
+                ranking_root=ranking_root,
+                baseline_scope="primary",
+                comparison_scope="critical_core_greek_sensitivity",
+                sensitivity_type="critical_core_profile",
+                corpus_pairs=critical_scope.corpus_pairs,
+                baseline_profile=primary.analysis_profile,
+                comparison_profile=critical_scope.analysis_profile,
+                baseline_reading=f"{primary.hebrew_reading}+{primary.greek_reading}",
+                comparison_reading=(
+                    f"{critical_scope.hebrew_reading}+{critical_scope.greek_reading}"
+                ),
+                baseline_sequences=all_sequences,
+                comparison_sequences=critical_all_sequences,
+                baseline_representation_ids={
+                    pair: primary_representation_ids[pair] for pair in critical_scope.corpus_pairs
+                },
+                comparison_representation_ids=critical_representation_ids,
+                affected_references={},
+                experiment_run_id=experiment_run_id,
+                configuration_hash=configuration_hash,
+                preregistration_hash=preregistration_hash,
+                resource_guard=resource_guard,
+                spill_directory=writer.staging_dir / ".critical-sensitivity-spill",
+                minimum_free_disk_bytes=config.resource_limits.minimum_free_disk_bytes,
+            ):
+                writer.write_frame("sensitivity_results", frame, part=sensitivity_part)
+                sensitivity_part += 1
+                sensitivity_counts["critical_core_profile"] += frame.height
+            for frame in _iter_sensitivity_result_frames(
+                ranking_root=ranking_root,
+                baseline_scope="primary",
+                comparison_scope="hebrew_qere_ketiv_sensitivity",
+                sensitivity_type="hebrew_qere_ketiv",
+                corpus_pairs=("hb_hb",),
+                baseline_profile=primary.analysis_profile,
+                comparison_profile=reading_scope.analysis_profile,
+                baseline_reading=reading_scope.baseline_reading,
+                comparison_reading=reading_scope.comparison_reading,
+                baseline_sequences=hebrew,
+                comparison_sequences=ketiv_hebrew,
+                baseline_representation_ids={"hb_hb": primary_representation_ids["hb_hb"]},
+                comparison_representation_ids={"hb_hb": ketiv_representation_id},
+                affected_references=affected_references,
+                experiment_run_id=experiment_run_id,
+                configuration_hash=configuration_hash,
+                preregistration_hash=preregistration_hash,
+                resource_guard=resource_guard,
+                spill_directory=writer.staging_dir / ".qere-ketiv-sensitivity-spill",
+                minimum_free_disk_bytes=config.resource_limits.minimum_free_disk_bytes,
+            ):
+                writer.write_frame("sensitivity_results", frame, part=sensitivity_part)
+                sensitivity_part += 1
+                sensitivity_counts["hebrew_qere_ketiv"] += frame.height
         if any(count < 1 for count in sensitivity_counts.values()):
             raise LexicalPipelineError(
                 f"required sensitivity comparison produced no rows: {sensitivity_counts}"
@@ -1967,8 +3302,54 @@ def run_lexical_pipeline(
                 resource_check=resource_check,
                 duckdb_memory_limit_bytes=database_duckdb_memory,
                 duckdb_temp_directory=database_spill_directory / "experiment",
+                checkpoint_directory=(
+                    writer.staging_dir / _CANDIDATE_CHECKPOINT_DIRECTORY / "tier3-evaluation"
+                ),
             )
             timings["tier3_evaluation"] = time.perf_counter() - tier3_start
+            if (
+                resume_inventory is not None
+                and execution_recorder is not None
+                and (reused_tier3_manifest_hashes or reused_tier3_part_hashes)
+            ):
+                (
+                    observed_tier3_manifest_hashes,
+                    observed_tier3_part_hashes,
+                ) = _validated_existing_tier3_checkpoint_hashes(
+                    writer.staging_dir,
+                    expected_manifest_names=_expected_tier3_checkpoint_manifest_names(
+                        analysis_profiles=(
+                            primary.analysis_profile,
+                            critical_scope.analysis_profile,
+                        ),
+                        enabled_detectors=config.enabled_detectors,
+                    ),
+                    experiment_run_id=experiment_run_id,
+                    configuration_hash=configuration_hash,
+                    preregistration_hash=preregistration_hash,
+                )
+                (
+                    confirmed_tier3_manifest_hashes,
+                    confirmed_tier3_part_hashes,
+                ) = _confirmed_tier3_checkpoint_reuse(
+                    before_manifests=reused_tier3_manifest_hashes,
+                    before_parts=reused_tier3_part_hashes,
+                    after_manifests=observed_tier3_manifest_hashes,
+                    after_parts=observed_tier3_part_hashes,
+                )
+                # bind_resume_lineage is additive: this second bind occurs only after
+                # run_tier3_evaluation_experiment has authenticated and assembled the
+                # pre-existing checkpoint files, so newly-created files are excluded.
+                execution_recorder.bind_resume_lineage(
+                    artifact_part_hashes={},
+                    checkpoint_manifest_hashes=confirmed_tier3_manifest_hashes,
+                    checkpoint_part_hashes=confirmed_tier3_part_hashes,
+                )
+            evaluation_frame = evaluation_artifacts.evaluation_results
+            evaluation_count = evaluation_frame.height
+            scientific_gate_status = evaluation_artifacts.scientific_gate_status
+            writer.write_frame("evaluation_results", evaluation_frame)
+            del evaluation_frame, evaluation_artifacts
             del critical_hebrew, critical_greek, critical_all_sequences
             del critical_sequences_by_pair, critical_representation_ids
             gc.collect()
@@ -1988,27 +3369,18 @@ def run_lexical_pipeline(
                 resource_check=resource_check,
             )
             timings["null_calibration"] = time.perf_counter() - null_start
-            experiment = combine_lexical_experiment_artifacts(
-                calibration_artifacts,
-                evaluation_artifacts,
-            )
-            del calibration_artifacts, evaluation_artifacts
         except LexicalExperimentError as exc:
             raise LexicalPipelineError(f"lexical calibration/evaluation failed: {exc}") from exc
         timings["null_calibration_and_tier3_evaluation"] = time.perf_counter() - experiment_start
-        null_frame = experiment.null_replicate_summaries
-        calibration_frame = experiment.threshold_calibration
-        evaluation_frame = experiment.evaluation_results
-        calibration = dict(experiment.selected_calibration)
-        scientific_gate_status = experiment.scientific_gate_status
+        null_frame = calibration_artifacts.null_replicate_summaries
+        calibration_frame = calibration_artifacts.threshold_calibration
+        calibration = dict(calibration_artifacts.selected_calibration)
         null_iteration_count = int(null_frame.get_column("null_run_id").n_unique())
-        evaluation_count = evaluation_frame.height
         writer.write_frame("null_replicate_summaries", null_frame)
         writer.write_frame("threshold_calibration", calibration_frame)
-        writer.write_frame("evaluation_results", evaluation_frame)
         resource_check("experiment_artifacts:written")
 
-        del experiment, null_frame, calibration_frame, evaluation_frame
+        del calibration_artifacts, null_frame, calibration_frame
         hebrew.clear()
         greek.clear()
         book_genres.clear()
@@ -2059,8 +3431,10 @@ def run_lexical_pipeline(
         )
         q_values = candidate_q_values(candidates, context)
         resource_check("candidate_q_values:after")
-        queue_spool_directory = writer.staging_dir / ".candidate-review-queue-spool"
-        queue_spool_directory.mkdir()
+        queue_spool_directory = _prepare_candidate_review_queue_spool(
+            writer.staging_dir,
+            resumed=resume_inventory is not None,
+        )
         queue_input_count = 0
         candidate_parts = 0
         ablation_part = 0
@@ -2144,6 +3518,14 @@ def run_lexical_pipeline(
         )
         timings["candidate_evidence_and_queue"] = time.perf_counter() - evidence_start
 
+        candidate_checkpoint_root = writer.staging_dir / _CANDIDATE_CHECKPOINT_DIRECTORY
+        resume_progress_path = None
+        if candidate_checkpoint_root.exists():
+            if checkpoint_quarantine is None:
+                raise LexicalPipelineError(
+                    "private checkpoint quarantine is required before artifact promotion"
+                )
+            checkpoint_quarantine.quarantine_before_promotion()
         resource_check(
             "finalize:before_hashes",
             estimated_additional_bytes=database_duckdb_memory,
@@ -2223,6 +3605,12 @@ def run_lexical_pipeline(
             orient="row",
         )
         processed = writer.finalize(metadata)
+        if execution_recorder is not None:
+            execution_recorder.bind_outputs(
+                output_table_hashes=processed.table_logical_hashes,
+                output_table_physical_hashes=processed.table_physical_hashes,
+                output_hash_manifest_path=processed.output_dir / "table-hashes.json",
+            )
 
     try:
         final_duckdb_memory = resource_guard.bounded_duckdb_memory_bytes(
@@ -2271,3 +3659,75 @@ def run_lexical_pipeline(
         acceptance_status=acceptance_status,
         approximate_peak_memory_bytes=resource_guard.peak_rss_bytes,
     )
+
+
+def run_lexical_pipeline(
+    *,
+    database_path: Path = DEFAULT_DATABASE_PATH,
+    output_dir: Path = DEFAULT_LEXICAL_ROOT,
+    force: bool = False,
+    resume_staging_dir: Path | None = None,
+) -> LexicalPipelineResult:
+    """Run M7 with an execution-attempt sidecar outside lexical schema-v1."""
+    project_root = Path.cwd().resolve()
+    recorder = ExperimentExecutionRecorder.begin(
+        experiment_name="m7-lexical-baseline",
+        experiment_version="m7-lexical-baseline-v1",
+        project_root=project_root,
+        output_dir=output_dir,
+        configuration_files=_M7_CONFIGURATION_FILES,
+        dataset_manifest_path=_M7_DATASET_MANIFEST_PATH,
+        runtime_versions={
+            "duckdb": duckdb.__version__,
+            "polars": pl.__version__,
+        },
+        reproduction_command=_m7_reproduction_command(
+            database_path=database_path,
+            output_dir=output_dir,
+            force=force,
+            project_root=project_root,
+        ),
+        resume_staging_dir=resume_staging_dir,
+    )
+    checkpoint_quarantine = _PrivateCheckpointQuarantine(output_dir=output_dir)
+    try:
+        result = _run_lexical_pipeline_impl(
+            database_path=database_path,
+            output_dir=output_dir,
+            force=force,
+            resume_staging_dir=resume_staging_dir,
+            execution_recorder=recorder,
+            checkpoint_quarantine=checkpoint_quarantine,
+        )
+        completion_warnings = (
+            []
+            if result.acceptance_status == "scientifically_complete"
+            else [
+                "pipeline execution completed, but the frozen scientific "
+                f"acceptance status is {result.acceptance_status}"
+            ]
+        )
+        recorder.finalize_success(
+            stage_runtime_seconds=result.stage_runtime_seconds,
+            warnings=completion_warnings,
+        )
+    except BaseException as error:
+        try:
+            checkpoint_quarantine.preserve_after_failure(error)
+        except Exception as preservation_error:
+            error.add_note(
+                "private checkpoint failure preservation could not be completed: "
+                f"{type(preservation_error).__name__}: {preservation_error}"
+            )
+        try:
+            recorder.finalize_failure(error)
+        except Exception as provenance_error:
+            error.add_note(
+                "execution failure provenance could not be finalized: "
+                f"{type(provenance_error).__name__}: {provenance_error}"
+            )
+        raise
+    cleanup_warning = checkpoint_quarantine.cleanup_after_success()
+    if cleanup_warning is not None:
+        warnings.warn(cleanup_warning, RuntimeWarning, stacklevel=2)
+    return result

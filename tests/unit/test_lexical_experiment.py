@@ -12,7 +12,12 @@ import pytest
 from echoes.lexical import experiment as lexical_experiment
 from echoes.lexical.config import lexical_config_sha256, load_lexical_config
 from echoes.lexical.detectors import bm25_score, tfidf_cosine_similarity
-from echoes.lexical.evaluation import GOVERNED_VOTE_STRATA, REQUIRED_STRATUM_DIMENSIONS
+from echoes.lexical.evaluation import (
+    GOVERNED_VOTE_STRATA,
+    REQUIRED_BASELINES,
+    REQUIRED_STRATUM_DIMENSIONS,
+    Tier3EvaluationQuery,
+)
 from echoes.lexical.experiment import (
     COMPOSITE_DETECTOR,
     PRESUMED_NEGATIVE_BASELINE,
@@ -48,6 +53,182 @@ class _ResourceRecorder:
         estimated_additional_bytes: int = 0,
     ) -> None:
         self.calls.append((stage, estimated_additional_bytes))
+
+
+def test_ranking_strata_inspects_directory_one_bounded_leaf_at_a_time(
+    tmp_path: Path,
+) -> None:
+    ranking_root = tmp_path / "rankings"
+    ranking_root.mkdir()
+    schema = pl.Schema(
+        {
+            "experiment_run_id": pl.String,
+            "experiment_scope": pl.String,
+            "analysis_profile": pl.String,
+            "corpus_pair": pl.String,
+            "representation_id": pl.String,
+            "detector": pl.String,
+        }
+    )
+    pl.DataFrame(
+        [
+            {
+                "experiment_run_id": "run",
+                "experiment_scope": "primary",
+                "analysis_profile": "edition_complete",
+                "corpus_pair": "hb_hb",
+                "representation_id": "hb-representation",
+                "detector": "jaccard",
+            }
+        ],
+        schema=schema,
+        orient="row",
+    ).write_parquet(ranking_root / "part-00000.parquet")
+    pl.DataFrame(
+        [
+            {
+                "experiment_run_id": "run",
+                "experiment_scope": "primary",
+                "analysis_profile": "edition_complete",
+                "corpus_pair": "gnt_gnt",
+                "representation_id": "gnt-representation",
+                "detector": "bm25",
+            }
+        ],
+        schema=schema,
+        orient="row",
+    ).write_parquet(ranking_root / "part-00001.parquet")
+
+    assert lexical_experiment._ranking_strata(
+        ranking_root,
+        experiment_run_id="run",
+    ) == (
+        ("gnt_gnt", "gnt-representation", "bm25"),
+        ("hb_hb", "hb-representation", "jaccard"),
+    )
+
+
+def test_candidate_universe_directory_matches_single_file_grouping(tmp_path: Path) -> None:
+    rankings = pl.DataFrame(
+        [
+            {
+                "experiment_run_id": "run",
+                "experiment_scope": "primary",
+                "analysis_profile": "edition_complete",
+                "corpus_pair": "hb_hb",
+                "representation_id": "hb-representation",
+                "query_passage_id": "p1",
+                "target_passage_id": target,
+                "detector": detector,
+                "rank": rank,
+                "quantized_score": score,
+            }
+            for detector, target, rank, score in (
+                ("jaccard", "p2", 1, 0.8),
+                ("bm25", "p2", 1, 0.7),
+                ("bm25", "p3", 2, 0.6),
+            )
+        ]
+    )
+    ranking_root = tmp_path / "rankings"
+    ranking_root.mkdir()
+    rankings.slice(0, 1).write_parquet(ranking_root / "part-00000.parquet")
+    rankings.slice(1).write_parquet(ranking_root / "part-00001.parquet")
+    ranking_file = tmp_path / "rankings.parquet"
+    rankings.write_parquet(ranking_file)
+    arguments = {
+        "experiment_run_id": "run",
+        "query_passage_ids": ("p1",),
+        "detectors": ("jaccard", "bm25"),
+        "maximum_targets_per_query": 2,
+    }
+
+    directory_universe = lexical_experiment._candidate_universe_by_query(
+        ranking_root,
+        **arguments,
+    )
+    file_universe = lexical_experiment._candidate_universe_by_query(
+        ranking_file,
+        **arguments,
+    )
+
+    assert (
+        directory_universe == file_universe == {("hb_hb", "hb-representation", "p1"): ("p2", "p3")}
+    )
+
+
+def test_detector_ranking_directory_stream_matches_frame(tmp_path: Path) -> None:
+    rankings = pl.DataFrame(
+        [
+            {
+                "experiment_run_id": "run",
+                "experiment_scope": "primary",
+                "analysis_profile": "edition_complete",
+                "corpus_pair": "hb_hb",
+                "representation_id": "hb-representation",
+                "query_passage_id": "p1",
+                "target_passage_id": target,
+                "detector": "jaccard",
+                "rank": rank,
+                "quantized_score": score,
+            }
+            for target, rank, score in (("p2", 1, 0.8), ("p3", 2, 0.6))
+        ]
+    )
+    ranking_root = tmp_path / "rankings"
+    ranking_root.mkdir()
+    rankings.slice(0, 1).write_parquet(ranking_root / "part-00000.parquet")
+    rankings.slice(1).write_parquet(ranking_root / "part-00001.parquet")
+    query = Tier3EvaluationQuery(
+        query_id="query-1",
+        relevant_passage_ids=frozenset({"p2"}),
+        relationship_ids=frozenset({"relationship-1"}),
+        analysis_profile="edition_complete",
+        mapping_status="mapped_verified",
+        corpus_pair="hb_hb",
+        split_strategy="held_out_book",
+        partition="test",
+        source_book="GEN",
+        target_book="GEN",
+        broad_genre="torah",
+        passage_length=2,
+        vote_stratum="one_to_two",
+        disputed_passage=False,
+        reference_gap=False,
+        leakage_group_id="group-1",
+    )
+    arguments = {
+        "queries": (query,),
+        "detector": "jaccard",
+        "experiment_run_id": "run",
+        "query_passage_ids": ("p1",),
+        "maximum_targets_per_query": 2,
+        "representation_ids": {"hb_hb": "hb-representation"},
+        "source_passage_ids": {"query-1": "p1"},
+    }
+
+    streamed = lexical_experiment._detector_rankings_for_queries(
+        ranking_root,
+        **arguments,
+    )
+    materialized = lexical_experiment._detector_rankings_for_queries(
+        rankings,
+        **arguments,
+    )
+
+    assert (
+        streamed
+        == materialized
+        == (
+            {"query-1": ("p2", "p3")},
+            {
+                ("hb_hb", "hb-representation", "p1"): (
+                    ("p2", 0.8),
+                    ("p3", 0.6),
+                )
+            },
+        )
+    )
 
 
 def _occurrences(
@@ -635,6 +816,61 @@ def test_evaluation_adapter_uses_anchored_splits_same_universe_and_strict_gate(
         & (pl.col("metric") == "recall_at_20")
     )
     assert missing_test["eligible_query_count"].to_list() == [0]
+
+
+def test_evaluation_checkpoint_matches_direct_output_and_reuses_detector_parts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = load_lexical_config()
+    sequences = (
+        _sequence("p1", ("a", "b")),
+        _sequence("p2", ("a", "c")),
+    )
+    database_path = tmp_path / "benchmark.duckdb"
+    _write_benchmark_database(database_path)
+    ranking_path = tmp_path / "directional-rankings.parquet"
+    _ranking_frame(tuple(config.enabled_detectors)).write_parquet(ranking_path)
+    arguments = {
+        "sequences_by_corpus_pair": {"hb_hb": sequences},
+        "representation_ids": {"hb_hb": "hb-lemma-v1"},
+        "config": config,
+        "experiment_run_id": "lexical-test-run",
+        "configuration_hash": lexical_config_sha256(config),
+        "preregistration_hash": PREREGISTRATION_HASH,
+        "benchmark_database_path": database_path,
+        "book_genres": {"GEN": "torah"},
+    }
+
+    direct = run_tier3_evaluation_experiment(ranking_path, **arguments)
+    checkpoint_root = tmp_path / "tier3-checkpoint"
+    checkpointed = run_tier3_evaluation_experiment(
+        ranking_path,
+        checkpoint_directory=checkpoint_root,
+        **arguments,
+    )
+
+    assert checkpointed.evaluation_results.equals(direct.evaluation_results)
+    assert checkpointed.scientific_gate_status == direct.scientific_gate_status
+    assert checkpointed.scientific_gate_details == direct.scientific_gate_details
+    expected_part_count = len(REQUIRED_BASELINES) + len(config.enabled_detectors) + 1
+    assert len(list(checkpoint_root.glob("*.json"))) == expected_part_count
+    assert len(list(checkpoint_root.glob("*.parquet"))) == expected_part_count
+
+    def unexpected_detector_load(*args: object, **kwargs: object) -> None:
+        raise AssertionError("validated detector checkpoints should be reused")
+
+    monkeypatch.setattr(
+        lexical_experiment,
+        "_detector_rankings_for_queries",
+        unexpected_detector_load,
+    )
+    resumed = run_tier3_evaluation_experiment(
+        ranking_path,
+        checkpoint_directory=checkpoint_root,
+        **arguments,
+    )
+    assert resumed.evaluation_results.equals(direct.evaluation_results)
 
 
 def test_evaluation_adapter_persists_profile_keyed_sensitivity_scope(tmp_path: Path) -> None:

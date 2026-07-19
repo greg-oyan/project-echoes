@@ -173,6 +173,8 @@ class LexicalArtifactWriter:
         force: bool = False,
         required_free_bytes: int = 0,
         duckdb_memory_limit_bytes: int,
+        resume_staging_dir: Path | None = None,
+        preserve_staging_on_error: bool = False,
     ) -> None:
         self.output_dir = _validate_output_path(output_dir)
         if required_free_bytes < 0:
@@ -191,9 +193,24 @@ class LexicalArtifactWriter:
                 f"refusing to overwrite lexical artifacts at {self.output_dir}; pass --force"
             )
         token = uuid4().hex
-        self.staging_dir = self.output_dir.parent / f".{self.output_dir.name}.writing-{token}"
+        if resume_staging_dir is None:
+            self.staging_dir = self.output_dir.parent / f".{self.output_dir.name}.writing-{token}"
+        else:
+            self.staging_dir = resume_staging_dir.resolve()
+            expected_prefix = f".{self.output_dir.name}.writing-"
+            if (
+                self.staging_dir.parent != self.output_dir.parent
+                or not self.staging_dir.name.startswith(expected_prefix)
+                or not self.staging_dir.is_dir()
+                or self.staging_dir.is_symlink()
+            ):
+                raise LexicalStorageError(
+                    "resume staging must be an existing, non-symlinked governed sibling "
+                    f"named {expected_prefix}*"
+                )
         self.backup_dir = self.output_dir.parent / f".{self.output_dir.name}.backup-{token}"
-        self.staging_dir.mkdir()
+        if resume_staging_dir is None:
+            self.staging_dir.mkdir()
         self._leaves: dict[LexicalArtifactName, dict[str, dict[str, object]]] = {
             name: {} for name in LEXICAL_ARTIFACT_NAMES
         }
@@ -211,14 +228,109 @@ class LexicalArtifactWriter:
         self._sparse_paths: set[str] = set()
         self._duckdb_memory_limit_bytes = duckdb_memory_limit_bytes
         self._required_free_bytes = required_free_bytes
+        self._verify_existing_writes = resume_staging_dir is not None
+        self._preserve_staging_on_error = (
+            preserve_staging_on_error or resume_staging_dir is not None
+        )
         self._closed = False
+        if resume_staging_dir is not None:
+            self._adopt_existing_state()
 
     def __enter__(self) -> LexicalArtifactWriter:
         return self
 
     def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
         if not self._closed:
-            self.abort()
+            if self._preserve_staging_on_error:
+                self._closed = True
+            else:
+                self.abort()
+
+    def _adopt_existing_state(self) -> None:
+        """Validate and register every governed leaf in an interrupted staging tree."""
+
+        if (self.staging_dir / TABLE_HASH_FILE).exists():
+            raise LexicalStorageError(
+                "resume staging already contains a finalized table hash manifest"
+            )
+        metadata_root = self.staging_dir / "lexical_metadata"
+        if metadata_root.exists():
+            raise LexicalStorageError(
+                "resume staging already contains lexical metadata and is not an "
+                "interrupted pre-promotion build"
+            )
+        for name in LEXICAL_ARTIFACT_NAMES:
+            if name == "lexical_metadata":
+                continue
+            root = self.staging_dir / name
+            if not root.exists():
+                continue
+            if not root.is_dir() or root.is_symlink():
+                raise LexicalStorageError(
+                    f"resume artifact root is not a governed directory: {root}"
+                )
+            unexpected = [
+                path
+                for path in root.iterdir()
+                if not path.is_file()
+                or not path.name.startswith("part-")
+                or path.suffix != ".parquet"
+            ]
+            if unexpected:
+                raise LexicalStorageError(
+                    f"resume artifact root contains unexpected entries: {unexpected[:5]}"
+                )
+            paths = sorted(root.glob("part-*.parquet"))
+            for part, path in enumerate(paths):
+                expected_name = f"part-{part:05d}.parquet"
+                if path.name != expected_name:
+                    raise LexicalStorageError(
+                        f"{name} resume parts are not contiguous: "
+                        f"expected={expected_name}, actual={path.name}"
+                    )
+                try:
+                    observed = pl.read_parquet(path, rechunk=True)
+                    prepared = _prepare_frame(name, observed)
+                except (OSError, pl.exceptions.PolarsError) as exc:
+                    raise LexicalStorageError(
+                        f"could not adopt interrupted {name} leaf {path.name}: {exc}"
+                    ) from exc
+                if not observed.equals(prepared, null_equal=True):
+                    raise LexicalStorageError(
+                        f"interrupted {name} leaf is not in governed typed order: {path.name}"
+                    )
+                relative = Path(name) / path.name
+                key = relative.as_posix()
+                sort_columns = list(LEXICAL_ARTIFACT_SORT_COLUMNS[name])
+                if prepared.height:
+                    keys = prepared.select(sort_columns)
+                    first_key = _comparable_sort_key(keys.row(0))
+                    last_key = _comparable_sort_key(keys.row(-1))
+                    previous = self._last_sort_keys.get(name)
+                    if previous is not None and first_key < previous:
+                        self._parts_globally_sorted[name] = False
+                    self._last_sort_keys[name] = last_key
+                logical_projection = prepared.select(_logical_columns(name))
+                _update_logical_hasher(self._logical_hashers[name], logical_projection)
+                self._leaves[name][key] = {
+                    "row_count": prepared.height,
+                    "parquet_sha256": sha256_file(path),
+                    "logical_sha256": logical_frame_hash(
+                        logical_projection,
+                        sort_by=sort_columns,
+                    ),
+                }
+                self._counts[name] += prepared.height
+                del observed, prepared, logical_projection
+        indexes_root = self.staging_dir / "indexes"
+        if indexes_root.exists():
+            if not indexes_root.is_dir() or indexes_root.is_symlink():
+                raise LexicalStorageError("resume sparse-index root is not a directory")
+            self._sparse_paths = {
+                path.relative_to(indexes_root).as_posix()
+                for path in indexes_root.rglob("*")
+                if path.is_file()
+            }
 
     def check_free_disk(self, stage: str) -> None:
         """Fail closed when the configured free-disk floor is no longer available."""
@@ -247,17 +359,33 @@ class LexicalArtifactWriter:
             raise LexicalStorageError("lexical metadata must be supplied to finalize")
         if part < 0:
             raise LexicalStorageError("part number cannot be negative")
+        relative = Path(name) / f"part-{part:05d}.parquet"
+        key = relative.as_posix()
+        prepared = _prepare_frame(name, frame)
+        if key in self._leaves[name]:
+            if not self._verify_existing_writes:
+                raise LexicalStorageError(f"duplicate lexical artifact leaf: {key}")
+            path = self.staging_dir / relative
+            try:
+                existing = _prepare_frame(name, pl.read_parquet(path, rechunk=True))
+            except (OSError, pl.exceptions.PolarsError) as exc:
+                raise LexicalStorageError(
+                    f"could not verify resumed lexical artifact leaf {key}: {exc}"
+                ) from exc
+            logical_columns = _logical_columns(name)
+            if not existing.select(logical_columns).equals(
+                prepared.select(logical_columns), null_equal=True
+            ):
+                raise LexicalStorageError(
+                    f"regenerated lexical artifact differs from resumed leaf: {key}"
+                )
+            return path
         expected_part = len(self._leaves[name])
         if part != expected_part:
             raise LexicalStorageError(
                 f"{name} part numbers must be contiguous from zero; "
                 f"expected={expected_part}, actual={part}"
             )
-        prepared = _prepare_frame(name, frame)
-        relative = Path(name) / f"part-{part:05d}.parquet"
-        key = relative.as_posix()
-        if key in self._leaves[name]:
-            raise LexicalStorageError(f"duplicate lexical artifact leaf: {key}")
         self.check_free_disk(f"{name}:part-{part}:before")
         sort_columns = list(LEXICAL_ARTIFACT_SORT_COLUMNS[name])
         if prepared.height:
@@ -303,7 +431,10 @@ class LexicalArtifactWriter:
             raise LexicalStorageError("sparse index path must name a file")
         key = relative_path.as_posix()
         if key in self._sparse_paths:
-            raise LexicalStorageError(f"duplicate sparse index path: {key}")
+            target = self.staging_dir / "indexes" / relative_path
+            if self._verify_existing_writes and target.read_bytes() == content:
+                return target
+            raise LexicalStorageError(f"duplicate sparse index path differs: {key}")
         self.check_free_disk(f"sparse:{key}:before")
         target = self.staging_dir / "indexes" / relative_path
         target.parent.mkdir(parents=True, exist_ok=True)

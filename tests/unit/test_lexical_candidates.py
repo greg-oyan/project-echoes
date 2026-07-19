@@ -15,6 +15,7 @@ from echoes.lexical.candidates import (
     CandidateEvidenceContext,
     CandidateMaterializationError,
     KnownPair,
+    _governed_score_reconciliation,
     build_feature_evidence_indexes,
     build_review_queue,
     candidate_q_values,
@@ -311,6 +312,50 @@ def test_candidate_context_precomputes_global_statistics_once() -> None:
     assert context.representation_statistics["gnt_gnt"] == (1, 3.0)
     assert context.representation_statistics["hb_gnt_english_bridge"][0] == 3
     assert context.book_ordinals == {"P_A": 0, "P_B": 1, "P_C": 0}
+
+
+def test_governed_score_reconciliation_leaves_exact_match_trace_unchanged() -> None:
+    assert (
+        _governed_score_reconciliation(
+            detector="bm25",
+            candidate_pair_id="candidate",
+            persisted=12.867698770178,
+            recomputed=12.867698770178,
+            decimals=12,
+        )
+        is None
+    )
+
+
+def test_governed_score_reconciliation_records_one_decimal_bin() -> None:
+    assert _governed_score_reconciliation(
+        detector="bm25",
+        candidate_pair_id="candidate",
+        persisted=12.867698770178,
+        recomputed=12.867698770179,
+        decimals=12,
+    ) == {
+        "status": "accepted_adjacent_float64_reduction_bin",
+        "score_quantization_decimals": 12,
+        "persisted_quantized_decimal": "12.867698770178",
+        "recomputed_quantized_decimal": "12.867698770179",
+        "persisted_minus_recomputed_bin_delta": -1,
+        "maximum_allowed_absolute_bin_delta": 1,
+    }
+
+
+def test_governed_score_reconciliation_rejects_two_decimal_bins() -> None:
+    with pytest.raises(
+        CandidateMaterializationError,
+        match="persisted_minus_recomputed_bin_delta=-2",
+    ):
+        _governed_score_reconciliation(
+            detector="bm25",
+            candidate_pair_id="candidate",
+            persisted=12.867698770178,
+            recomputed=12.867698770180,
+            decimals=12,
+        )
 
 
 def test_candidate_materialization_byte_flush_preserves_complete_outputs() -> None:

@@ -7,6 +7,7 @@ choose thresholds, or make a global all-pairs false-discovery claim.
 
 from __future__ import annotations
 
+import gc
 import hashlib
 import json
 import math
@@ -107,6 +108,7 @@ NULL_SOURCE_PASSAGE_RESERVATION_BYTES: Final = 512
 NULL_SOURCE_TOKEN_RESERVATION_BYTES: Final = 64
 NULL_SCORE_CANDIDATE_RESERVATION_BYTES: Final = 4_096
 NULL_SCORE_FIXED_RESERVATION_BYTES: Final = 512 * 1024**2
+TIER3_EVALUATION_CHECKPOINT_SCHEMA_VERSION: Final = 1
 
 MetricName = Literal[
     "recall_at_5",
@@ -835,6 +837,250 @@ def _typed_frame(rows: Sequence[Mapping[str, object]], schema: pl.Schema) -> pl.
     return pl.DataFrame(rows, schema=schema, orient="row")
 
 
+_EVALUATION_SORT_COLUMNS: Final[tuple[str, ...]] = (
+    "analysis_profile",
+    "corpus_pair",
+    "representation_id",
+    "stratum_dimension",
+    "stratum_value",
+    "split_strategy",
+    "partition",
+    "mapping_status",
+    "vote_stratum",
+    "detector",
+    "metric",
+    "k",
+    "evaluation_id",
+)
+
+
+def _checkpoint_file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+class _Tier3EvaluationCheckpoint:
+    """Persist validated evaluation batches without retaining Python rows."""
+
+    def __init__(
+        self,
+        root: Path,
+        *,
+        experiment_run_id: str,
+        configuration_hash: str,
+        preregistration_hash: str,
+    ) -> None:
+        self.root = root.resolve()
+        if root.exists() and (root.is_symlink() or not root.is_dir()):
+            raise LexicalExperimentError(
+                "Tier 3 evaluation checkpoint must be a non-symlinked directory"
+            )
+        self.root.mkdir(parents=True, exist_ok=True)
+        self.experiment_run_id = experiment_run_id
+        self.configuration_hash = configuration_hash
+        self.preregistration_hash = preregistration_hash
+        self._part_paths: dict[tuple[str, str, str], Path] = {}
+
+    @staticmethod
+    def _part_key(
+        analysis_profile: AnalysisProfile,
+        part_kind: Literal["baseline", "detector"],
+        detector: str,
+    ) -> tuple[str, str, str]:
+        if not detector or any(
+            character not in "abcdefghijklmnopqrstuvwxyz0123456789_" for character in detector
+        ):
+            raise LexicalExperimentError(f"unsafe Tier 3 checkpoint detector name: {detector!r}")
+        return analysis_profile, part_kind, detector
+
+    @staticmethod
+    def _manifest_name(key: tuple[str, str, str]) -> str:
+        return "-".join(key) + ".json"
+
+    def _manifest_path(self, key: tuple[str, str, str]) -> Path:
+        return self.root / self._manifest_name(key)
+
+    def _validate_frame(
+        self,
+        frame: pl.DataFrame,
+        *,
+        analysis_profile: AnalysisProfile,
+        detector: str,
+        expected_row_count: int,
+    ) -> None:
+        if frame.schema != EVALUATION_RESULTS_SCHEMA:
+            raise LexicalExperimentError("Tier 3 checkpoint schema differs")
+        if frame.height != expected_row_count or frame.height < 1:
+            raise LexicalExperimentError("Tier 3 checkpoint row count differs")
+        if frame.get_column("evaluation_id").n_unique() != frame.height:
+            raise LexicalExperimentError("Tier 3 checkpoint evaluation IDs are not unique")
+        expected_singletons = {
+            "experiment_run_id": self.experiment_run_id,
+            "analysis_profile": analysis_profile,
+            "detector": detector,
+            "config_hash": self.configuration_hash,
+            "preregistration_hash": self.preregistration_hash,
+        }
+        for column, expected in expected_singletons.items():
+            values = frame.get_column(column).unique().to_list()
+            if values != [expected]:
+                raise LexicalExperimentError(f"Tier 3 checkpoint {column} identity differs")
+
+    def load(
+        self,
+        *,
+        analysis_profile: AnalysisProfile,
+        part_kind: Literal["baseline", "detector"],
+        detector: str,
+    ) -> pl.DataFrame | None:
+        key = self._part_key(analysis_profile, part_kind, detector)
+        manifest_path = self._manifest_path(key)
+        if not manifest_path.exists():
+            return None
+        if manifest_path.is_symlink() or manifest_path.resolve().parent != self.root:
+            raise LexicalExperimentError("Tier 3 checkpoint manifest escaped its root")
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise LexicalExperimentError(
+                f"Tier 3 checkpoint manifest is unreadable: {manifest_path.name}: {exc}"
+            ) from exc
+        expected_identity = {
+            "schema_version": TIER3_EVALUATION_CHECKPOINT_SCHEMA_VERSION,
+            "experiment_run_id": self.experiment_run_id,
+            "configuration_hash": self.configuration_hash,
+            "preregistration_hash": self.preregistration_hash,
+            "analysis_profile": analysis_profile,
+            "part_kind": part_kind,
+            "detector": detector,
+        }
+        if not isinstance(manifest, dict) or any(
+            manifest.get(field) != value for field, value in expected_identity.items()
+        ):
+            raise LexicalExperimentError(
+                f"Tier 3 checkpoint identity differs: {manifest_path.name}"
+            )
+        filename = manifest.get("path")
+        expected_hash = manifest.get("sha256")
+        expected_row_count = manifest.get("row_count")
+        if (
+            not isinstance(filename, str)
+            or Path(filename).name != filename
+            or not isinstance(expected_hash, str)
+            or not isinstance(expected_row_count, int)
+        ):
+            raise LexicalExperimentError(
+                f"Tier 3 checkpoint metadata is invalid: {manifest_path.name}"
+            )
+        part_path = self.root / filename
+        if (
+            not part_path.is_file()
+            or part_path.is_symlink()
+            or part_path.resolve().parent != self.root
+        ):
+            raise LexicalExperimentError(f"Tier 3 checkpoint part is missing or unsafe: {filename}")
+        if _checkpoint_file_sha256(part_path) != expected_hash:
+            raise LexicalExperimentError(f"Tier 3 checkpoint physical hash differs: {filename}")
+        try:
+            frame = pl.read_parquet(part_path).cast(
+                EVALUATION_RESULTS_SCHEMA,
+                strict=True,
+            )
+        except (OSError, pl.exceptions.PolarsError) as exc:
+            raise LexicalExperimentError(
+                f"Tier 3 checkpoint part is unreadable: {filename}: {exc}"
+            ) from exc
+        self._validate_frame(
+            frame,
+            analysis_profile=analysis_profile,
+            detector=detector,
+            expected_row_count=expected_row_count,
+        )
+        self._part_paths[key] = part_path
+        return frame
+
+    def write(
+        self,
+        frame: pl.DataFrame,
+        *,
+        analysis_profile: AnalysisProfile,
+        part_kind: Literal["baseline", "detector"],
+        detector: str,
+    ) -> None:
+        key = self._part_key(analysis_profile, part_kind, detector)
+        manifest_path = self._manifest_path(key)
+        if manifest_path.exists():
+            raise LexicalExperimentError(
+                f"refusing to overwrite completed Tier 3 checkpoint: {manifest_path.name}"
+            )
+        self._validate_frame(
+            frame,
+            analysis_profile=analysis_profile,
+            detector=detector,
+            expected_row_count=frame.height,
+        )
+        suffix = time.time_ns()
+        filename = f"{'-'.join(key)}-{suffix}.parquet"
+        part_path = self.root / filename
+        temporary_part = self.root / f".{filename}.writing"
+        frame.write_parquet(
+            temporary_part,
+            compression="zstd",
+            compression_level=6,
+            statistics=True,
+        )
+        temporary_part.replace(part_path)
+        payload = {
+            "schema_version": TIER3_EVALUATION_CHECKPOINT_SCHEMA_VERSION,
+            "experiment_run_id": self.experiment_run_id,
+            "configuration_hash": self.configuration_hash,
+            "preregistration_hash": self.preregistration_hash,
+            "analysis_profile": analysis_profile,
+            "part_kind": part_kind,
+            "detector": detector,
+            "path": filename,
+            "row_count": frame.height,
+            "sha256": _checkpoint_file_sha256(part_path),
+        }
+        temporary_manifest = self.root / f".{manifest_path.name}.{suffix}.writing"
+        temporary_manifest.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        temporary_manifest.replace(manifest_path)
+        self._part_paths[key] = part_path
+
+    def assemble(
+        self,
+        expected_keys: set[tuple[str, str, str]],
+    ) -> pl.DataFrame:
+        if set(self._part_paths) != expected_keys:
+            missing = sorted(expected_keys.difference(self._part_paths))
+            unexpected = sorted(set(self._part_paths).difference(expected_keys))
+            raise LexicalExperimentError(
+                f"Tier 3 checkpoint inventory differs; missing={missing}, unexpected={unexpected}"
+            )
+        paths = [self._part_paths[key] for key in sorted(expected_keys)]
+        try:
+            frame = (
+                pl.scan_parquet(paths)
+                .select(EVALUATION_RESULTS_SCHEMA.names())
+                .sort(list(_EVALUATION_SORT_COLUMNS), nulls_last=True)
+                .collect(engine="streaming")
+                .cast(EVALUATION_RESULTS_SCHEMA, strict=True)
+            )
+        except (OSError, pl.exceptions.PolarsError) as exc:
+            raise LexicalExperimentError(
+                f"could not assemble Tier 3 evaluation checkpoints: {exc}"
+            ) from exc
+        if frame.get_column("evaluation_id").n_unique() != frame.height:
+            raise LexicalExperimentError("assembled Tier 3 evaluation IDs are not globally unique")
+        return frame
+
+
 def _thresholds_for_detector(detector: str, config: LexicalConfig) -> tuple[float, ...]:
     values = (
         config.candidate_thresholds.rrf_score_grid
@@ -1502,7 +1748,65 @@ def _candidate_universe_by_query(
         path_text = str(source)
         path = Path(path_text)
         if path.is_dir():
-            path_text = str(path / "**" / "*.parquet")
+            paths = sorted(path.rglob("*.parquet"))
+            if not paths:
+                raise LexicalExperimentError("persisted rankings yield an empty candidate universe")
+            target_sets: dict[tuple[str, str, str], set[str]] = {}
+            leaf_string_pool: dict[str, str] = {}
+
+            def pooled_leaf_value(value: object) -> str:
+                text = str(value)
+                return leaf_string_pool.setdefault(text, text)
+
+            try:
+                for leaf_number, leaf in enumerate(paths, start=1):
+                    lazy = _filter_ranking_scope_lazy(
+                        pl.scan_parquet(leaf),
+                        experiment_scope=experiment_scope,
+                        analysis_profile=analysis_profile,
+                    )
+                    missing = _RANKING_REQUIRED_COLUMNS.difference(lazy.collect_schema().names())
+                    if missing:
+                        raise LexicalExperimentError(
+                            "directional rankings omit required columns: "
+                            + ", ".join(sorted(missing))
+                        )
+                    frame = (
+                        lazy.filter(
+                            (pl.col("experiment_run_id") == experiment_run_id)
+                            & pl.col("query_passage_id").is_in(query_passage_ids)
+                            & pl.col("detector").is_in(detectors)
+                        )
+                        .select(*columns)
+                        .collect(engine="streaming")
+                    )
+                    for corpus_pair, representation_id, query_id, target_id in frame.iter_rows():
+                        key = (
+                            pooled_leaf_value(corpus_pair),
+                            pooled_leaf_value(representation_id),
+                            pooled_leaf_value(query_id),
+                        )
+                        targets = target_sets.setdefault(key, set())
+                        targets.add(pooled_leaf_value(target_id))
+                        if len(targets) > maximum_targets_per_query:
+                            raise LexicalExperimentError(
+                                "persisted rankings exceed the governed "
+                                "candidate-union limit: "
+                                f"query={key[2]}, observed={len(targets)}, "
+                                f"maximum={maximum_targets_per_query}"
+                            )
+                    if resource_check is not None and leaf_number % 32 == 0:
+                        resource_check(
+                            f"evaluation:{analysis_profile}:candidate_universe:"
+                            f"leaf-{leaf_number}:groups-{len(target_sets)}"
+                        )
+            except LexicalExperimentError:
+                raise
+            except (OSError, pl.exceptions.PolarsError) as exc:
+                raise LexicalExperimentError(f"could not build candidate universe: {exc}") from exc
+            if not target_sets:
+                raise LexicalExperimentError("persisted rankings yield an empty candidate universe")
+            return {key: tuple(sorted(target_sets[key])) for key in sorted(target_sets)}
         try:
             lazy = _filter_ranking_scope_lazy(
                 pl.scan_parquet(path_text),
@@ -1603,7 +1907,37 @@ def _ranking_strata(
         path_text = str(source)
         path = Path(path_text)
         if path.is_dir():
-            path_text = str(path / "**" / "*.parquet")
+            paths = sorted(path.rglob("*.parquet"))
+            if not paths:
+                raise LexicalExperimentError(
+                    "directional rankings expose no persisted scoring strata"
+                )
+            observed: set[tuple[str, str, str]] = set()
+            try:
+                for leaf in paths:
+                    frame = (
+                        _filter_ranking_scope_lazy(
+                            pl.scan_parquet(leaf),
+                            experiment_scope=experiment_scope,
+                            analysis_profile=analysis_profile,
+                        )
+                        .filter(pl.col("experiment_run_id") == experiment_run_id)
+                        .select(*columns)
+                        .unique()
+                        .collect(engine="streaming")
+                    )
+                    observed.update(
+                        (str(pair), str(representation), str(detector))
+                        for pair, representation, detector in frame.iter_rows()
+                    )
+            except (OSError, pl.exceptions.PolarsError) as exc:
+                raise LexicalExperimentError(f"could not inspect ranking strata: {exc}") from exc
+            strata = tuple(sorted(observed))
+            if not strata:
+                raise LexicalExperimentError(
+                    "directional rankings expose no persisted scoring strata"
+                )
+            return strata
         try:
             frame = (
                 _filter_ranking_scope_lazy(
@@ -2361,19 +2695,34 @@ def _precompute_baseline_metrics(
 
 
 def _detector_rankings_for_queries(
-    ranking_frame: pl.DataFrame,
+    ranking_source: RankingInput,
     queries: Sequence[Tier3EvaluationQuery],
     *,
     detector: str,
+    experiment_run_id: str,
+    query_passage_ids: Sequence[str],
+    maximum_targets_per_query: int,
     representation_ids: Mapping[str, str],
     source_passage_ids: Mapping[str, str],
+    resource_check: ResourceCheck | None = None,
+    experiment_scope: str = "primary",
+    analysis_profile: AnalysisProfile = "edition_complete",
 ) -> tuple[
     dict[str, tuple[str, ...]],
     dict[tuple[str, str, str], tuple[tuple[str, float], ...]],
 ]:
-    scored_by_source: dict[tuple[str, str, str], tuple[tuple[str, float], ...]] = {}
-    targets_by_source: dict[tuple[str, str, str], tuple[str, ...]] = {}
-    ranking_rows = ranking_frame.select(
+    if maximum_targets_per_query < 1:
+        raise LexicalExperimentError("detector ranking target limit must be positive")
+    if resource_check is not None:
+        resource_check(
+            f"evaluation:{analysis_profile}:detector:{detector}:reserve-streamed-rankings",
+            estimated_additional_bytes=(
+                len(query_passage_ids)
+                * maximum_targets_per_query
+                * RANKING_PYTHON_ROW_RESERVATION_BYTES
+            ),
+        )
+    columns = (
         "corpus_pair",
         "representation_id",
         "query_passage_id",
@@ -2381,18 +2730,97 @@ def _detector_rankings_for_queries(
         "rank",
         "target_passage_id",
         "quantized_score",
-    ).iter_rows()
-    for raw_key, members_iter in groupby(
-        ranking_rows,
-        key=lambda row: (str(row[0]), str(row[1]), str(row[2]), str(row[3])),
-    ):
-        if raw_key[3] != detector:
+    )
+    pooled_strings: dict[str, str] = {}
+    members_by_source: dict[tuple[str, str, str], list[tuple[int, str, float]]] = {}
+
+    def pooled(value: object) -> str:
+        text = str(value)
+        return pooled_strings.setdefault(text, text)
+
+    def register(row: tuple[object, ...]) -> None:
+        if any(value is None for value in row[:6]):
+            raise LexicalExperimentError("directional rankings contain null ranking identities")
+        row_detector = pooled(row[3])
+        rank = int(cast(int, row[4]))
+        score = float(cast(float, row[6]))
+        if row_detector != detector:
             raise LexicalExperimentError("detector-filtered ranking frame contains another method")
-        members = tuple((int(row[4]), str(row[5]), float(row[6])) for row in members_iter)
+        if rank < 1 or not math.isfinite(score):
+            raise LexicalExperimentError("directional rankings contain invalid ranks or scores")
+        key = (pooled(row[0]), pooled(row[1]), pooled(row[2]))
+        members = members_by_source.setdefault(key, [])
+        members.append((rank, pooled(row[5]), score))
+        if len(members) > maximum_targets_per_query:
+            raise LexicalExperimentError(
+                "persisted detector rankings exceed the governed target limit: "
+                f"query={key[2]}, observed={len(members)}, "
+                f"maximum={maximum_targets_per_query}"
+            )
+
+    path = Path(ranking_source) if isinstance(ranking_source, (str, Path)) else None
+    if path is not None and path.is_dir():
+        paths = sorted(path.rglob("*.parquet"))
+        if not paths:
+            raise LexicalExperimentError("directional rankings contain no Parquet leaves")
+        try:
+            for leaf_number, leaf in enumerate(paths, start=1):
+                lazy = _filter_ranking_scope_lazy(
+                    pl.scan_parquet(leaf),
+                    experiment_scope=experiment_scope,
+                    analysis_profile=analysis_profile,
+                )
+                missing = _RANKING_REQUIRED_COLUMNS.difference(lazy.collect_schema().names())
+                if missing:
+                    raise LexicalExperimentError(
+                        "directional rankings omit required columns: " + ", ".join(sorted(missing))
+                    )
+                frame = (
+                    lazy.filter(
+                        (pl.col("experiment_run_id") == experiment_run_id)
+                        & pl.col("query_passage_id").is_in(query_passage_ids)
+                        & (pl.col("detector") == detector)
+                    )
+                    .select(*columns)
+                    .collect(engine="streaming")
+                )
+                for row in frame.iter_rows():
+                    register(row)
+                if resource_check is not None and leaf_number % 32 == 0:
+                    resource_check(
+                        f"evaluation:{analysis_profile}:detector:{detector}:"
+                        f"leaf-{leaf_number}:groups-{len(members_by_source)}"
+                    )
+        except LexicalExperimentError:
+            raise
+        except (OSError, pl.exceptions.PolarsError) as exc:
+            raise LexicalExperimentError(f"could not stream detector rankings: {exc}") from exc
+    else:
+        ranking_frame = _load_ranking_frames(
+            ranking_source,
+            experiment_run_id=experiment_run_id,
+            query_passage_ids=query_passage_ids,
+            detectors=(detector,),
+            allow_empty=True,
+            experiment_scope=experiment_scope,
+            analysis_profile=analysis_profile,
+        )
+        for row in ranking_frame.select(*columns).iter_rows():
+            register(row)
+
+    scored_by_source: dict[tuple[str, str, str], tuple[tuple[str, float], ...]] = {}
+    targets_by_source: dict[tuple[str, str, str], tuple[str, ...]] = {}
+    for key in sorted(members_by_source):
+        members = tuple(members_by_source[key])
         if members != tuple(sorted(members, key=lambda item: (item[0], item[1]))):
             raise LexicalExperimentError("directional ranking rows are not canonically ordered")
-        targets_by_source[raw_key[:3]] = tuple(target_id for _, target_id, _ in members)
-        scored_by_source[raw_key[:3]] = tuple((target_id, score) for _, target_id, score in members)
+        targets = tuple(target_id for _, target_id, _ in members)
+        if len(targets) != len(set(targets)):
+            raise LexicalExperimentError(
+                "directional rankings contain duplicate query/target/detector rows"
+            )
+        targets_by_source[key] = targets
+        scored_by_source[key] = tuple((target_id, score) for _, target_id, score in members)
     output: dict[str, tuple[str, ...]] = {}
     for query in queries:
         source_passage_id = source_passage_ids.get(query.query_id)
@@ -3406,7 +3834,8 @@ def _evaluate_tier3_scope(
     resource_check: ResourceCheck | None,
     duckdb_memory_limit_bytes: int,
     duckdb_temp_directory: Path | None,
-) -> tuple[str, list[dict[str, object]]]:
+    checkpoint: _Tier3EvaluationCheckpoint | None,
+) -> tuple[str, list[pl.DataFrame]]:
     corpus_pairs = _validate_evaluation_scope(scope)
     if resource_check is not None:
         resource_check(f"evaluation:{scope.analysis_profile}:scope:start")
@@ -3489,11 +3918,22 @@ def _evaluate_tier3_scope(
     )
     iterations = config.statistics.bootstrap_iterations
     bootstrap_seed = config.statistics.bootstrap_seed
-    rows: list[dict[str, object]] = []
+    frames: list[pl.DataFrame] = []
     baseline_recall: dict[str, tuple[_RecallGroupFact, ...]] = {}
     for baseline in REQUIRED_BASELINES:
         if resource_check is not None:
             resource_check(f"evaluation:{scope.analysis_profile}:baseline:{baseline}")
+        completed = (
+            checkpoint.load(
+                analysis_profile=scope.analysis_profile,
+                part_kind="baseline",
+                detector=baseline,
+            )
+            if checkpoint is not None
+            else None
+        )
+        if completed is not None:
+            del completed
         table = _precompute_baseline_metrics(
             baseline,
             candidate_universe,
@@ -3503,8 +3943,9 @@ def _evaluate_tier3_scope(
             source_passage_ids=source_passage_ids,
             config=config,
         )
+        batch_rows: list[dict[str, object]] = []
         recall = _append_precomputed_evaluation_rows(
-            rows,
+            batch_rows,
             detector=baseline,
             table=table,
             groups=groups,
@@ -3519,29 +3960,67 @@ def _evaluate_tier3_scope(
         if baseline in {"random", "unweighted_overlap"}:
             baseline_recall[baseline] = recall
         del table
+        if (
+            checkpoint is None
+            or (
+                scope.analysis_profile,
+                "baseline",
+                baseline,
+            )
+            not in checkpoint._part_paths
+        ):
+            frame = _typed_frame(batch_rows, EVALUATION_RESULTS_SCHEMA)
+            if checkpoint is None:
+                frames.append(frame)
+            else:
+                checkpoint.write(
+                    frame,
+                    analysis_profile=scope.analysis_profile,
+                    part_kind="baseline",
+                    detector=baseline,
+                )
+                del frame
+        del batch_rows
+        gc.collect()
+        if resource_check is not None:
+            resource_check(f"evaluation:{scope.analysis_profile}:checkpoint:baseline:{baseline}")
     del candidate_universe
     for detector in systems:
         if resource_check is not None:
             resource_check(f"evaluation:{scope.analysis_profile}:detector:{detector}")
-        detector_frame = _load_ranking_frames(
+        completed = (
+            checkpoint.load(
+                analysis_profile=scope.analysis_profile,
+                part_kind="detector",
+                detector=detector,
+            )
+            if checkpoint is not None
+            else None
+        )
+        if completed is not None:
+            del completed
+            gc.collect()
+            if resource_check is not None:
+                resource_check(
+                    f"evaluation:{scope.analysis_profile}:checkpoint:detector:{detector}:reused"
+                )
+            continue
+        rankings, scored_rankings = _detector_rankings_for_queries(
             scope.directional_rankings,
+            queries,
+            detector=detector,
             experiment_run_id=experiment_run_id,
             query_passage_ids=detector_query_ids,
-            detectors=(detector,),
-            allow_empty=True,
+            maximum_targets_per_query=config.retrieval.persisted_top_k,
+            representation_ids=scope.representation_ids,
+            source_passage_ids=source_passage_ids,
+            resource_check=resource_check,
             experiment_scope=scope.experiment_scope,
             analysis_profile=scope.analysis_profile,
         )
-        rankings, scored_rankings = _detector_rankings_for_queries(
-            detector_frame,
-            queries,
-            detector=detector,
-            representation_ids=scope.representation_ids,
-            source_passage_ids=source_passage_ids,
-        )
-        del detector_frame
+        batch_rows = []
         method_recall = _append_absolute_evaluation_rows(
-            rows,
+            batch_rows,
             detector=detector,
             rankings=rankings,
             groups=groups,
@@ -3554,7 +4033,7 @@ def _evaluate_tier3_scope(
             bootstrap_iterations=iterations,
         )
         _append_paired_evaluation_rows(
-            rows,
+            batch_rows,
             detector=detector,
             method_recall=method_recall,
             baseline_recall=baseline_recall,
@@ -3568,7 +4047,7 @@ def _evaluate_tier3_scope(
             bootstrap_iterations=iterations,
         )
         _append_presumed_negative_discrimination_rows(
-            rows,
+            batch_rows,
             detector=detector,
             queries=queries,
             source_passage_ids=source_passage_ids,
@@ -3584,7 +4063,22 @@ def _evaluate_tier3_scope(
             bootstrap_iterations=iterations,
         )
         del rankings, scored_rankings, method_recall
-    return benchmark_version, rows
+        frame = _typed_frame(batch_rows, EVALUATION_RESULTS_SCHEMA)
+        if checkpoint is None:
+            frames.append(frame)
+        else:
+            checkpoint.write(
+                frame,
+                analysis_profile=scope.analysis_profile,
+                part_kind="detector",
+                detector=detector,
+            )
+            del frame
+        del batch_rows
+        gc.collect()
+        if resource_check is not None:
+            resource_check(f"evaluation:{scope.analysis_profile}:checkpoint:detector:{detector}")
+    return benchmark_version, frames
 
 
 def run_tier3_evaluation_experiment(
@@ -3602,6 +4096,7 @@ def run_tier3_evaluation_experiment(
     resource_check: ResourceCheck | None = None,
     duckdb_memory_limit_bytes: int = DEFAULT_EXPERIMENT_DUCKDB_MEMORY_BYTES,
     duckdb_temp_directory: Path | None = None,
+    checkpoint_directory: Path | None = None,
 ) -> Tier3EvaluationArtifacts:
     """Evaluate transparent rankings across edition-complete and sensitivity scopes."""
 
@@ -3621,10 +4116,28 @@ def run_tier3_evaluation_experiment(
     profiles = tuple(scope.analysis_profile for scope in scopes)
     if len(profiles) != len(set(profiles)):
         raise LexicalExperimentError("evaluation scopes must have unique analysis profiles")
-    rows: list[dict[str, object]] = []
+    checkpoint = (
+        _Tier3EvaluationCheckpoint(
+            checkpoint_directory,
+            experiment_run_id=experiment_run_id,
+            configuration_hash=configuration_hash,
+            preregistration_hash=preregistration_hash,
+        )
+        if checkpoint_directory is not None
+        else None
+    )
+    frames: list[pl.DataFrame] = []
+    expected_checkpoint_keys: set[tuple[str, str, str]] = set()
     benchmark_versions: set[str] = set()
     for scope in scopes:
-        benchmark_version, scope_rows = _evaluate_tier3_scope(
+        systems = (*config.enabled_detectors, COMPOSITE_DETECTOR)
+        expected_checkpoint_keys.update(
+            (scope.analysis_profile, "baseline", baseline) for baseline in REQUIRED_BASELINES
+        )
+        expected_checkpoint_keys.update(
+            (scope.analysis_profile, "detector", detector) for detector in systems
+        )
+        benchmark_version, scope_frames = _evaluate_tier3_scope(
             scope,
             config=config,
             experiment_run_id=experiment_run_id,
@@ -3635,32 +4148,44 @@ def run_tier3_evaluation_experiment(
             resource_check=resource_check,
             duckdb_memory_limit_bytes=duckdb_memory_limit_bytes,
             duckdb_temp_directory=duckdb_temp_directory,
+            checkpoint=checkpoint,
         )
         benchmark_versions.add(benchmark_version)
-        rows.extend(scope_rows)
+        frames.extend(scope_frames)
     if len(benchmark_versions) != 1:
         raise LexicalExperimentError("evaluation scopes do not share one benchmark version")
     benchmark_version = next(iter(benchmark_versions))
-    rows.sort(
-        key=lambda row: (
-            str(row["analysis_profile"]),
-            str(row["corpus_pair"]),
-            str(row["representation_id"]),
-            str(row["stratum_dimension"]),
-            str(row["stratum_value"]),
-            str(row["split_strategy"]),
-            str(row["partition"]),
-            str(row["mapping_status"]),
-            str(row["vote_stratum"]),
-            str(row["detector"]),
-            str(row["metric"]),
-            str(row["k"]),
-            str(row["evaluation_id"]),
+    if resource_check is not None:
+        resource_check("evaluation:checkpoint:assemble:before")
+    if checkpoint is not None:
+        evaluation_results = checkpoint.assemble(expected_checkpoint_keys)
+    else:
+        evaluation_results = pl.concat(frames, rechunk=False).sort(
+            list(_EVALUATION_SORT_COLUMNS),
+            nulls_last=True,
+        )
+    gate_rows = evaluation_results.filter(
+        (pl.col("analysis_profile") == "edition_complete")
+        & (pl.col("stratum_dimension") == "split_strategy_partition")
+        & (pl.col("stratum_value") == "held_out_genre|test")
+        & (pl.col("split_strategy") == "held_out_genre")
+        & (pl.col("partition") == "test")
+        & (pl.col("mapping_status") == "all_eligible")
+        & (pl.col("vote_stratum") == "all_votes")
+        & pl.col("detector").is_in([COMPOSITE_DETECTOR, "random", "unweighted_overlap"])
+        & pl.col("metric").is_in(
+            [
+                "recall_at_20",
+                "recall_at_20_difference_vs_random",
+                "recall_at_20_difference_vs_unweighted_overlap",
+            ]
         )
     )
-    status, details = _scientific_gate(rows, config=config)
+    status, details = _scientific_gate(gate_rows.to_dicts(), config=config)
+    if resource_check is not None:
+        resource_check(f"evaluation:checkpoint:assemble:complete-{evaluation_results.height}")
     return Tier3EvaluationArtifacts(
-        evaluation_results=_typed_frame(rows, EVALUATION_RESULTS_SCHEMA),
+        evaluation_results=evaluation_results,
         benchmark_version=benchmark_version,
         scientific_gate_status=status,
         scientific_gate_details=details,

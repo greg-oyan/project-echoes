@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated, cast
@@ -79,7 +80,16 @@ from echoes.lexical.validation import (
     show_lexical_evidence,
     validate_lexical_artifacts,
 )
-from echoes.manifest import build_run_manifest, sha256_file, write_run_manifest
+from echoes.manifest import (
+    build_run_manifest,
+    format_reproduction_command,
+    reproduction_command_path_mismatches,
+    reproduction_environment_mismatches,
+    resolve_execution_manifest,
+    sha256_file,
+    validate_execution_manifest_outputs,
+    write_run_manifest,
+)
 from echoes.manifests.sources import (
     SourceManifestError,
     SourceRole,
@@ -117,6 +127,8 @@ app = typer.Typer(
     no_args_is_help=True,
     add_completion=False,
 )
+
+DEFAULT_EXECUTION_MANIFEST_ROOT = Path("data/processed/lexical/execution-manifests")
 
 
 def _echo_json(value: BaseModel) -> None:
@@ -1842,6 +1854,13 @@ def run_lexical_pipeline_command(
     force: Annotated[
         bool, typer.Option("--force", help="Atomically replace generated lexical artifacts.")
     ] = False,
+    resume_staging_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--resume-staging-dir",
+            help="Adopt one validated interrupted lexical staging directory.",
+        ),
+    ] = None,
     json_output: Annotated[
         bool, typer.Option("--json", help="Emit the complete run summary as JSON.")
     ] = False,
@@ -1856,6 +1875,7 @@ def run_lexical_pipeline_command(
             database_path=database,
             output_dir=output_dir,
             force=force,
+            resume_staging_dir=resume_staging_dir,
         )
     except (LexicalPipelineError, LexicalStorageError, OSError, ValueError) as exc:
         typer.echo(f"Lexical pipeline failed: {exc}", err=True)
@@ -2307,6 +2327,153 @@ def compare_lexical_ablation_command(
     _show_lexical_payload(
         compare_lexical_ablation(candidate_pair_id, output_dir), candidate_pair_id
     )
+
+
+@app.command("validate-run-manifest")
+def validate_run_manifest_command(
+    run_id: Annotated[str, typer.Argument(help="Scientific experiment run ID.")],
+    execution_id: Annotated[
+        str | None,
+        typer.Option(
+            "--execution-id",
+            help="Exact execution attempt; defaults to the newest successful attempt.",
+        ),
+    ] = None,
+    manifest_root: Annotated[
+        Path,
+        typer.Option(
+            "--manifest-root",
+            help="Ignored execution-manifest sidecar root.",
+        ),
+    ] = DEFAULT_EXECUTION_MANIFEST_ROOT,
+    artifact_root: Annotated[
+        Path | None,
+        typer.Option(
+            "--artifact-root",
+            help=(
+                "Exact canonical or archived lexical artifact root to authenticate; "
+                "must be a direct sibling of the recorded schema-v1 directory."
+            ),
+        ),
+    ] = None,
+) -> None:
+    """Validate execution provenance and exact canonical or archived output hashes."""
+    project_root = Path.cwd().resolve()
+    notices: list[str] = []
+    try:
+        manifest_path, manifest = resolve_execution_manifest(
+            manifest_root,
+            run_id=run_id,
+            execution_id=execution_id,
+        )
+        failures = [
+            *reproduction_environment_mismatches(
+                manifest,
+                project_root=project_root,
+                notices=notices,
+            ),
+            *validate_execution_manifest_outputs(
+                manifest,
+                project_root=project_root,
+                artifact_root=artifact_root,
+            ),
+        ]
+    except (FileNotFoundError, OSError, ValidationError, ValueError) as exc:
+        typer.echo(f"Run-manifest validation failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    for notice in notices:
+        typer.echo(f"Provenance notice: {notice}")
+    if failures:
+        typer.echo("Run-manifest validation failed:", err=True)
+        for failure in failures:
+            typer.echo(f"- {failure}", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(
+        "Run manifest validated: "
+        f"run={manifest.run_id}, execution={manifest.execution_id}, path={manifest_path}"
+    )
+
+
+@app.command("reproduce")
+def reproduce_command(
+    run_id: Annotated[str, typer.Argument(help="Scientific experiment run ID.")],
+    execution_id: Annotated[
+        str | None,
+        typer.Option(
+            "--execution-id",
+            help="Exact execution attempt; defaults to the newest successful attempt.",
+        ),
+    ] = None,
+    manifest_root: Annotated[
+        Path,
+        typer.Option(
+            "--manifest-root",
+            help="Ignored execution-manifest sidecar root.",
+        ),
+    ] = DEFAULT_EXECUTION_MANIFEST_ROOT,
+    execute: Annotated[
+        bool,
+        typer.Option(
+            "--execute",
+            help="Execute the authenticated argv; the default only prints it.",
+        ),
+    ] = False,
+) -> None:
+    """Resolve and print an exact command, executing it only with --execute."""
+    project_root = Path.cwd().resolve()
+    try:
+        manifest_path, manifest = resolve_execution_manifest(
+            manifest_root,
+            run_id=run_id,
+            execution_id=execution_id,
+        )
+    except (FileNotFoundError, OSError, ValidationError, ValueError) as exc:
+        typer.echo(f"Reproduction resolution failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(
+        f"Resolved execution: run={manifest.run_id}, "
+        f"execution={manifest.execution_id}, path={manifest_path}"
+    )
+    typer.echo(f"Command: {format_reproduction_command(manifest.reproduction_command)}")
+    if not execute:
+        typer.echo("Dry run only; pass --execute to run this argv without a shell.")
+        return
+
+    try:
+        notices: list[str] = []
+        mismatches = reproduction_environment_mismatches(
+            manifest,
+            project_root=project_root,
+            notices=notices,
+        )
+        mismatches.extend(
+            reproduction_command_path_mismatches(
+                manifest,
+                project_root=project_root,
+            )
+        )
+    except (OSError, ValueError) as exc:
+        typer.echo(f"Reproduction preflight failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    for notice in notices:
+        typer.echo(f"Provenance notice: {notice}")
+    if mismatches:
+        typer.echo("Reproduction preflight failed:", err=True)
+        for mismatch in mismatches:
+            typer.echo(f"- {mismatch}", err=True)
+        raise typer.Exit(code=1)
+    completed = subprocess.run(
+        manifest.reproduction_command,
+        cwd=project_root,
+        check=False,
+    )
+    if completed.returncode != 0:
+        typer.echo(
+            f"Reproduction command failed with exit code {completed.returncode}.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
 
 
 @app.command("create-run-manifest")

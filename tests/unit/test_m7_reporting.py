@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import shutil
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import polars as pl
 import pytest
@@ -27,6 +30,7 @@ from echoes.reports.lexical_baseline import (
     _artifact_scans,
     _csv_text,
     _english_ablation_table,
+    _execution_pair_failures,
     _feature_count_table,
     _load_spot_criteria,
     _performance_tables,
@@ -35,6 +39,7 @@ from echoes.reports.lexical_baseline import (
     _sensitivity_summary_table,
     compare_lexical_manifests,
     generate_lexical_baseline_reports,
+    verify_execution_determinism,
 )
 
 
@@ -254,28 +259,248 @@ def _manifest(digest: str) -> dict[str, object]:
     }
 
 
+def _write_manifest_root(
+    parent: Path,
+    name: str,
+    manifest: dict[str, object],
+    *,
+    run_id: str = "lexical-test-run",
+) -> tuple[Path, dict[str, object]]:
+    root = parent / name
+    root.mkdir()
+    path = root / "table-hashes.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    metadata = {
+        "experiment_run_id": run_id,
+        "runtime_seconds": 1.0,
+        "stage_runtime_seconds_json": '{"fixture":1.0}',
+        "peak_memory_bytes": 1024,
+        "storage_footprint_bytes": 2048,
+    }
+    metadata_root = root / "lexical_metadata"
+    metadata_root.mkdir()
+    pl.DataFrame([metadata]).write_parquet(metadata_root / "part-00000.parquet")
+    return path, metadata
+
+
 def test_two_run_report_evidence_requires_all_logical_hashes(tmp_path: Path) -> None:
     first = _manifest("a")
-    path = tmp_path / "first.json"
-    path.write_text(json.dumps(first), encoding="utf-8")
     current = _manifest("a")
+    path, _ = _write_manifest_root(tmp_path, "first", first)
+    current_path, current_metadata = _write_manifest_root(tmp_path, "current", current)
 
-    passed = compare_lexical_manifests(current, path)
+    passed = compare_lexical_manifests(
+        current,
+        path,
+        current_manifest_path=current_path,
+        current_metadata=current_metadata,
+        first_run_strict_validation_passed=True,
+    )
     current_logical = current["table_logical_sha256"]
     assert isinstance(current_logical, dict)
     current_logical["candidate_pairs"] = "b" * 64
-    failed = compare_lexical_manifests(current, path)
+    current_path.write_text(json.dumps(current), encoding="utf-8")
+    failed = compare_lexical_manifests(
+        current,
+        path,
+        current_manifest_path=current_path,
+        current_metadata=current_metadata,
+        first_run_strict_validation_passed=True,
+    )
 
     assert passed.status == "passed"
     assert failed.status == "failed"
     assert failed.differing_logical_tables == ("candidate_pairs",)
 
 
+def test_two_run_report_evidence_rejects_count_differences(tmp_path: Path) -> None:
+    first = _manifest("a")
+    current = _manifest("a")
+    current_counts = current["table_counts"]
+    assert isinstance(current_counts, dict)
+    current_counts["candidate_pairs"] = 2
+    first_path, _ = _write_manifest_root(tmp_path, "first", first)
+    current_path, current_metadata = _write_manifest_root(tmp_path, "current", current)
+
+    result = compare_lexical_manifests(
+        current,
+        first_path,
+        current_manifest_path=current_path,
+        current_metadata=current_metadata,
+        first_run_strict_validation_passed=True,
+    )
+
+    assert result.status == "failed"
+    assert result.table_counts_match is False
+    assert result.differing_count_tables == ("candidate_pairs",)
+
+
+def test_two_run_report_evidence_rejects_self_comparison(tmp_path: Path) -> None:
+    current = _manifest("a")
+    path, current_metadata = _write_manifest_root(tmp_path, "current", current)
+
+    with pytest.raises(LexicalReportError, match="distinct artifact root"):
+        compare_lexical_manifests(
+            current,
+            path,
+            current_manifest_path=path,
+            current_metadata=current_metadata,
+            first_run_strict_validation_passed=True,
+        )
+
+
+def test_two_run_report_evidence_rejects_noncanonical_alias(tmp_path: Path) -> None:
+    first = _manifest("a")
+    current = _manifest("a")
+    first_path, _ = _write_manifest_root(tmp_path, "first", first)
+    current_path, current_metadata = _write_manifest_root(tmp_path, "current", current)
+    alias = first_path.with_name("alias.json")
+    shutil.copyfile(first_path, alias)
+
+    with pytest.raises(LexicalReportError, match=r"canonical table-hashes\.json"):
+        compare_lexical_manifests(
+            current,
+            alias,
+            current_manifest_path=current_path,
+            current_metadata=current_metadata,
+            first_run_strict_validation_passed=True,
+        )
+
+
+def test_two_run_report_evidence_requires_both_run_ids(tmp_path: Path) -> None:
+    first = _manifest("a")
+    current = _manifest("a")
+    first_path, _ = _write_manifest_root(tmp_path, "first", first)
+    current_path, _ = _write_manifest_root(tmp_path, "current", current)
+
+    result = compare_lexical_manifests(
+        current,
+        first_path,
+        current_manifest_path=current_path,
+        first_run_strict_validation_passed=True,
+    )
+
+    assert result.status == "failed"
+    assert result.run_ids_match is False
+
+
+def test_two_run_report_evidence_rejects_mismatched_run_ids(tmp_path: Path) -> None:
+    first = _manifest("a")
+    current = _manifest("a")
+    first_path, _ = _write_manifest_root(tmp_path, "first", first, run_id="run-first")
+    current_path, current_metadata = _write_manifest_root(
+        tmp_path,
+        "current",
+        current,
+        run_id="run-second",
+    )
+
+    result = compare_lexical_manifests(
+        current,
+        first_path,
+        current_manifest_path=current_path,
+        current_metadata=current_metadata,
+        first_run_strict_validation_passed=True,
+    )
+
+    assert result.status == "failed"
+    assert result.run_ids_match is False
+
+
 def test_missing_first_run_manifest_is_not_determinism_evidence(tmp_path: Path) -> None:
-    result = compare_lexical_manifests(_manifest("a"), tmp_path / "absent.json")
+    result = compare_lexical_manifests(
+        _manifest("a"),
+        tmp_path / "absent.json",
+        current_manifest_path=tmp_path / "current.json",
+    )
 
     assert result.status == "not_verified"
     assert result.logical_hashes_match is False
+
+
+def test_execution_evidence_requires_distinct_recovered_then_fresh_attempts() -> None:
+    shared = {
+        name: f"shared-{name}"
+        for name in (
+            "git_commit",
+            "source_tree_hash",
+            "python_version",
+            "runtime_versions",
+            "dependency_lock_hash",
+            "config_hash",
+            "configuration_files",
+            "configuration_hashes",
+            "dataset_manifest_path",
+            "dataset_manifest_hash",
+            "source_file_hashes",
+            "dataset_versions",
+            "random_seed",
+            "random_seeds",
+            "model_names",
+            "model_versions",
+            "model_status",
+            "input_table_hashes",
+            "exact_candidate_generation_method",
+            "training_data_lineage",
+            "evaluation_split_lineage",
+            "human_review_history",
+            "artifact_output_directory",
+            "reproduction_command",
+        )
+    }
+    timestamp = datetime(2026, 7, 19, 12, 0, tzinfo=UTC)
+    first = SimpleNamespace(
+        execution_id="execution-first",
+        timestamp=timestamp,
+        run_id="lexical-run",
+        resume_lineage=SimpleNamespace(
+            status="validated_and_reused",
+            recovered_composite=True,
+        ),
+        **shared,
+    )
+    second = SimpleNamespace(
+        execution_id="execution-second",
+        timestamp=timestamp + timedelta(seconds=1),
+        run_id="lexical-run",
+        resume_lineage=SimpleNamespace(
+            status="not_requested",
+            recovered_composite=False,
+        ),
+        **shared,
+    )
+
+    assert (
+        _execution_pair_failures(  # type: ignore[arg-type]
+            first,
+            second,
+            expected_run_id="lexical-run",
+        )
+        == []
+    )
+
+    second.source_tree_hash = "different"
+    failures = _execution_pair_failures(  # type: ignore[arg-type]
+        first,
+        second,
+        expected_run_id="lexical-run",
+    )
+    assert failures == ["governed execution inputs differ: source_tree_hash"]
+
+
+def test_execution_evidence_without_exact_ids_is_not_verified(tmp_path: Path) -> None:
+    result = verify_execution_determinism(
+        project_root=tmp_path,
+        manifest_root=tmp_path / "data/processed/lexical/execution-manifests",
+        run_id="lexical-run",
+        first_execution_id=None,
+        second_execution_id=None,
+        first_artifact_root=None,
+        second_artifact_root=tmp_path / "data/processed/lexical/schema-v1",
+    )
+
+    assert result.status == "not_verified"
+    assert result.failures == ("both exact successful execution IDs are required",)
 
 
 def test_missing_artifact_set_fails_closed(tmp_path: Path) -> None:
@@ -376,7 +601,9 @@ def _empty_governed_artifact_set(root: Path) -> None:
 def test_complete_empty_bundle_is_reported_fail_closed_and_blocks_m8(tmp_path: Path) -> None:
     root = tmp_path / "lexical" / "schema-v1"
     _empty_governed_artifact_set(root)
-    first_manifest = root / "table-hashes.json"
+    first_root = tmp_path / "lexical" / "first-run"
+    shutil.copytree(root, first_root)
+    first_manifest = first_root / "table-hashes.json"
     report_directory = tmp_path / "reports"
     report_directory.mkdir()
     (report_directory / "m7-lexical-feature-audit.md").write_text(
@@ -393,7 +620,10 @@ def test_complete_empty_bundle_is_reported_fail_closed_and_blocks_m8(tmp_path: P
     report = (report_directory / "milestone-7-lexical-baseline-report.md").read_text(
         encoding="utf-8"
     )
-    assert artifacts.determinism.status == "passed"
+    assert artifacts.determinism.status == "failed"
+    assert artifacts.determinism.independent_roots is True
+    assert artifacts.determinism.first_run_strict_validation_passed is False
+    assert artifacts.execution_determinism.status == "not_verified"
     assert artifacts.acceptance_gate_passed is False
     assert len(artifacts.paths) == 11
     assert "**Milestone 8 is blocked.**" in report

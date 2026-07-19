@@ -8,6 +8,7 @@ import math
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
+from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Protocol, cast
@@ -659,6 +660,45 @@ def _best_scores(candidate: CandidateAggregate) -> dict[str, float]:
     return scores
 
 
+def _governed_score_reconciliation(
+    *,
+    detector: str,
+    candidate_pair_id: str,
+    persisted: float,
+    recomputed: float,
+    decimals: int,
+) -> dict[str, object] | None:
+    """Reconcile only adjacent governed decimal bins without changing either score."""
+
+    if not math.isfinite(persisted) or not math.isfinite(recomputed):
+        raise CandidateMaterializationError(
+            f"{detector} evidence is non-finite for {candidate_pair_id}: "
+            f"persisted={persisted}, recomputed={recomputed}"
+        )
+    persisted_decimal = format(persisted, f".{decimals}f")
+    recomputed_decimal = format(recomputed, f".{decimals}f")
+    scale = Decimal(10) ** decimals
+    persisted_bin = int(Decimal(persisted_decimal) * scale)
+    recomputed_bin = int(Decimal(recomputed_decimal) * scale)
+    bin_delta = persisted_bin - recomputed_bin
+    if abs(bin_delta) > 1:
+        raise CandidateMaterializationError(
+            f"{detector} evidence does not reproduce for {candidate_pair_id}: "
+            f"persisted={persisted}, recomputed={recomputed}, "
+            f"persisted_minus_recomputed_bin_delta={bin_delta}"
+        )
+    if bin_delta == 0:
+        return None
+    return {
+        "status": "accepted_adjacent_float64_reduction_bin",
+        "score_quantization_decimals": decimals,
+        "persisted_quantized_decimal": persisted_decimal,
+        "recomputed_quantized_decimal": recomputed_decimal,
+        "persisted_minus_recomputed_bin_delta": bin_delta,
+        "maximum_allowed_absolute_bin_delta": 1,
+    }
+
+
 def _detector_score_traces(
     candidate: CandidateAggregate,
     direction: CandidateDirection,
@@ -894,14 +934,18 @@ def _detector_score_traces(
     }
     for detector, expected_score in expected.items():
         persisted = direction.scores.get(detector, 0.0)
-        if round(persisted, context.config.statistics.score_quantization_decimals) != round(
-            expected_score, context.config.statistics.score_quantization_decimals
-        ):
-            if direction.score_trace_version == "governed_v1":
-                raise CandidateMaterializationError(
-                    f"{detector} evidence does not reproduce for {candidate.candidate_pair_id}: "
-                    f"persisted={persisted}, recomputed={expected_score}"
-                )
+        decimals = context.config.statistics.score_quantization_decimals
+        if direction.score_trace_version == "governed_v1":
+            reconciliation = _governed_score_reconciliation(
+                detector=detector,
+                candidate_pair_id=candidate.candidate_pair_id,
+                persisted=persisted,
+                recomputed=expected_score,
+                decimals=decimals,
+            )
+            if reconciliation is not None:
+                traces[detector]["quantization_reconciliation"] = reconciliation
+        elif round(persisted, decimals) != round(expected_score, decimals):
             traces[detector]["legacy_fixture_recomputed_score"] = expected_score
             traces[detector]["legacy_fixture_score_not_governed"] = True
         traces[detector]["persisted_score"] = persisted
