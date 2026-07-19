@@ -22,6 +22,7 @@ from echoes.lexical.pipeline import (
     _load_split_provenance,
     _prepare_candidate_review_queue_spool,
     _sha256_json,
+    _write_resume_progress_marker,
 )
 from echoes.lexical.resources import (
     MEBIBYTE,
@@ -114,6 +115,113 @@ def _queue_row(candidate_id: str, score: float) -> dict[str, object]:
         "ketiv_structural_uncertainty": False,
         "review_eligible": True,
     }
+
+
+def test_resume_progress_marker_retries_transient_permission_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    marker = tmp_path / "progress.txt"
+    original_write_text = Path.write_text
+    attempts = 0
+    delays: list[float] = []
+
+    def flaky_write_text(
+        path: Path,
+        data: str,
+        *,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+    ) -> int:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise PermissionError(13, "transient reader lock", str(path))
+        return original_write_text(
+            path,
+            data,
+            encoding=encoding,
+            errors=errors,
+            newline=newline,
+        )
+
+    monkeypatch.setattr(Path, "write_text", flaky_write_text)
+    monkeypatch.setattr(lexical_pipeline.time, "sleep", delays.append)
+
+    _write_resume_progress_marker(marker, "evaluation:checkpoint")
+
+    assert attempts == 3
+    assert delays == [0.05, 0.1]
+    assert marker.read_text(encoding="utf-8") == "evaluation:checkpoint\n"
+
+
+def test_resume_progress_marker_fails_after_persistent_permission_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    marker = tmp_path / "progress.txt"
+    attempts = 0
+    delays: list[float] = []
+
+    def blocked_write_text(
+        path: Path,
+        data: str,
+        *,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+    ) -> int:
+        del data, encoding, errors, newline
+        nonlocal attempts
+        attempts += 1
+        raise PermissionError(13, "persistent reader lock", str(path))
+
+    monkeypatch.setattr(Path, "write_text", blocked_write_text)
+    monkeypatch.setattr(lexical_pipeline.time, "sleep", delays.append)
+
+    with pytest.raises(
+        LexicalPipelineError,
+        match="could not write private resume progress marker",
+    ):
+        _write_resume_progress_marker(marker, "evaluation:checkpoint")
+
+    assert attempts == 10
+    assert delays == [0.05 * attempt for attempt in range(1, 10)]
+
+
+def test_resume_progress_marker_does_not_retry_other_os_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    marker = tmp_path / "progress.txt"
+    attempts = 0
+    delays: list[float] = []
+
+    def failed_write_text(
+        path: Path,
+        data: str,
+        *,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+    ) -> int:
+        del data, encoding, errors, newline
+        nonlocal attempts
+        attempts += 1
+        raise OSError(28, "no space left on device", str(path))
+
+    monkeypatch.setattr(Path, "write_text", failed_write_text)
+    monkeypatch.setattr(lexical_pipeline.time, "sleep", delays.append)
+
+    with pytest.raises(
+        LexicalPipelineError,
+        match="could not write private resume progress marker",
+    ):
+        _write_resume_progress_marker(marker, "evaluation:checkpoint")
+
+    assert attempts == 1
+    assert delays == []
 
 
 def test_pipeline_wrapper_finalizes_execution_manifest_on_success(

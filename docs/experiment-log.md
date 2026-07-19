@@ -429,6 +429,31 @@
   promoted output hashes, and preserve failed and successful attempts
   separately. These are numerical-provenance and execution-recovery
   corrections only.
+- Sole-worker attempt 5l (2026-07-19 11:08:04 through 11:23:27 local time):
+  **preserved failed execution**. The clean-commit execution sidecar
+  authenticated and adopted 2,233 existing artifact leaves, the finalized
+  968-part primary-candidate checkpoint, and its completion manifest before
+  beginning bounded reconstruction of the completed evaluation state. A
+  transient Windows reader or scanner lock then denied one overwrite of the
+  private `progress.txt` diagnostic marker. The pipeline failed closed before
+  promotion; the canonical output remained absent, both worker processes
+  exited, and the complete 10,910,973,940-byte staging tree remained intact
+  with all 968 primary parts and all 26 Tier 3 manifests and parts. The stderr
+  SHA-256 is
+  `00431fd5391ca0d8800653f657326e8cb635809f6ae721dcafced77fccb3eb2d`;
+  the finalized failed-sidecar SHA-256 is
+  `d59a59ee497510cacc17b461d7c152ac3515a444ad25bf6e253c001a2d4f7aef`.
+  No candidate identity, held-out value, null result, or science-gate
+  conclusion was inspected.
+- Resume-marker lock correction: private progress-marker writes now follow the
+  repository's established bounded Windows scanner-lock policy. Only
+  `PermissionError` is retried, for ten total attempts with increasing
+  50-millisecond steps; any other operating-system error fails immediately,
+  and a persistent permission denial still raises the original fail-closed
+  pipeline error after at most 2.25 seconds. Tests cover transient recovery,
+  persistent denial, and immediate failure for other errors. The marker is
+  diagnostic and ignored; no scientific artifact, method, score, rank,
+  configuration, preregistration, or frozen parameter changed.
 - Late-failure preservation: the private primary/Tier 3 checkpoint tree now
   moves to a governed ignored sibling immediately before final output
   construction, is restored after failure or on the next invocation after a

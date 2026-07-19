@@ -316,6 +316,23 @@ runtime, hardware, warnings, errors, and an exact bounded reproduction command.
 Failed, recovered-composite, and independent fresh attempts remain separately
 identifiable.
 
+The first resume after those recovery changes authenticated and adopted every
+preserved artifact and all 968 primary checkpoint parts, then stopped during
+bounded evaluation-state reconstruction because Windows denied one rewrite of
+the private diagnostic progress marker. The marker and its directory remained
+writable after exit, disk headroom was healthy, no canonical output was
+promoted, and all 10,910,973,940 bytes of staging remained intact. The failed
+execution sidecar and stderr are preserved separately.
+
+Private progress-marker writes therefore use the same bounded Windows
+reader/scanner-lock policy already used for atomic acquisition renames. A
+`PermissionError` receives ten total attempts with increasing 50-millisecond
+steps; another `OSError` fails immediately, and a persistent permission denial
+still fails closed after no more than 2.25 seconds. This changes only ignored
+diagnostic-marker robustness. It does not change any scientific artifact,
+identity, score, rank, source, detector, null, threshold, seed, acceptance
+rule, or preregistration value.
+
 The reusable private checkpoint tree is no longer deleted before content
 hashing, metadata construction, atomic promotion, DuckDB loading, and execution
 manifest finalization. It moves atomically to a governed ignored sibling just

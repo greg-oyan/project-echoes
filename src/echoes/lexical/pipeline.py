@@ -240,6 +240,26 @@ _CANDIDATE_CHECKPOINT_DIRECTORY = ".resume-primary-candidates"
 _CANDIDATE_CHECKPOINT_MANIFEST = "complete.json"
 _TIER3_CHECKPOINT_DIRECTORY = "tier3-evaluation"
 _TIER3_CHECKPOINT_SCHEMA_VERSION = 1
+_RESUME_PROGRESS_WRITE_ATTEMPTS = 10
+
+
+def _write_resume_progress_marker(path: Path, stage: str) -> None:
+    """Write a private resume marker, tolerating short Windows reader locks."""
+
+    for attempt in range(_RESUME_PROGRESS_WRITE_ATTEMPTS):
+        try:
+            path.write_text(stage + "\n", encoding="utf-8")
+            return
+        except PermissionError as exc:
+            if attempt == _RESUME_PROGRESS_WRITE_ATTEMPTS - 1:
+                raise LexicalPipelineError(
+                    f"could not write private resume progress marker: {exc}"
+                ) from exc
+            time.sleep(0.05 * (attempt + 1))
+        except OSError as exc:
+            raise LexicalPipelineError(
+                f"could not write private resume progress marker: {exc}"
+            ) from exc
 
 
 @dataclass(slots=True)
@@ -2628,12 +2648,7 @@ def _run_lexical_pipeline_impl(
             and stage != last_resume_progress_stage
             and stage.startswith(("evaluation:", "null:", "candidates:", "finalize:"))
         ):
-            try:
-                resume_progress_path.write_text(stage + "\n", encoding="utf-8")
-            except OSError as exc:
-                raise LexicalPipelineError(
-                    f"could not write private resume progress marker: {exc}"
-                ) from exc
+            _write_resume_progress_marker(resume_progress_path, stage)
             last_resume_progress_stage = stage
         try:
             resource_guard.check(

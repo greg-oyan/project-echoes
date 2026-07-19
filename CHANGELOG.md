@@ -6,6 +6,17 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 ### Added
 
+- Bounded Windows reader-lock tolerance for the ignored Milestone 7 resume
+  progress marker. Sole-worker attempt 5l authenticated the preserved staging
+  inventory and primary checkpoint, then failed closed when one live
+  diagnostic rewrite received `PermissionError`; its stderr, failed execution
+  sidecar, and complete 10.91-GB staging tree remain preserved. Marker writes
+  now retry only transient permission failures for at most ten attempts and
+  2.25 seconds, while other operating-system errors fail immediately and a
+  persistent denial retains the original fail-closed behavior. Frozen
+  scientific configuration, preregistration, scores, ranks, and artifacts are
+  unchanged.
+
 - Execution-attempt provenance and exact interrupted-build preservation for
   Milestone 7. A sidecar is created before pipeline work and binds the governed
   source tree, dependency lock, configuration and preregistration, pinned
