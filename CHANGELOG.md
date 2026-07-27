@@ -6,6 +6,20 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 ### Added
 
+- One-shot Milestone 7 operations tooling and a bounded candidate-ranking
+  storage correction after sole-worker attempt 5n. The failed resume
+  authenticated the existing recovery inventory and produced 2,535 aligned
+  parts for each candidate artifact through the sorted 975,000-candidate
+  prefix before DuckDB exhausted memory while repeatedly expanding a lazy
+  global-rank view. The unchanged baseline and eight ablation window
+  expressions are now materialized once in the existing spill-controlled
+  temporary DuckDB database, after which bounded ID lookups read the table.
+  Resumed leaves are still regenerated and compared logically. One-shot
+  status, detached-start, and structural-validation PowerShell commands make
+  long-run ownership explicit without polling. No frozen scientific
+  configuration, candidate identity, score, rank, threshold, or
+  preregistration value changed.
+
 - Bounded Windows reader-lock tolerance for the ignored Milestone 7 resume
   progress marker. Sole-worker attempt 5l authenticated the preserved staging
   inventory and primary checkpoint, then failed closed when one live

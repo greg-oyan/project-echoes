@@ -7,6 +7,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Literal, cast
 
+import duckdb
 import polars as pl
 import pytest
 
@@ -16,6 +17,7 @@ from echoes.lexical.candidates import (
     CandidateMaterializationError,
     KnownPair,
     _governed_score_reconciliation,
+    _materialize_candidate_rank_table,
     build_feature_evidence_indexes,
     build_review_queue,
     candidate_q_values,
@@ -409,6 +411,56 @@ def test_candidate_materialization_byte_flush_preserves_complete_outputs() -> No
     assert len(candidate_stages) == 2
     assert len(frame_stages) == 2
     assert all(estimate > 0 for _, estimate in reservations)
+
+
+def test_candidate_global_rank_windows_are_materialized_once() -> None:
+    with duckdb.connect() as connection:
+        connection.execute(
+            "CREATE TABLE rank_inputs("
+            "candidate_pair_id VARCHAR,corpus_pair VARCHAR,"
+            "score_before DOUBLE,without_english DOUBLE)"
+        )
+        connection.executemany(
+            "INSERT INTO rank_inputs VALUES (?,?,?,?)",
+            (
+                ("candidate-b", "hb_hb", 2.0, 0.0),
+                ("candidate-a", "hb_hb", 2.0, 1.0),
+                ("candidate-c", "gnt_gnt", 3.0, 4.0),
+            ),
+        )
+
+        _materialize_candidate_rank_table(
+            connection,
+            rank_expressions=(
+                "CASE WHEN without_english>0.0 THEN row_number() OVER "
+                "(PARTITION BY corpus_pair ORDER BY (without_english>0.0) DESC,"
+                "without_english DESC,candidate_pair_id) END AS rank_without_english"
+            ),
+        )
+
+        assert connection.execute(
+            "SELECT table_type FROM information_schema.tables WHERE table_name='candidate_ranks'"
+        ).fetchone() == ("BASE TABLE",)
+        assert connection.execute(
+            "SELECT candidate_pair_id,rank_before,rank_without_english "
+            "FROM candidate_ranks ORDER BY candidate_pair_id"
+        ).fetchall() == [
+            ("candidate-a", 1, 1),
+            ("candidate-b", 2, None),
+            ("candidate-c", 1, 1),
+        ]
+        assert connection.execute(
+            "SELECT count(*) FROM information_schema.tables WHERE table_name='rank_inputs'"
+        ).fetchone() == (0,)
+        lookup_plan = "\n".join(
+            str(value)
+            for row in connection.execute(
+                "EXPLAIN SELECT * FROM candidate_ranks WHERE candidate_pair_id IN (?,?)",
+                ("candidate-a", "candidate-c"),
+            ).fetchall()
+            for value in row
+        )
+        assert "WINDOW" not in lookup_plan
 
 
 def test_cross_language_bridge_never_conflates_source_surfaces_and_fails_ablation() -> None:

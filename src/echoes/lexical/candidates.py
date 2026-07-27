@@ -2447,6 +2447,20 @@ def _materialize_one(
     return pair_row, detector_rows, evidence_row, shared_rows, ablation_rows, queue
 
 
+def _materialize_candidate_rank_table(
+    rank_connection: duckdb.DuckDBPyConnection,
+    *,
+    rank_expressions: str,
+) -> None:
+    """Compute the governed global rank windows once in a spillable DuckDB table."""
+    rank_connection.execute(
+        "CREATE TABLE candidate_ranks AS SELECT *,row_number() OVER "
+        "(PARTITION BY corpus_pair ORDER BY score_before DESC,candidate_pair_id) "
+        f"AS rank_before,{rank_expressions} FROM rank_inputs"
+    )
+    rank_connection.execute("DROP TABLE rank_inputs")
+
+
 def iter_candidate_artifact_batches(
     candidates: Mapping[str, CandidateAggregate],
     *,
@@ -2575,10 +2589,21 @@ def iter_candidate_artifact_batches(
             )
             for name in ablation_names
         )
-        rank_connection.execute(
-            "CREATE VIEW candidate_ranks AS SELECT *,row_number() OVER "
-            "(PARTITION BY corpus_pair ORDER BY score_before DESC,candidate_pair_id) "
-            f"AS rank_before,{rank_expressions} FROM rank_inputs"
+        if resource_check is not None:
+            resource_check(
+                "candidate_materialization:materialize_global_ranks",
+                estimated_additional_bytes=64 * MEBIBYTE,
+            )
+        # Materialize the global windows once.  A view causes DuckDB to
+        # recompute all nine corpus-pair rank windows for every bounded ID
+        # lookup below; at production scale that repeated work eventually
+        # exhausted the allocator even though each requested batch was small.
+        # The table retains the identical SQL, ordering, and global candidate
+        # population while allowing DuckDB to spill the one bounded
+        # computation through the configured temporary directory.
+        _materialize_candidate_rank_table(
+            rank_connection,
+            rank_expressions=rank_expressions,
         )
         for start in range(0, len(ordered), batch_size):
             batch_ids = ordered[start : start + batch_size]

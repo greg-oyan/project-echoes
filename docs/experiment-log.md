@@ -461,6 +461,30 @@
   successful execution manifest are durable. Fresh full builds opt into
   preserving their governed staging tree on failure. This prevents a late
   operational error from forcing repetition of authenticated expensive work.
+- Sole-worker attempt 5n (2026-07-19 11:45:30 through 2026-07-20 19:39:20
+  local time): **preserved failed execution**. The resume authenticated and
+  reused the 2,233 preserved artifact leaves, all 968 primary-candidate
+  checkpoint parts, and all 26 Tier 3 checkpoint parts. It completed 2,535
+  aligned leaves for each of the five candidate artifact families,
+  representing the exact sorted 975,000-candidate prefix of the 1,248,779
+  checkpointed candidate identities. It then failed after 114,830.59 seconds
+  with a DuckDB out-of-memory exception during the next bounded
+  candidate-rank lookup. The lazy `candidate_ranks` view had caused the same
+  baseline and eight ablation global window rankings to be expanded for every
+  5,000-identity lookup. The failed execution sidecar, stderr, 16,064-file
+  staging tree, checkpoints, null/calibration results, and complete candidate
+  leaves remain preserved; the canonical output was not promoted.
+- Candidate-rank storage correction: the identical governed SQL, global
+  candidate population, partitions, score ordering, and passage-ID tie breaks
+  are materialized once as a spill-controlled temporary DuckDB table before
+  bounded lookups begin. The input table is released after materialization.
+  Existing resumed leaves continue to be regenerated and compared logically;
+  none are accepted merely because they exist. A bounded fixture verifies
+  base-table materialization, partitioned/tied ranks, zero-score ablation
+  handling, and input-table release. The operational inventory confirmed that
+  the preserved prefix produced no review-eligible spool rows; no individual
+  candidate text, feature identity, score, rank, or held-out comparison was
+  inspected. No frozen parameter or science-gate rule changed.
 - Successful full run 1: **pending**. Record run identity, timing, resource
   use, strict-validation result, table counts, and logical hashes here.
 - Successful full run 2 and determinism comparison: **pending**. Record the

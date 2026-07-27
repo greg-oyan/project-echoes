@@ -342,6 +342,19 @@ is removed only after the successful execution manifest is durable. Fresh full
 builds also preserve their governed atomic staging directory on error so an
 independent second build does not lose completed expensive stages.
 
+The next sole-worker resume authenticated that preserved state and completed
+2,535 aligned leaves for each candidate artifact family, covering the sorted
+975,000-candidate prefix, before a DuckDB allocator failure. The
+`candidate_ranks` relation was a lazy view, so every bounded 5,000-identity
+lookup expanded the same baseline and eight ablation window rankings over the
+global candidate population. It now materializes the identical SQL once as a
+table in the same single-threaded, memory-limited, spill-controlled temporary
+DuckDB database, then releases the input table. Subsequent lookups remain
+bounded, and every existing resumed leaf is still regenerated and compared
+logically before reuse. This changes physical evaluation frequency only; the
+candidate population, score expressions, partitions, ordering, ranks, and
+artifact semantics are unchanged.
+
 This is a physical execution and fail-closed resource correction only. No
 scope, source, representation, detector, threshold, seed, null, evaluation,
 acceptance, or preregistration value changed after held-out data.
