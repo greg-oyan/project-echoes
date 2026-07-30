@@ -47,14 +47,23 @@ from echoes.lexical.storage import (
     LEXICAL_CONVENIENCE_VIEWS,
     LexicalArtifactWriter,
     LexicalStorageError,
+    lexical_promotion_journal_path,
     load_lexical_duckdb,
     processed_from_directory,
     read_artifact_frame,
+    read_current_lexical_promotion_witness,
+    recover_interrupted_lexical_promotion,
 )
 
 
 def _canonical(value: object) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+def _promotion_execution_manifest(tmp_path: Path) -> Path:
+    path = tmp_path / "execution-manifest.json"
+    path.write_text("{}\n", encoding="utf-8")
+    return path
 
 
 def _feature_row(feature_id: str, value: str) -> dict[str, object]:
@@ -374,6 +383,305 @@ def test_writer_can_preserve_fresh_staging_for_production_recovery(
     assert (staging / "feature_vocabulary" / "part-00000.parquet").is_file()
 
 
+def test_writer_requires_pre_promotion_validation_and_preserves_failed_staging(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "lexical" / "schema-v1"
+    validated_path: Path | None = None
+    staging: Path | None = None
+
+    def reject(staged: Path) -> None:
+        nonlocal validated_path
+        validated_path = staged
+        assert (staged / "table-hashes.json").is_file()
+        assert (staged / "lexical_metadata" / "part-00000.parquet").is_file()
+        raise RuntimeError("synthetic pre-promotion validation failure")
+
+    with (
+        pytest.raises(RuntimeError, match="pre-promotion validation"),
+        LexicalArtifactWriter(
+            root,
+            duckdb_memory_limit_bytes=128 * 1024**2,
+            preserve_staging_on_error=True,
+        ) as writer,
+    ):
+        staging = writer.staging_dir
+        for name in LEXICAL_ARTIFACT_NAMES:
+            if name == "lexical_metadata":
+                continue
+            writer.write_frame(name, pl.DataFrame(schema=LEXICAL_ARTIFACT_SCHEMAS[name]))
+        logical, physical = writer.content_hashes()
+        writer.finalize(
+            _metadata_frame(logical=logical, physical=physical, runtime_seconds=0.0),
+            pre_promotion_validator=reject,
+        )
+
+    assert validated_path == staging
+    assert staging is not None and staging.is_dir()
+    assert not root.exists()
+
+
+def test_recovery_restores_a_deferred_promotion_after_database_failure(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "lexical" / "schema-v1"
+    database = tmp_path / "project_echoes.duckdb"
+    with duckdb.connect(str(database)):
+        pass
+    with LexicalArtifactWriter(
+        root,
+        duckdb_memory_limit_bytes=128 * 1024**2,
+        preserve_staging_on_error=True,
+    ) as writer:
+        staging = writer.staging_dir
+        for name in LEXICAL_ARTIFACT_NAMES:
+            if name == "lexical_metadata":
+                continue
+            writer.write_frame(name, pl.DataFrame(schema=LEXICAL_ARTIFACT_SCHEMAS[name]))
+        logical, physical = writer.content_hashes()
+        writer.finalize(
+            _metadata_frame(logical=logical, physical=physical, runtime_seconds=0.0),
+            pre_promotion_validator=lambda path: None,
+            defer_promotion_commit=True,
+            promotion_database_path=database,
+            promotion_execution_manifest_path=_promotion_execution_manifest(tmp_path),
+            promotion_execution_id="execution-fixture",
+        )
+
+    assert root.is_dir()
+    assert not staging.exists()
+    assert recover_interrupted_lexical_promotion(root, database) == "staging_restored"
+    assert not root.exists()
+    assert staging.is_dir()
+    assert (staging / "table-hashes.json").is_file()
+    assert not lexical_promotion_journal_path(root).exists()
+    assert len(list(root.parent.glob(".schema-v1.promotion-journal-staging-restored-*.json"))) == 1
+
+
+def test_writer_preserves_staging_when_governed_promotion_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "lexical" / "schema-v1"
+    database = tmp_path / "project_echoes.duckdb"
+    with duckdb.connect(str(database)):
+        pass
+    original_replace = Path.replace
+    with LexicalArtifactWriter(
+        root,
+        duckdb_memory_limit_bytes=128 * 1024**2,
+        preserve_staging_on_error=True,
+    ) as writer:
+        staging = writer.staging_dir
+        for name in LEXICAL_ARTIFACT_NAMES:
+            if name == "lexical_metadata":
+                continue
+            writer.write_frame(name, pl.DataFrame(schema=LEXICAL_ARTIFACT_SCHEMAS[name]))
+        logical, physical = writer.content_hashes()
+
+        def fail_promotion(path: Path, target: Path) -> Path:
+            if path == staging and target == root:
+                raise OSError("synthetic promotion failure")
+            return original_replace(path, target)
+
+        monkeypatch.setattr(Path, "replace", fail_promotion)
+        with pytest.raises(LexicalStorageError, match="could not promote lexical artifacts"):
+            writer.finalize(
+                _metadata_frame(logical=logical, physical=physical, runtime_seconds=0.0),
+                pre_promotion_validator=lambda path: None,
+                defer_promotion_commit=True,
+                promotion_database_path=database,
+                promotion_execution_manifest_path=_promotion_execution_manifest(tmp_path),
+                promotion_execution_id="execution-fixture",
+            )
+
+    assert staging.is_dir()
+    assert (staging / "table-hashes.json").is_file()
+    assert not root.exists()
+    assert lexical_promotion_journal_path(root).is_file()
+    assert recover_interrupted_lexical_promotion(root, database) == "staging_restored"
+    assert not lexical_promotion_journal_path(root).exists()
+    assert len(list(root.parent.glob(".schema-v1.promotion-journal-staging-restored-*.json"))) == 1
+
+
+def test_interrupted_promotion_recovers_committed_database_exposure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "lexical" / "schema-v1"
+    database = tmp_path / "project_echoes.duckdb"
+    with duckdb.connect(str(database)):
+        pass
+    with LexicalArtifactWriter(
+        root,
+        duckdb_memory_limit_bytes=128 * 1024**2,
+        preserve_staging_on_error=True,
+    ) as writer:
+        for name in LEXICAL_ARTIFACT_NAMES:
+            if name == "lexical_metadata":
+                continue
+            writer.write_frame(name, pl.DataFrame(schema=LEXICAL_ARTIFACT_SCHEMAS[name]))
+        logical, physical = writer.content_hashes()
+        processed = writer.finalize(
+            _metadata_frame(logical=logical, physical=physical, runtime_seconds=0.0),
+            pre_promotion_validator=lambda path: None,
+            defer_promotion_commit=True,
+            promotion_database_path=database,
+            promotion_execution_manifest_path=_promotion_execution_manifest(tmp_path),
+            promotion_execution_id="execution-fixture",
+        )
+
+    spill = tmp_path / "duckdb-spill"
+    load_lexical_duckdb(
+        processed,
+        database,
+        duckdb_memory_limit_bytes=128 * 1024**2,
+        duckdb_temp_directory=spill,
+        promotion_id=writer.pending_promotion_id,
+        table_hash_manifest_sha256=lexical_storage.sha256_file(
+            processed.output_dir / "table-hashes.json"
+        ),
+    )
+    assert lexical_promotion_journal_path(root).is_file()
+    assert recover_interrupted_lexical_promotion(root, database) == "canonical_committed"
+    assert root.is_dir()
+    assert lexical_promotion_journal_path(root).is_file()
+    monkeypatch.setattr(
+        lexical_storage,
+        "load_execution_manifest",
+        lambda path: SimpleNamespace(
+            execution_id="execution-fixture",
+            execution_status="succeeded",
+            output_hash_manifest_sha256=lexical_storage.sha256_file(root / "table-hashes.json"),
+            artifact_output_directory="lexical/schema-v1",
+        ),
+    )
+    assert (
+        recover_interrupted_lexical_promotion(
+            root,
+            database,
+            archive_committed=True,
+        )
+        == "canonical_committed"
+    )
+    assert not lexical_promotion_journal_path(root).exists()
+    assert (
+        len(list(root.parent.glob(".schema-v1.promotion-journal-canonical-committed-*.json"))) == 1
+    )
+    assert recover_interrupted_lexical_promotion(root, database) == "canonical_committed"
+    archived_witness = read_current_lexical_promotion_witness(root, database)
+    assert archived_witness.promotion_id == writer.pending_promotion_id
+    assert archived_witness.execution_id == "execution-fixture"
+    with duckdb.connect(str(database), read_only=True) as connection:
+        assert connection.execute("SELECT count(*) FROM lexical_metadata").fetchone() == (1,)
+    with duckdb.connect(str(database)) as connection:
+        connection.execute(
+            "CREATE OR REPLACE VIEW lexical_known_link_recovery AS SELECT 1 AS tampered"
+        )
+    with pytest.raises(LexicalStorageError, match="catalog changed"):
+        recover_interrupted_lexical_promotion(root, database)
+
+
+def test_recovery_does_not_mistake_a_prior_commit_marker_for_the_new_run(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "lexical" / "schema-v1"
+    prior = _finalize_empty_run(root, runtime_seconds=1.0)
+    database = tmp_path / "project_echoes.duckdb"
+    prior_manifest_sha256 = lexical_storage.sha256_file(root / "table-hashes.json")
+    load_lexical_duckdb(
+        prior,
+        database,
+        duckdb_memory_limit_bytes=128 * 1024**2,
+        duckdb_temp_directory=tmp_path / "prior-spill",
+        promotion_id="a" * 32,
+        table_hash_manifest_sha256=prior_manifest_sha256,
+    )
+
+    with LexicalArtifactWriter(
+        root,
+        force=True,
+        duckdb_memory_limit_bytes=128 * 1024**2,
+        preserve_staging_on_error=True,
+    ) as writer:
+        staging = writer.staging_dir
+        for name in LEXICAL_ARTIFACT_NAMES:
+            if name != "lexical_metadata":
+                writer.write_frame(name, pl.DataFrame(schema=LEXICAL_ARTIFACT_SCHEMAS[name]))
+        logical, physical = writer.content_hashes()
+        writer.finalize(
+            _metadata_frame(logical=logical, physical=physical, runtime_seconds=2.0),
+            pre_promotion_validator=lambda path: None,
+            defer_promotion_commit=True,
+            promotion_database_path=database,
+            promotion_execution_manifest_path=_promotion_execution_manifest(tmp_path),
+            promotion_execution_id="execution-fixture",
+        )
+
+    assert root.is_dir()
+    assert not staging.exists()
+    assert recover_interrupted_lexical_promotion(root, database) == "staging_restored"
+    assert root.is_dir()
+    assert staging.is_dir()
+    assert lexical_storage.sha256_file(root / "table-hashes.json") == prior_manifest_sha256
+    with duckdb.connect(str(database), read_only=True) as connection:
+        assert connection.execute(
+            "SELECT promotion_id FROM lexical_promotion_commit"
+        ).fetchone() == ("a" * 32,)
+
+
+def test_writer_never_exposes_partial_leaf_and_preserves_it_for_diagnosis(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "lexical" / "schema-v1"
+    original_write = pl.DataFrame.write_parquet
+    staging: Path | None = None
+
+    def interrupted_write(self: pl.DataFrame, file: str | Path, **_kwargs: object) -> None:
+        Path(file).write_bytes(b"partial")
+        raise OSError("synthetic interrupted parquet write")
+
+    monkeypatch.setattr(pl.DataFrame, "write_parquet", interrupted_write)
+    with (
+        pytest.raises(OSError, match="interrupted parquet"),
+        LexicalArtifactWriter(
+            root,
+            duckdb_memory_limit_bytes=128 * 1024**2,
+            preserve_staging_on_error=True,
+        ) as writer,
+    ):
+        staging = writer.staging_dir
+        writer.write_frame(
+            "feature_vocabulary",
+            pl.DataFrame(
+                [_feature_row("LF_a", "a")],
+                schema=FEATURE_VOCABULARY_SCHEMA,
+                orient="row",
+            ),
+        )
+
+    assert staging is not None
+    assert not (staging / "feature_vocabulary" / "part-00000.parquet").exists()
+    assert list((staging / "feature_vocabulary").glob(".part-00000.parquet.writing-*"))
+
+    monkeypatch.setattr(pl.DataFrame, "write_parquet", original_write)
+    with (
+        pytest.raises(RuntimeError, match="preserve adopted state"),
+        LexicalArtifactWriter(
+            root,
+            duckdb_memory_limit_bytes=128 * 1024**2,
+            resume_staging_dir=staging,
+        ),
+    ):
+        assert not list(staging.rglob(".*.writing-*"))
+        raise RuntimeError("preserve adopted state")
+
+    quarantines = list(root.parent.glob(".schema-v1.interrupted-writes-*"))
+    assert len(quarantines) == 1
+    assert list(quarantines[0].rglob(".*.writing-*"))
+
+
 def test_null_runtime_is_excluded_from_global_logical_hash(tmp_path: Path) -> None:
     def null_run(root: Path, runtime_seconds: float):
         row = {
@@ -472,6 +780,10 @@ def test_finalize_read_and_duckdb_load_are_transactional_and_runtime_hash_neutra
         database,
         duckdb_memory_limit_bytes=128 * 1024**2,
         duckdb_temp_directory=tmp_path / "duckdb-load-spill-1",
+        promotion_id="1" * 32,
+        table_hash_manifest_sha256=lexical_storage.sha256_file(
+            first.output_dir / "table-hashes.json"
+        ),
     )
     with duckdb.connect(str(database), read_only=True) as connection:
         names = {str(row[0]) for row in connection.execute("SHOW TABLES").fetchall()}
@@ -499,6 +811,10 @@ def test_finalize_read_and_duckdb_load_are_transactional_and_runtime_hash_neutra
         database,
         duckdb_memory_limit_bytes=128 * 1024**2,
         duckdb_temp_directory=tmp_path / "duckdb-load-spill-2",
+        promotion_id="2" * 32,
+        table_hash_manifest_sha256=lexical_storage.sha256_file(
+            first.output_dir / "table-hashes.json"
+        ),
     )
 
 

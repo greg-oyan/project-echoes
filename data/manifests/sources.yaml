@@ -52,6 +52,7 @@ sources:
       - The aggregate combines components with distinct attribution and downstream-publication conditions.
     notes:
       - Approved for reproducible local machine processing of release 25.08.11; raw files and full processed token tables remain Git-ignored and are not approved for public redistribution by project policy.
+      - ADR 0017 and the 2026-07-30 data-licensing review narrowly permit private processing of existing derived M7 artifacts on one owner-controlled ephemeral Hetzner server; raw acquisition files, public release, snapshots, backups, and persistent cloud storage remain excluded.
       - Release 25.08.11 is deliberately selected because it predates the separately licensed SILHA gloss injection in 2026 releases.
       - Limited metadata, checksums, aggregate statistics, validation findings, and non-textual schema information may be published with attribution.
       - The Git-ignored acquisition receipt records SHA-256 hashes and sizes for all 932 acquired files; the tracked manifest retains hashes for the three required inventory anchors.
@@ -123,6 +124,7 @@ sources:
       - The SBLGNT representation in the same release documents unmapped nodes lacking Gloss, Louw-Nida, and Domain values and is not selected.
     notes:
       - Approved for reproducible local machine processing of release 24.06.17; raw files and full processed token tables remain Git-ignored and are not approved for public redistribution by project policy.
+      - ADR 0017 and the 2026-07-30 data-licensing review narrowly permit private processing of existing derived M7 artifacts on one owner-controlled ephemeral Hetzner server; this does not broaden publication rights for MARBLE or other permission-only component fields.
       - All recorded hashes are canonical-byte SHA-256 values, externally verified against raw.githubusercontent.com at commit b5b7ecec0882a3e9a609ecac99e157391e5d9b46 on 2026-07-11.
       - ADR 0010 records the edition selection, superseding the provisional SBLGNT v1.2 selection with the release's native Nestle1904 dataset.
       - The Git-ignored acquisition receipt records SHA-256 hashes and sizes for all 29 acquired files; the tracked manifest retains hashes for the three required inventory anchors.
@@ -252,6 +254,7 @@ sources:
       - OSHB README guidance warns against NFC normalization of its Hebrew text; derived-form handling must follow the project normalization policy.
     notes:
       - ADR 0009 (Accepted, ratified 2026-07-11) records the Ketiv/Qere supplementation strategy, including the verified MACULA word-number gap at 2KI 8:10 slot 6; Milestone 4 Part 1 implements it.
+      - ADR 0017 and the 2026-07-30 data-licensing review narrowly permit private processing of the derived OSHB-backed M7 artifacts on one owner-controlled ephemeral Hetzner server; raw OSIS acquisition files are excluded.
       - Ketiv records from this layer must be produced as variant_type=ketiv tokens per canonical schema v2, leaving the existing Qere stream unchanged; annotation conflicts are preserved per master plan section 10.4.
       - All recorded hashes are canonical-byte SHA-256 values, externally verified against raw.githubusercontent.com at commit 3d15126fb1ef74867fc1434be1942e837932691f on 2026-07-11; acquisitions disable Git text conversion.
       - The sparse checkout scope is the wlc directory (39 OSIS book files plus VerseMap.xml) and the two notices; the Git-ignored acquisition receipt records SHA-256 hashes and sizes for all 42 files, and the tracked manifest retains the three anchor hashes.
@@ -365,6 +368,7 @@ sources:
       - Same-label mappings into the primary corpora remain provisional without an approved versification crosswalk.
     notes:
       - Tier 3 only; do not use this graph to populate Tier 1 or as the sole positive ground truth.
+      - ADR 0017 and the 2026-07-30 data-licensing review narrowly permit private processing of the derived Tier 3 benchmark on one owner-controlled ephemeral Hetzner server; the raw ZIP and extracted TSV are excluded.
       - The audited archive contains references and signed vote integers only; no biblical quotation, ESV text, or other modern-translation text is present.
       - Raw archive bytes, extracted source, the acquisition receipt, and normalized benchmark tables remain Git-ignored by conservative project policy.
       - Attribute OpenBible.info, link the official source and CC BY 4.0 license, identify this snapshot, preserve the file notice, and indicate Project Echoes transformations.

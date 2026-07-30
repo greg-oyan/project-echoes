@@ -9,14 +9,16 @@ import json
 import math
 import platform
 import shutil
+import signal
 import time
 import warnings
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Protocol, cast
+from typing import Any, Literal, Protocol, cast
+from uuid import uuid4
 
 from echoes.lexical.resources import (
     MEBIBYTE,
@@ -25,6 +27,7 @@ from echoes.lexical.resources import (
     configure_duckdb_connection,
     enforce_thread_controls,
     initialize_thread_controls,
+    resolve_operational_limits,
 )
 
 # Numeric thread pools read these variables at import time.  The governed M7
@@ -106,10 +109,17 @@ from echoes.lexical.sparse import (
 )
 from echoes.lexical.storage import (
     LexicalArtifactWriter,
+    LexicalStorageError,
     ProcessedLexical,
+    lexical_promotion_journal_path,
     load_lexical_duckdb,
+    recover_interrupted_lexical_promotion,
 )
-from echoes.lexical.validation import sparse_index_physical_hash
+from echoes.lexical.validation import (
+    LexicalValidationReport,
+    sparse_index_physical_hash,
+    validate_lexical_artifacts,
+)
 from echoes.manifest import ExperimentExecutionRecorder, sha256_file
 from echoes.manifests.sources import load_source_catalog
 from echoes.settings import BenchmarkConfig, load_config
@@ -162,6 +172,37 @@ _SENSITIVITY_QUERY_REFERENCE_BUCKETS = (
 
 class LexicalPipelineError(RuntimeError):
     """Raised when the governed Milestone 7 pipeline cannot finish safely."""
+
+
+class LexicalPipelineTermination(LexicalPipelineError):
+    """Raised when an OS termination signal requests a checkpoint-preserving stop."""
+
+
+@contextmanager
+def _termination_signal_guard() -> Iterator[None]:
+    """Turn service stop signals into ordinary failures so recovery state is retained."""
+
+    previous: dict[
+        signal.Signals,
+        int | Callable[..., Any] | None,
+    ] = {}
+
+    def terminate(signum: int, _frame: object) -> None:
+        try:
+            name = signal.Signals(signum).name
+        except ValueError:
+            name = str(signum)
+        raise LexicalPipelineTermination(
+            f"lexical pipeline received {name}; preserving staging and checkpoints"
+        )
+
+    for governed_signal in (signal.SIGTERM, signal.SIGINT):
+        previous[governed_signal] = signal.signal(governed_signal, terminate)
+    try:
+        yield
+    finally:
+        for governed_signal, handler in previous.items():
+            signal.signal(governed_signal, handler)
 
 
 class _ResourceCheck(Protocol):
@@ -353,15 +394,15 @@ class _PrivateCheckpointQuarantine:
         if staging is not None and staging.is_dir():
             error.add_note(f"preserved lexical staging directory: {staging}")
 
-    def cleanup_after_success(self) -> str | None:
-        """Remove quarantined state only after the successful manifest is durable."""
+    def preserve_after_success(self) -> str | None:
+        """Keep pre-promotion recovery checkpoints after a successful run."""
 
         quarantine = self.quarantine_dir
         if quarantine is None or not quarantine.exists():
             self.quarantine_dir = None
             return None
         if quarantine.is_symlink():
-            return f"refusing to clean ungoverned checkpoint quarantine: {quarantine}"
+            return f"refusing to accept ungoverned checkpoint quarantine: {quarantine}"
         resolved_output = self.output_dir.resolve()
         resolved_quarantine = quarantine.resolve()
         expected_prefix = f".{resolved_output.name}.checkpoint-quarantine-"
@@ -369,13 +410,77 @@ class _PrivateCheckpointQuarantine:
             resolved_quarantine.parent != resolved_output.parent
             or not resolved_quarantine.name.startswith(expected_prefix)
         ):
-            return f"refusing to clean ungoverned checkpoint quarantine: {quarantine}"
-        try:
-            shutil.rmtree(quarantine)
-        except OSError as error:
-            return f"could not clean successful checkpoint quarantine {quarantine}: {error}"
-        self.quarantine_dir = None
+            return f"refusing to accept ungoverned checkpoint quarantine: {quarantine}"
         return None
+
+
+def _preserve_private_residue(
+    staging_dir: Path,
+    sources: Sequence[Path],
+    *,
+    label: str,
+) -> Path | None:
+    """Move interrupted private work outside staging without deleting evidence."""
+
+    if not sources:
+        return None
+    resolved_staging = staging_dir.resolve()
+    if (
+        staging_dir.is_symlink()
+        or not resolved_staging.is_dir()
+        or ".writing-" not in resolved_staging.name
+    ):
+        raise LexicalPipelineError("private-residue staging path is not governed")
+    stem = resolved_staging.name.split(".writing-", maxsplit=1)[0]
+    destination_root = resolved_staging.parent / f"{stem}.interrupted-{label}-{uuid4().hex}"
+    if destination_root.exists() or destination_root.is_symlink():
+        raise LexicalPipelineError(
+            f"private-residue preservation destination already exists: {destination_root}"
+        )
+    validated: list[tuple[Path, Path]] = []
+    for source in sources:
+        if source.is_symlink():
+            raise LexicalPipelineError(f"private residue cannot be a symlink: {source}")
+        try:
+            relative = source.resolve().relative_to(resolved_staging)
+        except (OSError, ValueError) as exc:
+            raise LexicalPipelineError(f"private residue escaped staging: {source}") from exc
+        if not source.exists():
+            raise LexicalPipelineError(f"private residue disappeared: {source}")
+        validated.append((source, relative))
+    for source, relative in validated:
+        destination = destination_root / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        source.replace(destination)
+    return destination_root
+
+
+def _write_private_parquet_atomically(path: Path, frame: pl.DataFrame) -> None:
+    """Write one private Parquet leaf without exposing a partial final name."""
+
+    pending = path.with_name(f".{path.name}.writing-{uuid4().hex}")
+    if pending.exists() or pending.is_symlink():
+        raise LexicalPipelineError(f"private pending write already exists: {pending}")
+    frame.write_parquet(
+        pending,
+        compression="zstd",
+        compression_level=6,
+        statistics=True,
+    )
+    pending.replace(path)
+
+
+def _write_private_json_atomically(path: Path, payload: Mapping[str, object]) -> None:
+    """Write one private JSON completion marker atomically."""
+
+    pending = path.with_name(f".{path.name}.writing-{uuid4().hex}")
+    if pending.exists() or pending.is_symlink():
+        raise LexicalPipelineError(f"private pending write already exists: {pending}")
+    pending.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    pending.replace(path)
 
 
 class _CandidateCheckpointWriter:
@@ -395,6 +500,7 @@ class _CandidateCheckpointWriter:
             resolved = self.root.resolve()
             if resolved.parent != staging_dir.resolve() or not resolved.is_dir():
                 raise LexicalPipelineError("candidate checkpoint path escaped staging")
+            residue: list[Path] = []
             for path in sorted(resolved.iterdir()):
                 if path.name == _TIER3_CHECKPOINT_DIRECTORY:
                     if path.is_symlink() or not path.is_dir() or path.resolve().parent != resolved:
@@ -412,13 +518,21 @@ class _CandidateCheckpointWriter:
                     raise LexicalPipelineError(
                         f"candidate checkpoint contains ungoverned direct residue: {path.name}"
                     )
-                if path.name != _CANDIDATE_CHECKPOINT_MANIFEST and not (
-                    path.name.startswith("part-") and path.suffix == ".parquet"
+                if (
+                    path.name != _CANDIDATE_CHECKPOINT_MANIFEST
+                    and not (path.name.startswith("part-") and path.suffix == ".parquet")
+                    and not (path.name.startswith(".part-") and ".parquet.writing-" in path.name)
+                    and not path.name.startswith(f".{_CANDIDATE_CHECKPOINT_MANIFEST}.writing-")
                 ):
                     raise LexicalPipelineError(
                         f"candidate checkpoint contains unexpected direct residue: {path.name}"
                     )
-                path.unlink()
+                residue.append(path)
+            _preserve_private_residue(
+                staging_dir,
+                residue,
+                label="primary-candidate-checkpoint",
+            )
         self.root.mkdir(exist_ok=True)
         self.experiment_run_id = experiment_run_id
         self.configuration_hash = configuration_hash
@@ -459,12 +573,7 @@ class _CandidateCheckpointWriter:
         )
         part = len(self.parts)
         path = self.root / f"part-{part:05d}.parquet"
-        frame.write_parquet(
-            path,
-            compression="zstd",
-            compression_level=6,
-            statistics=True,
-        )
+        _write_private_parquet_atomically(path, frame)
         self.parts.append(
             {
                 "path": path.name,
@@ -484,9 +593,9 @@ class _CandidateCheckpointWriter:
             "row_count": self.row_count,
             "parts": self.parts,
         }
-        (self.root / _CANDIDATE_CHECKPOINT_MANIFEST).write_text(
-            json.dumps(payload, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
+        _write_private_json_atomically(
+            self.root / _CANDIDATE_CHECKPOINT_MANIFEST,
+            payload,
         )
 
 
@@ -509,7 +618,11 @@ def _load_candidate_checkpoint(
         raise LexicalPipelineError("candidate checkpoint manifest escaped its root")
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+    except (UnicodeError, json.JSONDecodeError):
+        # A killed pre-atomic writer can leave an invalid legacy marker. The
+        # constructor preserves every direct checkpoint leaf before restarting.
+        return None
+    except OSError as exc:
         raise LexicalPipelineError(f"candidate checkpoint manifest is unreadable: {exc}") from exc
     if (
         not isinstance(manifest, dict)
@@ -2221,7 +2334,7 @@ def _prepare_candidate_review_queue_spool(
     *,
     resumed: bool,
 ) -> Path:
-    """Create a fresh private queue spool, discarding only a verified empty resume remnant."""
+    """Create a fresh queue spool while preserving any interrupted resume remnant."""
 
     spool = staging_dir / _CANDIDATE_REVIEW_QUEUE_SPOOL_DIRECTORY
     if spool.is_symlink():
@@ -2233,10 +2346,13 @@ def _prepare_candidate_review_queue_spool(
             raise LexicalPipelineError("resumed candidate review-queue spool is not governed")
         residual = sorted(path.name for path in spool.iterdir())
         if residual:
-            raise LexicalPipelineError(
-                f"refusing to discard nonempty resumed candidate review-queue spool: {residual[:5]}"
+            _preserve_private_residue(
+                staging_dir,
+                [spool],
+                label="candidate-review-queue-spool",
             )
-        spool.rmdir()
+        else:
+            spool.rmdir()
     spool.mkdir()
     return spool
 
@@ -2626,18 +2742,33 @@ def _run_lexical_pipeline_impl(
     config = load_lexical_config()
     preregistration = load_lexical_preregistration()
     validate_preregistration_against_config(preregistration, config)
-    thread_controls = enforce_thread_controls(config.resource_limits.thread_count)
+    try:
+        operational_limits = resolve_operational_limits(
+            configured_maximum_memory_bytes=config.resource_limits.maximum_memory_bytes,
+            configured_thread_count=config.resource_limits.thread_count,
+        )
+    except LexicalResourceError as exc:
+        raise LexicalPipelineError(f"could not resolve operational resource limits: {exc}") from exc
+    thread_controls = enforce_thread_controls(operational_limits.thread_count)
     observed_polars_threads = pl.thread_pool_size()
-    if observed_polars_threads > config.resource_limits.thread_count:
+    if observed_polars_threads > operational_limits.thread_count:
         raise LexicalPipelineError(
             "Polars initialized before the governed thread control: "
-            f"observed={observed_polars_threads}, maximum={config.resource_limits.thread_count}"
+            f"observed={observed_polars_threads}, maximum={operational_limits.thread_count}"
         )
     try:
-        resource_guard = ProcessResourceGuard(config.resource_limits.maximum_memory_bytes)
+        resource_guard = ProcessResourceGuard(
+            operational_limits.maximum_memory_bytes,
+            duckdb_memory_limit_bytes=operational_limits.duckdb_memory_limit_bytes,
+        )
     except LexicalResourceError as exc:
         raise LexicalPipelineError(f"could not initialize resource guard: {exc}") from exc
 
+    spill_parent = (
+        operational_limits.duckdb_temp_directory
+        if operational_limits.duckdb_temp_directory is not None
+        else output_dir.parent
+    )
     resume_progress_path: Path | None = None
     last_resume_progress_stage: str | None = None
 
@@ -2685,7 +2816,7 @@ def _run_lexical_pipeline_impl(
         )
     except LexicalResourceError as exc:
         raise LexicalPipelineError(str(exc)) from exc
-    anchor_spill_directory = output_dir.parent / f".{output_dir.name}.anchor-spill"
+    anchor_spill_directory = spill_parent / f".{output_dir.name}.anchor-spill"
     with _managed_temp_directory(anchor_spill_directory):
         anchors = cast(
             AnchorVerification,
@@ -2719,12 +2850,10 @@ def _run_lexical_pipeline_impl(
                 anchors.benchmark_logical_hashes,
             ),
         )
-    database_spill_directory = (
-        output_dir.parent / f".{output_dir.name}.{experiment_run_id}.duckdb-spill"
-    )
+    database_spill_directory = spill_parent / f".{output_dir.name}.{experiment_run_id}.duckdb-spill"
     if resume_staging_dir is not None and database_spill_directory.exists():
         resolved_spill = database_spill_directory.resolve()
-        expected_parent = output_dir.resolve().parent
+        expected_parent = spill_parent.resolve()
         spill_entries = list(resolved_spill.rglob("*"))
         if (
             resolved_spill.parent != expected_parent
@@ -3472,11 +3601,9 @@ def _run_lexical_pipeline_impl(
             if batch.queue_candidates:
                 queue_input = build_review_queue(batch.queue_candidates).drop("queue_rank")
                 writer.check_free_disk(f"candidate_queue_spool:part-{part}:before")
-                queue_input.write_parquet(
+                _write_private_parquet_atomically(
                     queue_spool_directory / f"part-{part:05d}.parquet",
-                    compression="zstd",
-                    compression_level=6,
-                    statistics=True,
+                    queue_input,
                 )
                 writer.check_free_disk(f"candidate_queue_spool:part-{part}:after")
                 queue_input_count += queue_input.height
@@ -3602,6 +3729,7 @@ def _run_lexical_pipeline_impl(
                             "platform": platform.system(),
                             "polars": pl.__version__,
                             "rss_probe": "os_native_current_working_set",
+                            "operational_resource_limits": (operational_limits.manifest_values()),
                         }
                     ),
                     "thread_controls_json": _canonical_json(
@@ -3619,7 +3747,37 @@ def _run_lexical_pipeline_impl(
             schema=LEXICAL_METADATA_SCHEMA,
             orient="row",
         )
-        processed = writer.finalize(metadata)
+
+        def validate_before_promotion(staging_dir: Path) -> None:
+            validation_start = time.perf_counter()
+            report: LexicalValidationReport = validate_lexical_artifacts(
+                staging_dir,
+                database_path=database_path,
+                verify_anchors=False,
+                verify_duckdb=False,
+                strict=True,
+            )
+            timings["pre_promotion_validation"] = time.perf_counter() - validation_start
+            if not report.passed:
+                raise LexicalPipelineError(
+                    "refusing canonical lexical promotion because staged strict validation "
+                    "did not pass: "
+                    f"errors={report.error_count}, warnings={report.warning_count}, "
+                    f"scientific_gate={report.scientific_gate_passed}"
+                )
+
+        if execution_recorder is None:
+            raise LexicalPipelineError(
+                "deferred lexical promotion requires execution-manifest provenance"
+            )
+        processed = writer.finalize(
+            metadata,
+            pre_promotion_validator=validate_before_promotion,
+            defer_promotion_commit=True,
+            promotion_database_path=database_path,
+            promotion_execution_manifest_path=execution_recorder.manifest_path,
+            promotion_execution_id=execution_recorder.manifest.execution_id,
+        )
         if execution_recorder is not None:
             execution_recorder.bind_outputs(
                 output_table_hashes=processed.table_logical_hashes,
@@ -3636,7 +3794,7 @@ def _run_lexical_pipeline_impl(
     except LexicalResourceError as exc:
         raise LexicalPipelineError(str(exc)) from exc
     final_spill_directory = (
-        output_dir.parent / f".{output_dir.name}.{experiment_run_id}.duckdb-load-spill"
+        spill_parent / f".{output_dir.name}.{experiment_run_id}.duckdb-load-spill"
     )
     if final_spill_directory.exists():
         raise LexicalPipelineError(
@@ -3648,6 +3806,8 @@ def _run_lexical_pipeline_impl(
             database_path,
             duckdb_memory_limit_bytes=final_duckdb_memory,
             duckdb_temp_directory=final_spill_directory,
+            promotion_id=writer.pending_promotion_id,
+            table_hash_manifest_sha256=sha256_file(processed.output_dir / "table-hashes.json"),
         )
     finally:
         shutil.rmtree(final_spill_directory, ignore_errors=True)
@@ -3684,6 +3844,28 @@ def run_lexical_pipeline(
     resume_staging_dir: Path | None = None,
 ) -> LexicalPipelineResult:
     """Run M7 with an execution-attempt sidecar outside lexical schema-v1."""
+
+    promotion_journal = lexical_promotion_journal_path(output_dir)
+    active_promotion_was_present = promotion_journal.exists() or promotion_journal.is_symlink()
+    try:
+        recovery_state = recover_interrupted_lexical_promotion(
+            output_dir,
+            database_path,
+        )
+    except LexicalStorageError as exc:
+        raise LexicalPipelineError(
+            f"could not recover an interrupted lexical promotion: {exc}"
+        ) from exc
+    if recovery_state == "canonical_committed" and active_promotion_was_present:
+        raise LexicalPipelineError(
+            "a journaled lexical run had already committed its canonical artifacts "
+            "and DuckDB exposure; run strict validation instead of launching another worker"
+        )
+    if recovery_state == "canonical_committed" and not force:
+        raise LexicalPipelineError(
+            "a sealed lexical run already owns canonical artifacts and DuckDB exposure; "
+            "a deliberately fresh replacement requires --force"
+        )
     project_root = Path.cwd().resolve()
     recorder = ExperimentExecutionRecorder.begin(
         experiment_name="m7-lexical-baseline",
@@ -3706,14 +3888,15 @@ def run_lexical_pipeline(
     )
     checkpoint_quarantine = _PrivateCheckpointQuarantine(output_dir=output_dir)
     try:
-        result = _run_lexical_pipeline_impl(
-            database_path=database_path,
-            output_dir=output_dir,
-            force=force,
-            resume_staging_dir=resume_staging_dir,
-            execution_recorder=recorder,
-            checkpoint_quarantine=checkpoint_quarantine,
-        )
+        with _termination_signal_guard():
+            result = _run_lexical_pipeline_impl(
+                database_path=database_path,
+                output_dir=output_dir,
+                force=force,
+                resume_staging_dir=resume_staging_dir,
+                execution_recorder=recorder,
+                checkpoint_quarantine=checkpoint_quarantine,
+            )
         completion_warnings = (
             []
             if result.acceptance_status == "scientifically_complete"
@@ -3726,7 +3909,30 @@ def run_lexical_pipeline(
             stage_runtime_seconds=result.stage_runtime_seconds,
             warnings=completion_warnings,
         )
+        promotion_state = recover_interrupted_lexical_promotion(
+            output_dir,
+            database_path,
+            archive_committed=True,
+        )
+        if promotion_state != "canonical_committed":
+            raise LexicalPipelineError(
+                "successful execution provenance could not seal the lexical promotion: "
+                f"{promotion_state}"
+            )
     except BaseException as error:
+        try:
+            failure_recovery_state = recover_interrupted_lexical_promotion(
+                output_dir,
+                database_path,
+            )
+            error.add_note(
+                f"durable lexical promotion state after execution failure: {failure_recovery_state}"
+            )
+        except Exception as recovery_error:
+            error.add_note(
+                "durable lexical promotion recovery remained unresolved after failure: "
+                f"{type(recovery_error).__name__}: {recovery_error}"
+            )
         try:
             checkpoint_quarantine.preserve_after_failure(error)
         except Exception as preservation_error:
@@ -3742,7 +3948,7 @@ def run_lexical_pipeline(
                 f"{type(provenance_error).__name__}: {provenance_error}"
             )
         raise
-    cleanup_warning = checkpoint_quarantine.cleanup_after_success()
-    if cleanup_warning is not None:
-        warnings.warn(cleanup_warning, RuntimeWarning, stacklevel=2)
+    preservation_warning = checkpoint_quarantine.preserve_after_success()
+    if preservation_warning is not None:
+        warnings.warn(preservation_warning, RuntimeWarning, stacklevel=2)
     return result

@@ -15,11 +15,13 @@ from echoes.manifest import (
     RunManifest,
     build_run_manifest,
     discover_execution_manifests,
+    finalize_recovered_execution_success,
     load_execution_manifest,
     reproduction_command_path_mismatches,
     reproduction_environment_mismatches,
     resolve_execution_manifest,
     validate_execution_manifest_outputs,
+    write_execution_manifest,
     write_run_manifest,
 )
 
@@ -270,6 +272,82 @@ def test_successful_execution_manifest_matches_static_environment_and_outputs(
         )
         == []
     )
+
+
+def test_recovered_success_refuses_failed_or_unsuccessful_service(
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    recorder, _ = _successful_execution(project_root)
+    with pytest.raises(ValueError, match="successful service result"):
+        finalize_recovered_execution_success(
+            recorder.manifest_path,
+            validation_report_sha256="0" * 64,
+            service_result="oom-kill",
+        )
+
+    failed = recorder.manifest.model_copy(
+        update={
+            "execution_status": "failed",
+            "errors": ["RuntimeError: synthetic post-commit failure"],
+        }
+    )
+    write_execution_manifest(failed, recorder.manifest_path, overwrite=True)
+
+    with pytest.raises(ValueError, match="cannot be reclassified"):
+        finalize_recovered_execution_success(
+            recorder.manifest_path,
+            validation_report_sha256="1" * 64,
+            service_result="success",
+        )
+
+    running = recorder.manifest.model_copy(
+        update={
+            "execution_status": "running",
+            "completed_at": None,
+            "errors": [],
+        }
+    )
+    write_execution_manifest(running, recorder.manifest_path, overwrite=True)
+    with pytest.raises(ValueError, match="successful service result"):
+        finalize_recovered_execution_success(
+            recorder.manifest_path,
+            validation_report_sha256="2" * 64,
+            service_result="timeout",
+        )
+    assert load_execution_manifest(recorder.manifest_path).execution_status == "running"
+
+
+def test_recovered_success_transitions_running_manifest_idempotently(
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    recorder, _ = _successful_execution(project_root)
+    running = recorder.manifest.model_copy(
+        update={
+            "execution_status": "running",
+            "completed_at": None,
+            "errors": [],
+        }
+    )
+    write_execution_manifest(running, recorder.manifest_path, overwrite=True)
+
+    recovered = finalize_recovered_execution_success(
+        recorder.manifest_path,
+        validation_report_sha256="3" * 64,
+        service_result="success",
+    )
+    repeated = finalize_recovered_execution_success(
+        recorder.manifest_path,
+        validation_report_sha256="3" * 64,
+        service_result="success",
+    )
+
+    assert recovered.execution_status == "succeeded"
+    assert repeated == recovered
+    assert any("durable post-COMMIT" in warning for warning in recovered.warnings)
 
 
 def test_archived_direct_sibling_authenticates_the_exact_first_execution(

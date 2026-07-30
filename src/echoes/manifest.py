@@ -1038,6 +1038,60 @@ def load_execution_manifest(path: Path) -> ExperimentExecutionManifest:
     return manifest
 
 
+def finalize_recovered_execution_success(
+    path: Path,
+    *,
+    validation_report_sha256: str,
+    service_result: str,
+) -> ExperimentExecutionManifest:
+    """Finalize post-COMMIT provenance only after an external strict validation.
+
+    The caller authenticates the durable promotion journal, DuckDB commit
+    marker, and strict validation report before invoking this idempotent
+    transition. Any pre-recovery error text is retained as a warning and
+    limitation rather than silently discarded.
+    """
+
+    if not _SHA256_PATTERN.fullmatch(validation_report_sha256):
+        raise ValueError("recovery validation report identity must be SHA-256")
+    if service_result != "success":
+        raise ValueError(
+            "recovery finalization requires an authenticated successful service result"
+        )
+    manifest = load_execution_manifest(path)
+    if manifest.execution_status == "succeeded":
+        return manifest
+    if manifest.execution_status == "failed":
+        raise ValueError("a recorded failed execution cannot be reclassified as succeeded")
+    completed_at = datetime.now(tz=UTC)
+    prior_errors = "; ".join(manifest.errors)
+    warning = (
+        "execution success provenance was finalized from a durable post-COMMIT "
+        "promotion journal after strict validation and a successful service result "
+        f"{validation_report_sha256}"
+    )
+    if prior_errors:
+        warning += f"; preserved pre-recovery errors: {prior_errors[:3000]}"
+    limitation = (
+        "the worker was interrupted or failed after its atomic DuckDB exposure; "
+        "success was recovered from the transaction marker and strict validation"
+    )
+    recovered = _updated_execution_manifest(
+        manifest,
+        execution_status="succeeded",
+        completed_at=completed_at,
+        runtime=max(
+            manifest.runtime,
+            max(0.0, (completed_at - manifest.timestamp).total_seconds()),
+        ),
+        warnings=[*manifest.warnings, warning],
+        errors=[],
+        limitations=[*manifest.limitations, limitation],
+    )
+    write_execution_manifest(recovered, path, overwrite=True)
+    return recovered
+
+
 def discover_execution_manifests(
     manifest_root: Path,
     *,

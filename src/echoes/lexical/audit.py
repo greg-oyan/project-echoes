@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import shutil
 from collections import Counter
 from collections.abc import Iterable, Iterator, Sequence
@@ -28,6 +27,7 @@ from echoes.lexical.resources import (
     LexicalResourceError,
     ProcessResourceGuard,
     configure_duckdb_connection,
+    physical_memory_bytes,
 )
 from echoes.lexical.sequences import PassageLexicalSequence, iter_passage_sequences
 
@@ -329,39 +329,6 @@ def _document_frequency_statistics(
     )
 
 
-def _physical_memory_bytes() -> int:
-    """Return physical RAM on Windows and POSIX without adding a runtime dependency."""
-
-    if os.name == "nt":
-        import ctypes
-
-        class MemoryStatus(ctypes.Structure):
-            _fields_ = [
-                ("length", ctypes.c_ulong),
-                ("memory_load", ctypes.c_ulong),
-                ("total_physical", ctypes.c_ulonglong),
-                ("available_physical", ctypes.c_ulonglong),
-                ("total_page_file", ctypes.c_ulonglong),
-                ("available_page_file", ctypes.c_ulonglong),
-                ("total_virtual", ctypes.c_ulonglong),
-                ("available_virtual", ctypes.c_ulonglong),
-                ("available_extended_virtual", ctypes.c_ulonglong),
-            ]
-
-        status = MemoryStatus()
-        status.length = ctypes.sizeof(MemoryStatus)
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        if kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
-            return int(status.total_physical)
-        return 0
-    if hasattr(os, "sysconf"):
-        try:
-            return int(os.sysconf("SC_PAGE_SIZE")) * int(os.sysconf("SC_PHYS_PAGES"))
-        except (OSError, ValueError):
-            return 0
-    return 0
-
-
 def generate_lexical_feature_audit(
     *,
     database_path: Path,
@@ -644,7 +611,7 @@ def generate_lexical_feature_audit(
         {f"hb:lemma:{value}" for value in hebrew_lemma_values}
         & {f"gk:lemma:{value}" for value in greek_lemma_values}
     )
-    memory = _physical_memory_bytes()
+    memory = physical_memory_bytes()
     disk = shutil.disk_usage(database_path.parent).free
     document_frequency_rows = [
         (

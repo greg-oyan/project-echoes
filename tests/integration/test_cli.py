@@ -4,6 +4,7 @@ import hashlib
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import polars as pl
 from typer.testing import CliRunner
@@ -22,6 +23,7 @@ from echoes.lexical.models import (
     LEXICAL_METADATA_SCHEMA,
 )
 from echoes.lexical.storage import LexicalArtifactWriter
+from echoes.lexical.validation import LexicalValidationReport
 from echoes.manifest import (
     ExperimentExecutionManifest,
     ResumeLineage,
@@ -181,6 +183,7 @@ def test_cli_help_runs() -> None:
     assert "validate-corpus" in result.stdout
     assert "corpus-summary" in result.stdout
     assert "audit-lexical-features" in result.stdout
+    assert "recover-lexical-promotion" in result.stdout
     assert "build-lexical-index" in result.stdout
     assert "run-lexical-baseline" in result.stdout
     assert "run-lexical-null-models" in result.stdout
@@ -206,6 +209,107 @@ def test_lexical_validation_exposes_determinism_reference() -> None:
 
     assert result.exit_code == 0
     assert "--determinism-reference-root" in result.stdout
+
+
+def test_lexical_promotion_recovery_cli_reports_machine_state(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        cli_module,
+        "recover_interrupted_lexical_promotion",
+        lambda output_dir, database: "staging_restored",
+    )
+    result = runner.invoke(
+        app,
+        [
+            "recover-lexical-promotion",
+            "--database",
+            str(tmp_path / "project_echoes.duckdb"),
+            "--output-dir",
+            str(tmp_path / "lexical" / "schema-v1"),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == {
+        "state": "staging_restored",
+        "canonical_output_present": False,
+    }
+
+
+def test_recovery_finalizer_retry_uses_the_archived_commit_witness(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "lexical" / "schema-v1"
+    output.mkdir(parents=True)
+    database = tmp_path / "project_echoes.duckdb"
+    manifest_root = tmp_path / "execution-manifests"
+    manifest = _write_cli_execution_manifest(
+        manifest_root,
+        execution_id="execution-archived",
+        timestamp=datetime.now(tz=UTC),
+        database=str(database),
+    )
+    manifest_path = manifest_root / manifest.run_id / f"{manifest.execution_id}.json"
+    validation = LexicalValidationReport(
+        output_dir=str(output.resolve()),
+        experiment_run_id=manifest.run_id,
+        experiment_version=manifest.experiment_version,
+        configuration_hash=None,
+        preregistration_hash=None,
+        strict=True,
+        table_counts={"fixture:output": 1},
+        table_logical_hashes=manifest.output_table_hashes,
+        table_physical_hashes=manifest.output_table_physical_hashes,
+        scientific_gate_passed=True,
+        insufficient_primary_strata=[],
+        issues=[],
+        error_count=0,
+        warning_count=0,
+        informational_count=0,
+        passed=True,
+    )
+    validation_path = tmp_path / "strict-validation.json"
+    validation_path.write_text(validation.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    monkeypatch.setattr(
+        cli_module,
+        "recover_interrupted_lexical_promotion",
+        lambda output_dir, database_path, *, archive_committed=False: "canonical_committed",
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "read_current_lexical_promotion_witness",
+        lambda output_dir, database_path: SimpleNamespace(
+            execution_manifest_path=manifest_path,
+            execution_id=manifest.execution_id,
+        ),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "finalize-lexical-promotion-recovery",
+            "--validation-report",
+            str(validation_path),
+            "--service-result",
+            "success",
+            "--database",
+            str(database),
+            "--output-dir",
+            str(output),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["state"] == "canonical_committed"
+    assert payload["prior_execution_status"] == "succeeded"
+    assert payload["execution_status"] == "succeeded"
+    assert payload["active_journal_present"] is False
 
 
 def test_cli_validates_project_configuration() -> None:

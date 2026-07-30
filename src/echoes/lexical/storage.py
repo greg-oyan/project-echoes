@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from tempfile import TemporaryDirectory
+from typing import Literal, cast
 from uuid import uuid4
 
 import duckdb
@@ -24,9 +27,16 @@ from echoes.lexical.models import (
     LexicalArtifactName,
 )
 from echoes.lexical.resources import LexicalResourceError, configure_duckdb_connection
-from echoes.manifest import sha256_file
+from echoes.manifest import load_execution_manifest, sha256_file
 
 TABLE_HASH_FILE = "table-hashes.json"
+LEXICAL_PROMOTION_COMMIT_RELATION = "lexical_promotion_commit"
+PROMOTION_JOURNAL_SCHEMA_VERSION = 1
+PromotionRecoveryState = Literal[
+    "no_journal",
+    "staging_restored",
+    "canonical_committed",
+]
 
 DUCKDB_ARTIFACT_NAMES: dict[LexicalArtifactName, str] = {
     "feature_vocabulary": "lexical_feature_vocabulary",
@@ -73,6 +83,33 @@ class LexicalStorageError(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True)
+class LexicalPromotionJournal:
+    """Durable cross-boundary intent for artifact promotion and DuckDB exposure."""
+
+    output_dir: Path
+    staging_dir: Path
+    backup_dir: Path
+    database_path: Path
+    execution_manifest_path: Path
+    execution_id: str
+    promotion_id: str
+    table_hash_manifest_sha256: str
+
+    def as_json(self) -> dict[str, object]:
+        return {
+            "schema_version": PROMOTION_JOURNAL_SCHEMA_VERSION,
+            "output_dir": str(self.output_dir),
+            "staging_dir": str(self.staging_dir),
+            "backup_dir": str(self.backup_dir),
+            "database_path": str(self.database_path),
+            "execution_manifest_path": str(self.execution_manifest_path),
+            "execution_id": self.execution_id,
+            "promotion_id": self.promotion_id,
+            "table_hash_manifest_sha256": self.table_hash_manifest_sha256,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class ProcessedLexical:
     """One complete promoted lexical artifact set."""
 
@@ -101,6 +138,180 @@ def _validate_output_path(path: Path) -> Path:
             "lexical output must be the governed data/processed/lexical/schema-v1 directory"
         )
     return resolved
+
+
+def lexical_promotion_journal_path(output_dir: Path) -> Path:
+    """Return the single governed journal path beside canonical lexical output."""
+
+    resolved = _validate_output_path(output_dir)
+    return resolved.parent / f".{resolved.name}.promotion-intent.json"
+
+
+def read_lexical_promotion_journal(output_dir: Path) -> LexicalPromotionJournal:
+    """Read and validate the active durable promotion journal."""
+
+    return _read_promotion_journal(lexical_promotion_journal_path(output_dir))
+
+
+def _sync_directory(path: Path) -> None:
+    """Durably order a journal or rename on POSIX; Windows lacks directory fsync."""
+
+    if os.name == "nt":
+        return
+    flags = os.O_RDONLY | int(getattr(os, "O_DIRECTORY", 0))
+    try:
+        descriptor = os.open(path, flags)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    except OSError as exc:
+        raise LexicalStorageError(f"could not durably sync directory {path}: {exc}") from exc
+
+
+def _write_promotion_journal(journal: LexicalPromotionJournal) -> Path:
+    path = lexical_promotion_journal_path(journal.output_dir)
+    if path.exists() or path.is_symlink():
+        raise LexicalStorageError(f"lexical promotion journal already exists: {path}")
+    pending = path.with_name(f".{path.name}.writing-{uuid4().hex}")
+    encoded = (json.dumps(journal.as_json(), indent=2, sort_keys=True) + "\n").encode("utf-8")
+    try:
+        with pending.open("xb") as stream:
+            stream.write(encoded)
+            stream.flush()
+            os.fsync(stream.fileno())
+        pending.replace(path)
+        _sync_directory(path.parent)
+    except OSError as exc:
+        raise LexicalStorageError(
+            f"could not write lexical promotion journal {path}: {exc}"
+        ) from exc
+    finally:
+        if pending.exists():
+            pending.unlink()
+    return path
+
+
+def _read_promotion_journal(path: Path) -> LexicalPromotionJournal:
+    if not path.is_file() or path.is_symlink():
+        raise LexicalStorageError(f"lexical promotion journal is missing or unsafe: {path}")
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise LexicalStorageError(f"invalid lexical promotion journal {path}: {exc}") from exc
+    expected_keys = {
+        "schema_version",
+        "output_dir",
+        "staging_dir",
+        "backup_dir",
+        "database_path",
+        "execution_manifest_path",
+        "execution_id",
+        "promotion_id",
+        "table_hash_manifest_sha256",
+    }
+    if not isinstance(raw, dict) or set(raw) != expected_keys:
+        raise LexicalStorageError(f"lexical promotion journal has an unexpected schema: {path}")
+    if raw["schema_version"] != PROMOTION_JOURNAL_SCHEMA_VERSION:
+        raise LexicalStorageError(f"unsupported lexical promotion journal version: {path}")
+    string_fields = (
+        "output_dir",
+        "staging_dir",
+        "backup_dir",
+        "database_path",
+        "execution_manifest_path",
+        "execution_id",
+        "promotion_id",
+        "table_hash_manifest_sha256",
+    )
+    if any(not isinstance(raw[field], str) or not raw[field] for field in string_fields):
+        raise LexicalStorageError(f"lexical promotion journal contains invalid values: {path}")
+    manifest_sha256 = str(raw["table_hash_manifest_sha256"])
+    if len(manifest_sha256) != 64 or any(
+        character not in "0123456789abcdef" for character in manifest_sha256
+    ):
+        raise LexicalStorageError(f"lexical promotion journal has an invalid manifest hash: {path}")
+    promotion_id = str(raw["promotion_id"])
+    if len(promotion_id) != 32 or any(
+        character not in "0123456789abcdef" for character in promotion_id
+    ):
+        raise LexicalStorageError(f"lexical promotion journal has an invalid promotion ID: {path}")
+    execution_id = str(raw["execution_id"])
+    if not execution_id or any(
+        character not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
+        for character in execution_id
+    ):
+        raise LexicalStorageError(f"lexical promotion journal has an invalid execution ID: {path}")
+    output_dir = _validate_output_path(Path(str(raw["output_dir"])))
+    staging_dir = Path(str(raw["staging_dir"])).resolve()
+    backup_dir = Path(str(raw["backup_dir"])).resolve()
+    expected_parent = output_dir.parent
+    if staging_dir.parent != expected_parent or not staging_dir.name.startswith(
+        f".{output_dir.name}.writing-"
+    ):
+        raise LexicalStorageError("lexical promotion journal staging path is not governed")
+    if backup_dir.parent != expected_parent or not backup_dir.name.startswith(
+        f".{output_dir.name}.backup-"
+    ):
+        raise LexicalStorageError("lexical promotion journal backup path is not governed")
+    return LexicalPromotionJournal(
+        output_dir=output_dir,
+        staging_dir=staging_dir,
+        backup_dir=backup_dir,
+        database_path=Path(str(raw["database_path"])).resolve(),
+        execution_manifest_path=Path(str(raw["execution_manifest_path"])).resolve(),
+        execution_id=execution_id,
+        promotion_id=promotion_id,
+        table_hash_manifest_sha256=manifest_sha256,
+    )
+
+
+def _archive_promotion_journal(path: Path, *, outcome: str) -> Path:
+    if path.is_symlink():
+        raise LexicalStorageError(f"refusing to archive symlinked promotion journal: {path}")
+    if not outcome or any(character not in "abcdefghijklmnopqrstuvwxyz-" for character in outcome):
+        raise LexicalStorageError(f"invalid lexical promotion journal outcome: {outcome}")
+    destination = path.parent / (f".schema-v1.promotion-journal-{outcome}-{uuid4().hex}.json")
+    if destination.exists() or destination.is_symlink():
+        raise LexicalStorageError(f"promotion journal archive already exists: {destination}")
+    try:
+        path.replace(destination)
+        _sync_directory(path.parent)
+    except OSError as exc:
+        raise LexicalStorageError(
+            f"could not archive lexical promotion journal {path}: {exc}"
+        ) from exc
+    return destination
+
+
+def _assert_promotion_execution_succeeded(journal: LexicalPromotionJournal) -> None:
+    """Require the exact durable success sidecar before archiving active intent."""
+
+    try:
+        manifest = load_execution_manifest(journal.execution_manifest_path)
+    except (OSError, UnicodeError, ValueError) as exc:
+        raise LexicalStorageError(
+            "lexical promotion execution manifest is unreadable or invalid: "
+            f"{journal.execution_manifest_path}: {exc}"
+        ) from exc
+    manifest_output = Path(manifest.artifact_output_directory)
+    output_identity_matches = (
+        not manifest_output.is_absolute()
+        and ".." not in manifest_output.parts
+        and any(
+            (parent / manifest_output).resolve() == journal.output_dir
+            for parent in journal.output_dir.parents
+        )
+    )
+    if (
+        manifest.execution_id != journal.execution_id
+        or manifest.execution_status != "succeeded"
+        or manifest.output_hash_manifest_sha256 != journal.table_hash_manifest_sha256
+        or not output_identity_matches
+    ):
+        raise LexicalStorageError(
+            "committed lexical promotion is awaiting its exact successful execution manifest"
+        )
 
 
 def _logical_columns(name: LexicalArtifactName) -> tuple[str, ...]:
@@ -182,6 +393,12 @@ class LexicalArtifactWriter:
         if duckdb_memory_limit_bytes < 1:
             raise LexicalStorageError("duckdb_memory_limit_bytes must be positive")
         self.output_dir.parent.mkdir(parents=True, exist_ok=True)
+        pending_promotion = lexical_promotion_journal_path(self.output_dir)
+        if pending_promotion.exists() or pending_promotion.is_symlink():
+            raise LexicalStorageError(
+                "an interrupted lexical promotion must be recovered before opening a writer: "
+                f"{pending_promotion}"
+            )
         available = shutil.disk_usage(self.output_dir.parent).free
         if available < required_free_bytes:
             raise LexicalStorageError(
@@ -193,6 +410,7 @@ class LexicalArtifactWriter:
                 f"refusing to overwrite lexical artifacts at {self.output_dir}; pass --force"
             )
         token = uuid4().hex
+        self._write_token = token
         if resume_staging_dir is None:
             self.staging_dir = self.output_dir.parent / f".{self.output_dir.name}.writing-{token}"
         else:
@@ -232,12 +450,24 @@ class LexicalArtifactWriter:
         self._preserve_staging_on_error = (
             preserve_staging_on_error or resume_staging_dir is not None
         )
+        self._promotion_pending = False
+        self._promotion_journal_path: Path | None = None
+        self._promotion_id: str | None = None
         self._closed = False
         if resume_staging_dir is not None:
+            self._preserve_interrupted_writes()
             self._adopt_existing_state()
 
     def __enter__(self) -> LexicalArtifactWriter:
         return self
+
+    @property
+    def pending_promotion_id(self) -> str:
+        """Return the nonce that the DuckDB transaction must durably witness."""
+
+        if not self._promotion_pending or self._promotion_id is None:
+            raise LexicalStorageError("no deferred lexical promotion ID is pending")
+        return self._promotion_id
 
     def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
         if not self._closed:
@@ -245,6 +475,50 @@ class LexicalArtifactWriter:
                 self._closed = True
             else:
                 self.abort()
+
+    def _pending_path(self, target: Path) -> Path:
+        return target.with_name(f".{target.name}.writing-{self._write_token}")
+
+    def _write_parquet_atomically(self, target: Path, frame: pl.DataFrame) -> None:
+        pending = self._pending_path(target)
+        if pending.exists() or pending.is_symlink():
+            raise LexicalStorageError(f"pending lexical write already exists: {pending}")
+        frame.write_parquet(
+            pending,
+            compression="zstd",
+            compression_level=6,
+            statistics=True,
+        )
+        pending.replace(target)
+
+    def _write_bytes_atomically(self, target: Path, content: bytes) -> None:
+        pending = self._pending_path(target)
+        if pending.exists() or pending.is_symlink():
+            raise LexicalStorageError(f"pending lexical write already exists: {pending}")
+        pending.write_bytes(content)
+        pending.replace(target)
+
+    def _preserve_interrupted_writes(self) -> None:
+        """Move recognized partial writes aside without deleting recovery evidence."""
+
+        pending = sorted(
+            path
+            for path in self.staging_dir.rglob(".*.writing-*")
+            if path.is_file() and ".writing-" in path.name
+        )
+        if not pending:
+            return
+        quarantine = (
+            self.output_dir.parent
+            / f".{self.output_dir.name}.interrupted-writes-{self._write_token}"
+        )
+        if quarantine.exists() or quarantine.is_symlink():
+            raise LexicalStorageError(f"interrupted-write quarantine already exists: {quarantine}")
+        for source in pending:
+            relative = source.relative_to(self.staging_dir)
+            destination = quarantine / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            source.replace(destination)
 
     def _adopt_existing_state(self) -> None:
         """Validate and register every governed leaf in an interrupted staging tree."""
@@ -398,12 +672,7 @@ class LexicalArtifactWriter:
             self._last_sort_keys[name] = last_key
         path = self.staging_dir / relative
         path.parent.mkdir(parents=True, exist_ok=True)
-        prepared.write_parquet(
-            path,
-            compression="zstd",
-            compression_level=6,
-            statistics=True,
-        )
+        self._write_parquet_atomically(path, prepared)
         self.check_free_disk(f"{name}:part-{part}:after")
         logical_projection = prepared.select(_logical_columns(name))
         logical = logical_frame_hash(
@@ -438,7 +707,7 @@ class LexicalArtifactWriter:
         self.check_free_disk(f"sparse:{key}:before")
         target = self.staging_dir / "indexes" / relative_path
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(content)
+        self._write_bytes_atomically(target, content)
         self.check_free_disk(f"sparse:{key}:after")
         self._sparse_paths.add(key)
         return target
@@ -513,11 +782,40 @@ class LexicalArtifactWriter:
             shutil.rmtree(spill_directory, ignore_errors=True)
         return digest.hexdigest()
 
-    def finalize(self, metadata: pl.DataFrame) -> ProcessedLexical:
-        """Write metadata and hash manifest, then atomically promote the run."""
+    def finalize(
+        self,
+        metadata: pl.DataFrame,
+        *,
+        pre_promotion_validator: Callable[[Path], None] | None = None,
+        defer_promotion_commit: bool = False,
+        promotion_database_path: Path | None = None,
+        promotion_execution_manifest_path: Path | None = None,
+        promotion_execution_id: str | None = None,
+    ) -> ProcessedLexical:
+        """Seal and validate staged artifacts, then atomically promote the run."""
 
         if metadata.height != 1:
             raise LexicalStorageError("finalize requires exactly one lexical metadata row")
+        if defer_promotion_commit and promotion_database_path is None:
+            raise LexicalStorageError(
+                "deferred lexical promotion requires its governed DuckDB database path"
+            )
+        if defer_promotion_commit and (
+            promotion_execution_manifest_path is None or promotion_execution_id is None
+        ):
+            raise LexicalStorageError(
+                "deferred lexical promotion requires its execution-manifest identity"
+            )
+        if not defer_promotion_commit and promotion_database_path is not None:
+            raise LexicalStorageError(
+                "promotion_database_path is valid only for deferred lexical promotion"
+            )
+        if not defer_promotion_commit and (
+            promotion_execution_manifest_path is not None or promotion_execution_id is not None
+        ):
+            raise LexicalStorageError(
+                "promotion execution identity is valid only for deferred lexical promotion"
+            )
         self.check_free_disk("finalize:before")
         logical_before, physical_before = self.content_hashes()
         prepared = _prepare_frame("lexical_metadata", metadata)
@@ -534,7 +832,7 @@ class LexicalArtifactWriter:
         relative = Path("lexical_metadata") / "part-00000.parquet"
         path = self.staging_dir / relative
         path.parent.mkdir(parents=True, exist_ok=True)
-        prepared.write_parquet(path, compression="zstd", compression_level=6, statistics=True)
+        self._write_parquet_atomically(path, prepared)
         logical_projection = prepared.select(_logical_columns("lexical_metadata"))
         self._leaves["lexical_metadata"][relative.as_posix()] = {
             "row_count": 1,
@@ -578,24 +876,63 @@ class LexicalArtifactWriter:
             "file_sha256": file_hashes,
             "artifacts": self._leaves,
         }
-        (self.staging_dir / TABLE_HASH_FILE).write_text(
-            json.dumps(manifest, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
+        self._write_bytes_atomically(
+            self.staging_dir / TABLE_HASH_FILE,
+            (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode("utf-8"),
         )
         self.check_free_disk("finalize:staged")
+        if pre_promotion_validator is not None:
+            pre_promotion_validator(self.staging_dir)
+            self.check_free_disk("finalize:validated")
+        if defer_promotion_commit:
+            assert promotion_database_path is not None
+            assert promotion_execution_manifest_path is not None
+            assert promotion_execution_id is not None
+            if not promotion_database_path.is_file() or promotion_database_path.is_symlink():
+                raise LexicalStorageError(
+                    "deferred lexical promotion database is missing or unsafe: "
+                    f"{promotion_database_path}"
+                )
+            if (
+                not promotion_execution_manifest_path.is_file()
+                or promotion_execution_manifest_path.is_symlink()
+            ):
+                raise LexicalStorageError(
+                    "deferred lexical promotion execution manifest is missing or unsafe: "
+                    f"{promotion_execution_manifest_path}"
+                )
+            promotion_id = uuid4().hex
+            journal = LexicalPromotionJournal(
+                output_dir=self.output_dir,
+                staging_dir=self.staging_dir,
+                backup_dir=self.backup_dir,
+                database_path=promotion_database_path.resolve(strict=True),
+                execution_manifest_path=promotion_execution_manifest_path.resolve(strict=True),
+                execution_id=promotion_execution_id,
+                promotion_id=promotion_id,
+                table_hash_manifest_sha256=sha256_file(self.staging_dir / TABLE_HASH_FILE),
+            )
+            self._promotion_journal_path = _write_promotion_journal(journal)
+            self._promotion_id = promotion_id
         try:
             if self.output_dir.exists():
                 self.output_dir.replace(self.backup_dir)
             try:
                 self.staging_dir.replace(self.output_dir)
+                _sync_directory(self.output_dir.parent)
             except OSError:
                 if self.backup_dir.exists() and not self.output_dir.exists():
                     self.backup_dir.replace(self.output_dir)
+                    _sync_directory(self.output_dir.parent)
                 raise
-            if self.backup_dir.exists():
+            self._promotion_pending = defer_promotion_commit
+            if self.backup_dir.exists() and not defer_promotion_commit:
                 shutil.rmtree(self.backup_dir)
         except OSError as exc:
-            self.abort()
+            if self._preserve_staging_on_error:
+                self._closed = True
+            else:
+                self.abort()
             raise LexicalStorageError(f"could not promote lexical artifacts: {exc}") from exc
         self._closed = True
         return ProcessedLexical(
@@ -702,15 +1039,48 @@ def _drop_relation(connection: duckdb.DuckDBPyConnection, name: str) -> None:
         connection.execute(f'DROP TABLE "{name}"')
 
 
+def _lexical_catalog_sha256(connection: duckdb.DuckDBPyConnection) -> str:
+    """Hash the exact governed artifact and convenience view definitions."""
+
+    expected_names = set(DUCKDB_ARTIFACT_NAMES.values()) | set(LEXICAL_CONVENIENCE_VIEWS)
+    definitions = {
+        str(name): str(sql)
+        for name, sql in connection.execute(
+            "SELECT view_name, sql FROM duckdb_views() "
+            "WHERE database_name = current_database() AND schema_name = 'main'"
+        ).fetchall()
+        if str(name) in expected_names
+    }
+    if set(definitions) != expected_names:
+        missing = sorted(expected_names.difference(definitions))
+        unexpected = sorted(set(definitions).difference(expected_names))
+        raise LexicalStorageError(
+            "lexical DuckDB exposure catalog is incomplete: "
+            f"missing={missing}, unexpected={unexpected}"
+        )
+    encoded = json.dumps(definitions, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def load_lexical_duckdb(
     processed: ProcessedLexical,
     database_path: Path,
     *,
     duckdb_memory_limit_bytes: int,
     duckdb_temp_directory: Path,
+    promotion_id: str,
+    table_hash_manifest_sha256: str,
 ) -> None:
     """Transactionally expose only governed lexical Parquet and convenience views."""
 
+    if len(promotion_id) != 32 or any(
+        character not in "0123456789abcdef" for character in promotion_id
+    ):
+        raise LexicalStorageError("lexical DuckDB promotion ID must be 32 lowercase hex characters")
+    if len(table_hash_manifest_sha256) != 64 or any(
+        character not in "0123456789abcdef" for character in table_hash_manifest_sha256
+    ):
+        raise LexicalStorageError("lexical table-hash manifest identity must be SHA-256")
     database_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         with duckdb.connect(str(database_path)) as connection:
@@ -722,6 +1092,7 @@ def load_lexical_duckdb(
             )
             connection.execute("BEGIN TRANSACTION")
             try:
+                _drop_relation(connection, LEXICAL_PROMOTION_COMMIT_RELATION)
                 for view in LEXICAL_CONVENIENCE_VIEWS:
                     _drop_relation(connection, view)
                 for artifact, relation in DUCKDB_ARTIFACT_NAMES.items():
@@ -828,9 +1199,301 @@ def load_lexical_duckdb(
                     "SELECT mapping_status, corpus_pair, detector, metric, k, "
                     "avg(value) AS mean_value FROM lexical_evaluation_results GROUP BY ALL"
                 )
+                catalog_sha256 = _lexical_catalog_sha256(connection)
+                connection.execute(
+                    f'CREATE TABLE "{LEXICAL_PROMOTION_COMMIT_RELATION}" ('
+                    "promotion_id VARCHAR NOT NULL, "
+                    "table_hash_manifest_sha256 VARCHAR NOT NULL, "
+                    "catalog_sha256 VARCHAR NOT NULL)"
+                )
+                connection.execute(
+                    f'INSERT INTO "{LEXICAL_PROMOTION_COMMIT_RELATION}" VALUES (?, ?, ?)',
+                    [
+                        promotion_id,
+                        table_hash_manifest_sha256,
+                        catalog_sha256,
+                    ],
+                )
                 connection.execute("COMMIT")
             except Exception:
                 connection.execute("ROLLBACK")
                 raise
     except (duckdb.Error, OSError, LexicalResourceError) as exc:
         raise LexicalStorageError(f"could not load lexical DuckDB {database_path}: {exc}") from exc
+
+
+def _verified_promotion_artifact_root(
+    root: Path,
+    *,
+    journal: LexicalPromotionJournal,
+) -> None:
+    if not root.is_dir() or root.is_symlink():
+        raise LexicalStorageError(f"journaled lexical artifact root is missing or unsafe: {root}")
+    manifest = root / TABLE_HASH_FILE
+    if not manifest.is_file() or manifest.is_symlink():
+        raise LexicalStorageError(
+            f"journaled lexical hash manifest is missing or unsafe: {manifest}"
+        )
+    observed = sha256_file(manifest)
+    if observed != journal.table_hash_manifest_sha256:
+        raise LexicalStorageError(
+            "journaled lexical hash manifest changed during interrupted promotion: "
+            f"expected={journal.table_hash_manifest_sha256}, observed={observed}"
+        )
+
+
+def _database_has_committed_lexical_exposure(
+    database_path: Path,
+    journal: LexicalPromotionJournal,
+) -> bool:
+    """Classify the DuckDB side of a journal as wholly committed or wholly absent."""
+
+    with (
+        TemporaryDirectory(prefix="echoes-lexical-promotion-recovery-") as temporary,
+        duckdb.connect(str(database_path), read_only=True) as connection,
+    ):
+        configure_duckdb_connection(
+            connection,
+            memory_limit_bytes=256 * 1024**2,
+            temp_directory=Path(temporary) / "spill",
+            thread_count=1,
+        )
+        marker_count_row = connection.execute(
+            "SELECT count(*) FROM duckdb_tables() "
+            "WHERE database_name = current_database() AND schema_name = 'main' "
+            "AND table_name = ?",
+            [LEXICAL_PROMOTION_COMMIT_RELATION],
+        ).fetchone()
+        marker_count = 0 if marker_count_row is None else int(marker_count_row[0])
+        if marker_count == 0:
+            return False
+        if marker_count != 1:
+            raise LexicalStorageError("DuckDB lexical promotion marker is ambiguous")
+        marker_rows = connection.execute(
+            f"SELECT promotion_id, table_hash_manifest_sha256, catalog_sha256 "
+            f'FROM "{LEXICAL_PROMOTION_COMMIT_RELATION}"'
+        ).fetchall()
+        if len(marker_rows) != 1:
+            raise LexicalStorageError("DuckDB lexical promotion marker must contain one row")
+        marker_promotion_id, marker_manifest_sha256, marker_catalog_sha256 = (
+            str(value) for value in marker_rows[0]
+        )
+        if marker_promotion_id != journal.promotion_id:
+            return False
+        if marker_manifest_sha256 != journal.table_hash_manifest_sha256:
+            raise LexicalStorageError(
+                "DuckDB promotion marker manifest hash differs from its durable journal"
+            )
+        observed_catalog_sha256 = _lexical_catalog_sha256(connection)
+        if marker_catalog_sha256 != observed_catalog_sha256:
+            raise LexicalStorageError(
+                "DuckDB lexical view catalog changed after the promotion transaction"
+            )
+        definitions = {
+            str(row[0]): str(row[1])
+            for row in connection.execute(
+                "SELECT view_name, sql FROM duckdb_views() "
+                "WHERE database_name = current_database() AND schema_name = 'main'"
+            ).fetchall()
+        }
+        exact_relations: list[str] = []
+        for artifact, relation in DUCKDB_ARTIFACT_NAMES.items():
+            definition = definitions.get(relation)
+            if definition is None:
+                continue
+            expected_glob = (
+                (journal.output_dir / artifact / "part-*.parquet").as_posix().replace("'", "''")
+            )
+            if expected_glob in definition:
+                exact_relations.append(relation)
+        if not exact_relations:
+            return False
+        missing_relations = sorted(set(DUCKDB_ARTIFACT_NAMES.values()).difference(definitions))
+        missing_convenience = sorted(set(LEXICAL_CONVENIENCE_VIEWS).difference(definitions))
+        if (
+            len(exact_relations) != len(DUCKDB_ARTIFACT_NAMES)
+            or missing_relations
+            or missing_convenience
+        ):
+            raise LexicalStorageError(
+                "interrupted DuckDB lexical exposure is neither wholly committed nor absent: "
+                f"exact={len(exact_relations)}/{len(DUCKDB_ARTIFACT_NAMES)}, "
+                f"missing_relations={missing_relations}, "
+                f"missing_convenience={missing_convenience}"
+            )
+        for relation in DUCKDB_ARTIFACT_NAMES.values():
+            connection.execute(f'SELECT 1 FROM "{relation}" LIMIT 1').fetchone()
+        for relation in LEXICAL_CONVENIENCE_VIEWS:
+            connection.execute(f'SELECT * FROM "{relation}" LIMIT 0')
+    return True
+
+
+def _matching_archived_promotion_journals(
+    output_dir: Path,
+    database_path: Path,
+) -> list[LexicalPromotionJournal]:
+    archives = sorted(
+        (
+            *output_dir.parent.glob(".schema-v1.promotion-journal-canonical-committed-*.json"),
+            *output_dir.parent.glob(".schema-v1.promotion-journal-committed-*.json"),
+        )
+    )
+    if not archives:
+        return []
+    if not database_path.is_file() or database_path.is_symlink():
+        raise LexicalStorageError(
+            "archived lexical promotion journal requires its governed database"
+        )
+    matching: list[LexicalPromotionJournal] = []
+    try:
+        for archive in archives:
+            journal = _read_promotion_journal(archive)
+            if journal.output_dir != output_dir or journal.database_path != database_path:
+                continue
+            if not _database_has_committed_lexical_exposure(database_path, journal):
+                continue
+            _verified_promotion_artifact_root(journal.output_dir, journal=journal)
+            _assert_promotion_execution_succeeded(journal)
+            matching.append(journal)
+    except LexicalStorageError:
+        raise
+    except (duckdb.Error, OSError, LexicalResourceError) as exc:
+        raise LexicalStorageError(
+            f"could not authenticate archived lexical promotion state: {exc}"
+        ) from exc
+    if len(matching) > 1:
+        raise LexicalStorageError(
+            "multiple archived journals claim the current lexical promotion commit"
+        )
+    return matching
+
+
+def read_current_lexical_promotion_witness(
+    output_dir: Path,
+    database_path: Path,
+) -> LexicalPromotionJournal:
+    """Read the active or archived journal that authenticates the current commit."""
+
+    resolved_output = _validate_output_path(output_dir)
+    resolved_database = database_path.resolve(strict=False)
+    active_path = lexical_promotion_journal_path(resolved_output)
+    if active_path.exists() or active_path.is_symlink():
+        journal = _read_promotion_journal(active_path)
+        if journal.output_dir != resolved_output:
+            raise LexicalStorageError(
+                "promotion journal output path does not match witness request"
+            )
+        if journal.database_path != resolved_database:
+            raise LexicalStorageError(
+                "promotion journal database path does not match witness request"
+            )
+        if (
+            not resolved_database.is_file()
+            or resolved_database.is_symlink()
+            or not _database_has_committed_lexical_exposure(resolved_database, journal)
+        ):
+            raise LexicalStorageError(
+                "active lexical promotion journal does not witness a committed exposure"
+            )
+        _verified_promotion_artifact_root(journal.output_dir, journal=journal)
+        return journal
+
+    matching = _matching_archived_promotion_journals(
+        resolved_output,
+        resolved_database,
+    )
+    if not matching:
+        raise LexicalStorageError(
+            "no active or archived journal witnesses the current lexical exposure"
+        )
+    return matching[0]
+
+
+def recover_interrupted_lexical_promotion(
+    output_dir: Path,
+    database_path: Path,
+    *,
+    archive_committed: bool = False,
+) -> PromotionRecoveryState:
+    """Resolve a durable promotion journal without guessing across the DB boundary.
+
+    A canonical tree is retained only when every governed lexical relation was
+    committed against it. Otherwise the exact validated tree is moved back to
+    its journaled staging path. Ambiguous state is preserved and rejected.
+    """
+
+    resolved_output = _validate_output_path(output_dir)
+    journal_path = lexical_promotion_journal_path(resolved_output)
+    if not journal_path.exists() and not journal_path.is_symlink():
+        resolved_database = database_path.resolve(strict=False)
+        matching = _matching_archived_promotion_journals(
+            resolved_output,
+            resolved_database,
+        )
+        return "canonical_committed" if matching else "no_journal"
+    journal = _read_promotion_journal(journal_path)
+    resolved_database = database_path.resolve(strict=False)
+    if journal.output_dir != resolved_output:
+        raise LexicalStorageError("promotion journal output path does not match recovery request")
+    if journal.database_path != resolved_database:
+        raise LexicalStorageError("promotion journal database path does not match recovery request")
+    if (
+        not resolved_database.is_file()
+        or resolved_database.is_symlink()
+        or not journal.execution_manifest_path.is_file()
+        or journal.execution_manifest_path.is_symlink()
+        or journal.staging_dir.is_symlink()
+        or journal.output_dir.is_symlink()
+        or journal.backup_dir.is_symlink()
+    ):
+        raise LexicalStorageError("promotion recovery encountered a missing or unsafe path")
+
+    staging_exists = journal.staging_dir.exists()
+    output_exists = journal.output_dir.exists()
+    backup_exists = journal.backup_dir.exists()
+    if backup_exists and not journal.backup_dir.is_dir():
+        raise LexicalStorageError("journaled lexical backup is not a directory")
+
+    try:
+        if staging_exists:
+            _verified_promotion_artifact_root(journal.staging_dir, journal=journal)
+            if output_exists:
+                if backup_exists:
+                    raise LexicalStorageError(
+                        "promotion recovery found staging, canonical, and backup simultaneously"
+                    )
+            elif backup_exists:
+                journal.backup_dir.replace(journal.output_dir)
+                _sync_directory(journal.output_dir.parent)
+            _archive_promotion_journal(journal_path, outcome="staging-restored")
+            return "staging_restored"
+
+        if not output_exists:
+            raise LexicalStorageError(
+                "promotion journal exists but both canonical and staging artifacts are absent"
+            )
+        _verified_promotion_artifact_root(journal.output_dir, journal=journal)
+        if _database_has_committed_lexical_exposure(
+            resolved_database,
+            journal,
+        ):
+            # A SIGKILL/OOM may arrive after DuckDB COMMIT but before the
+            # in-process finalizer. The catalog and bounded reads are the durable
+            # commit witness; a prior canonical backup remains preserved.
+            if archive_committed:
+                _assert_promotion_execution_succeeded(journal)
+                _archive_promotion_journal(journal_path, outcome="canonical-committed")
+            return "canonical_committed"
+
+        journal.output_dir.replace(journal.staging_dir)
+        if backup_exists:
+            journal.backup_dir.replace(journal.output_dir)
+        _sync_directory(journal.output_dir.parent)
+        _archive_promotion_journal(journal_path, outcome="staging-restored")
+        return "staging_restored"
+    except LexicalStorageError:
+        raise
+    except (duckdb.Error, OSError, LexicalResourceError) as exc:
+        raise LexicalStorageError(
+            f"could not recover interrupted lexical promotion {journal_path}: {exc}"
+        ) from exc

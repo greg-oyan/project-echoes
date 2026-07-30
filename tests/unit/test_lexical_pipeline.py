@@ -41,6 +41,30 @@ from echoes.lexical.sequences import FeatureOccurrence, PassageLexicalSequence
 from echoes.lexical.sparse import build_sparse_index
 
 
+def test_termination_signal_guard_raises_a_preserving_pipeline_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    installed: dict[object, object] = {}
+
+    def install(governed_signal: object, handler: object) -> object:
+        previous = installed.get(governed_signal, lexical_pipeline.signal.SIG_DFL)
+        installed[governed_signal] = handler
+        return previous
+
+    monkeypatch.setattr(lexical_pipeline.signal, "signal", install)
+
+    with (
+        pytest.raises(LexicalPipelineError, match="preserving staging and checkpoints"),
+        lexical_pipeline._termination_signal_guard(),
+    ):
+        handler = installed[lexical_pipeline.signal.SIGTERM]
+        assert callable(handler)
+        handler(lexical_pipeline.signal.SIGTERM, None)
+
+    assert installed[lexical_pipeline.signal.SIGTERM] == lexical_pipeline.signal.SIG_DFL
+    assert installed[lexical_pipeline.signal.SIGINT] == lexical_pipeline.signal.SIG_DFL
+
+
 def _occurrences(passage_id: str, values: tuple[str, ...]) -> tuple[FeatureOccurrence, ...]:
     return tuple(
         FeatureOccurrence(
@@ -256,6 +280,13 @@ def test_pipeline_wrapper_finalizes_execution_manifest_on_success(
         "_run_lexical_pipeline_impl",
         implementation,
     )
+    monkeypatch.setattr(
+        lexical_pipeline,
+        "recover_interrupted_lexical_promotion",
+        lambda output_dir, database_path, *, archive_committed=False: (
+            "canonical_committed" if archive_committed else "no_journal"
+        ),
+    )
 
     observed = lexical_pipeline.run_lexical_pipeline()
 
@@ -270,6 +301,61 @@ def test_pipeline_wrapper_finalizes_execution_manifest_on_success(
     success_kwargs = cast(dict[str, object], events[2][1])
     assert success_kwargs["stage_runtime_seconds"] == {"total": 1.25}
     assert success_kwargs["warnings"] == []
+
+
+def test_pipeline_force_allows_fresh_run_after_a_sealed_prior_commit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output = tmp_path / "lexical" / "schema-v1"
+    recorder = SimpleNamespace(
+        finalize_success=lambda **kwargs: None,
+        finalize_failure=lambda error: None,
+    )
+    expected = SimpleNamespace(
+        acceptance_status="scientifically_complete",
+        stage_runtime_seconds={"total": 1.0},
+    )
+    implementation_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        lexical_pipeline,
+        "ExperimentExecutionRecorder",
+        SimpleNamespace(begin=lambda **kwargs: recorder),
+    )
+    monkeypatch.setattr(
+        lexical_pipeline,
+        "_run_lexical_pipeline_impl",
+        lambda **kwargs: (implementation_calls.append(kwargs), expected)[1],
+    )
+    monkeypatch.setattr(
+        lexical_pipeline,
+        "recover_interrupted_lexical_promotion",
+        lambda output_dir, database_path, *, archive_committed=False: "canonical_committed",
+    )
+
+    with pytest.raises(LexicalPipelineError, match="requires --force"):
+        lexical_pipeline.run_lexical_pipeline(output_dir=output)
+
+    assert lexical_pipeline.run_lexical_pipeline(output_dir=output, force=True) is expected
+    assert len(implementation_calls) == 1
+
+
+def test_pipeline_never_relaunches_over_an_active_committed_journal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output = tmp_path / "lexical" / "schema-v1"
+    journal = lexical_pipeline.lexical_promotion_journal_path(output)
+    journal.parent.mkdir(parents=True)
+    journal.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setattr(
+        lexical_pipeline,
+        "recover_interrupted_lexical_promotion",
+        lambda output_dir, database_path, *, archive_committed=False: "canonical_committed",
+    )
+
+    with pytest.raises(LexicalPipelineError, match="strict validation"):
+        lexical_pipeline.run_lexical_pipeline(output_dir=output, force=True)
 
 
 def test_pipeline_wrapper_preserves_failure_and_reraises(
@@ -412,6 +498,11 @@ def test_missing_primary_checkpoint_manifest_preserves_nested_tier3_state(
     )
     assert retained.is_file()
     assert not incomplete_primary.exists()
+    quarantines = list(tmp_path.glob(".schema-v1.interrupted-primary-candidate-checkpoint-*"))
+    assert len(quarantines) == 1
+    assert (
+        quarantines[0] / ".resume-primary-candidates" / "part-00000.parquet"
+    ).read_bytes() == b"incomplete primary checkpoint"
 
 
 def test_tier3_checkpoint_lineage_is_bound_only_for_unchanged_reused_files(
@@ -480,7 +571,7 @@ def test_tier3_checkpoint_lineage_is_bound_only_for_unchanged_reused_files(
         )
 
 
-def test_private_checkpoint_quarantine_restores_failure_and_cleans_only_after_success(
+def test_private_checkpoint_quarantine_restores_failure_and_preserves_after_success(
     tmp_path: Path,
 ) -> None:
     output = tmp_path / "lexical" / "schema-v1"
@@ -510,8 +601,9 @@ def test_private_checkpoint_quarantine_restores_failure_and_cleans_only_after_su
     quarantine = successful_guard.quarantine_dir
     assert quarantine is not None and quarantine.is_dir()
     staging.replace(output)
-    assert successful_guard.cleanup_after_success() is None
-    assert not quarantine.exists()
+    assert successful_guard.preserve_after_success() is None
+    assert quarantine.is_dir()
+    assert (quarantine / "tier3-evaluation" / "retained.txt").is_file()
     assert output.is_dir()
 
 
@@ -613,7 +705,7 @@ def test_resume_recreates_only_an_empty_candidate_review_queue_spool(
     assert list(prepared.iterdir()) == []
 
 
-def test_resume_refuses_to_discard_candidate_review_queue_spool_residue(
+def test_resume_preserves_candidate_review_queue_spool_residue(
     tmp_path: Path,
 ) -> None:
     staging = tmp_path / ".schema-v1.writing-fixture"
@@ -623,10 +715,15 @@ def test_resume_refuses_to_discard_candidate_review_queue_spool_residue(
     residual = stale / "part-00000.parquet"
     residual.write_bytes(b"unvalidated residual")
 
-    with pytest.raises(LexicalPipelineError, match="refusing to discard nonempty"):
-        _prepare_candidate_review_queue_spool(staging, resumed=True)
+    prepared = _prepare_candidate_review_queue_spool(staging, resumed=True)
 
-    assert residual.read_bytes() == b"unvalidated residual"
+    assert prepared.is_dir()
+    assert not residual.exists()
+    quarantines = list(tmp_path.glob(".schema-v1.interrupted-candidate-review-queue-spool-*"))
+    assert len(quarantines) == 1
+    assert (
+        quarantines[0] / ".candidate-review-queue-spool" / "part-00000.parquet"
+    ).read_bytes() == b"unvalidated residual"
 
 
 @pytest.mark.parametrize("granularity", ["clause", "sentence", "two_verse", "five_verse"])

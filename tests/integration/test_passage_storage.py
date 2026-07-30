@@ -10,6 +10,7 @@ import polars as pl
 import pytest
 
 import echoes.segment.storage as storage_module
+from echoes.manifest import sha256_file
 from echoes.segment.identity import IdentityMember, build_passage_identity, payload_from_membership
 from echoes.segment.models import (
     PASSAGE_ADJACENCY_POLARS_SCHEMA,
@@ -33,6 +34,8 @@ from echoes.segment.storage import (
     read_hash_manifest,
     read_passage,
     read_passage_membership,
+    rebind_passage_duckdb_views,
+    verify_passage_view_rebind_receipt,
     write_passage_artifacts,
 )
 
@@ -469,3 +472,136 @@ def test_duckdb_loader_views_helpers_and_transactional_rerun(tmp_path: Path) -> 
     assert passage is not None and passage.start_reference == "GEN 1:1"
     assert [row.token_id for row in membership] == ["HB_GEN_001_001_0001"]
     assert read_passage(database, "P_HB_MISSING~" + "0" * 64) is None
+
+
+def _passage_view_definitions(database: Path) -> dict[str, str]:
+    with duckdb.connect(str(database), read_only=True) as connection:
+        return {
+            str(row[0]): str(row[1])
+            for row in connection.execute(
+                "SELECT view_name, sql FROM duckdb_views() "
+                "WHERE database_name = current_database() AND schema_name = 'main'"
+            ).fetchall()
+            if str(row[0]) in storage_module.ARTIFACT_NAMES
+        }
+
+
+def test_passage_view_rebind_receipt_and_verification(tmp_path: Path) -> None:
+    old_root = tmp_path / "old" / "passages" / "schema-v1"
+    new_root = tmp_path / "new" / "passages" / "schema-v1"
+    old_processed = write_passage_artifacts(
+        _partitions(),
+        output_dir=old_root,
+        required_free_bytes=0,
+    )
+    write_passage_artifacts(
+        _partitions(),
+        output_dir=new_root,
+        required_free_bytes=0,
+    )
+    database = tmp_path / "project_echoes.duckdb"
+    with duckdb.connect(str(database)) as connection:
+        connection.execute("CREATE TABLE research_notes AS SELECT 'preserve-me' AS note")
+        connection.execute("CREATE VIEW research_notes_view AS SELECT * FROM research_notes")
+    load_passage_duckdb(old_processed, database)
+    before_sha256 = sha256_file(database)
+    before_definitions = _passage_view_definitions(database)
+    receipt_path = tmp_path / "state" / "passage-view-rebind.json"
+
+    with pytest.raises(PassageStorageError, match="transfer hash mismatch"):
+        rebind_passage_duckdb_views(
+            database,
+            new_root,
+            expected_database_sha256="0" * 64,
+            receipt_path=receipt_path,
+        )
+    assert sha256_file(database) == before_sha256
+    assert _passage_view_definitions(database) == before_definitions
+
+    receipt = rebind_passage_duckdb_views(
+        database,
+        new_root,
+        expected_database_sha256=before_sha256,
+        receipt_path=receipt_path,
+    )
+    receipt_path.unlink()
+    recovered_receipt = rebind_passage_duckdb_views(
+        database,
+        new_root,
+        expected_database_sha256=before_sha256,
+        receipt_path=receipt_path,
+    )
+    assert recovered_receipt == receipt
+    verified = verify_passage_view_rebind_receipt(
+        database,
+        new_root,
+        receipt_path,
+        expected_before_database_sha256=before_sha256,
+    )
+
+    assert verified == receipt
+    assert receipt.before_database_sha256 == before_sha256
+    assert receipt.after_database_sha256 == sha256_file(database)
+    assert receipt.duckdb_version == duckdb.__version__
+    assert set(receipt.view_globs) == set(storage_module.ARTIFACT_NAMES)
+    definitions = _passage_view_definitions(database)
+    old_prefix = old_root.resolve().as_posix()
+    new_prefix = new_root.resolve().as_posix()
+    for table in storage_module.ARTIFACT_NAMES:
+        assert new_prefix in definitions[table]
+        assert old_prefix not in definitions[table]
+
+    with duckdb.connect(str(database), read_only=True) as connection:
+        assert connection.execute("SELECT count(*) FROM passages").fetchone() == (2,)
+        assert connection.execute("SELECT count(*) FROM research_notes").fetchone() == (1,)
+        assert connection.execute("SELECT count(*) FROM research_notes_view").fetchone() == (1,)
+
+    with duckdb.connect(str(database)) as connection:
+        connection.execute(
+            "CREATE OR REPLACE VIEW verse_passages AS SELECT * FROM passages WHERE false"
+        )
+        with pytest.raises(PassageStorageError, match="governed definitions"):
+            storage_module._verify_passage_view_bindings(connection, new_root)
+    with pytest.raises(PassageStorageError, match="post-rebind database SHA-256 mismatch"):
+        verify_passage_view_rebind_receipt(
+            database,
+            new_root,
+            receipt_path,
+            expected_before_database_sha256=before_sha256,
+        )
+
+
+def test_passage_view_rebind_rolls_back_catalog_on_parquet_bind_failure(
+    tmp_path: Path,
+) -> None:
+    old_root = tmp_path / "old" / "passages" / "schema-v1"
+    new_root = tmp_path / "new" / "passages" / "schema-v1"
+    old_processed = write_passage_artifacts(
+        _partitions(),
+        output_dir=old_root,
+        required_free_bytes=0,
+    )
+    write_passage_artifacts(
+        _partitions(),
+        output_dir=new_root,
+        required_free_bytes=0,
+    )
+    database = tmp_path / "project_echoes.duckdb"
+    load_passage_duckdb(old_processed, database)
+    before_sha256 = sha256_file(database)
+    before_definitions = _passage_view_definitions(database)
+    receipt_path = tmp_path / "state" / "passage-view-rebind.json"
+    corrupt_leaf = next((new_root / "segmentation_issues").rglob("*.parquet"))
+    corrupt_leaf.write_bytes(b"not a Parquet file")
+
+    with pytest.raises(PassageStorageError, match="could not rebind passage DuckDB"):
+        rebind_passage_duckdb_views(
+            database,
+            new_root,
+            expected_database_sha256=before_sha256,
+            receipt_path=receipt_path,
+        )
+
+    assert _passage_view_definitions(database) == before_definitions
+    with duckdb.connect(str(database), read_only=True) as connection:
+        assert connection.execute("SELECT count(*) FROM passages").fetchone() == (2,)

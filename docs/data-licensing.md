@@ -1,7 +1,9 @@
 # Data licensing and publication governance
 
-Status: **Milestone 6 OpenBible snapshot validated for Tier 3; unactivated sources remain preliminary**
-Review date: 2026-07-13
+Status: **Milestone 6 OpenBible snapshot validated for Tier 3; Milestone 7 private
+ephemeral cloud processing narrowly owner-authorized; unactivated sources remain
+preliminary**
+Review date: 2026-07-30
 
 This document records operational governance, not legal advice. Technical accessibility, a public Git repository, or an online reading interface does not by itself grant permission to copy, process in bulk, redistribute, or publish derived data. Uncertainty blocks source approval.
 
@@ -122,6 +124,62 @@ build. This technical validation supports the manifest lifecycle transition but
 does not broaden the license determination, publication permission, source role,
 or evidentiary claims above.
 
+## Private ephemeral cloud-processing determination
+
+Review date: 2026-07-30. Reviewer: project owner, recorded by Codex under ADR
+0017 for the Milestone 7 recovery and later fresh determinism run only.
+
+The four activated third-party inputs used by Milestone 7 all have completed
+license review and `machine_processing_status: permitted`. The governed Tier 1
+file is project-authored and header-only. For these two runs, the conservative
+“local-only” project policy is clarified to include one nonpublic,
+owner-controlled ephemeral compute server acting only as a research processor.
+This does not approve public redistribution, publication, provider snapshots,
+backups, buckets, or a durable cloud corpus.
+
+The source-specific determination is:
+
+- `macula-hebrew`: the pinned CC BY 4.0 aggregate and its recorded component
+  notices permit machine processing. Only existing derived database, passage,
+  and lexical-recovery artifacts are transferred; the 932 raw acquisition
+  files are excluded. Full processed tables remain unapproved for public
+  release, and the SDBH limitation is unchanged.
+- `macula-greek`: the pinned CC BY 4.0 aggregate permits machine processing.
+  Raw acquisition files are excluded. The MARBLE and other permission-only
+  component caveats still block public derived-table release; private
+  computation does not resolve or broaden that publication question.
+- `oshb-morphhb`: the pinned WLC/OSHB layer permits processing and
+  redistribution with attribution. Raw OSIS acquisition files are excluded;
+  only derived tables, passage artifacts, and the non-textual hash manifest
+  needed by the run are transferred.
+- `openbible-cross-references`: the exact reference/vote snapshot is CC BY 4.0
+  and permits processing. The raw ZIP and extracted TSV are excluded. The
+  normalized benchmark inside the private DuckDB remains Tier 3 weak
+  supervision and is not publicized by this decision.
+- `project-echoes-tier1-quotations`: the transferred file contains only its
+  project-authored validated header and no third-party quotation rows.
+
+This is not a metadata-only transfer. The DuckDB, passage Parquet, and lexical
+staging contain reconstructable surface and normalized text, lemmas, roots,
+semantic domains, word-sense values, English gloss-derived features, and
+MACULA Greek LN/LexDomain-derived fields. The determination above is therefore
+an explicit artifact assessment of those integrated derived files. It relies
+on the completed aggregate-license and machine-processing reviews already
+recorded for the exact pinned versions; it does not infer independent rights
+in SDBH, MARBLE, or any other component and does not approve publication of
+those fields.
+
+The transfer is an explicit file allowlist authenticated by size and SHA-256.
+It uses host-key-verified SSH/SFTP and key-only access; server data and logs
+have restrictive POSIX permissions; no public service, snapshot, image,
+backup, or secondary cloud store is created. The server lifecycle is at most
+72 hours per run, after which the owner verifies retrieval and explicitly
+deletes the server or records a new authorization before incurring more
+retention. Source notices and attribution remain in the transferred manifest
+and repository. Credentials, raw acquisitions, unrelated processed outputs,
+and secrets are excluded. Any different provider, persistent remote storage,
+collaborator access, or public output requires a new review.
+
 ## STEPBible activation deferral
 
 [ADR 0012](decisions/0012-defer-stepbible-activation.md) defers STEPBible
@@ -195,4 +253,14 @@ No blanket conclusion may be inferred across layers. Swete's printed edition may
 | `greek-critical-apparatus` | Not started | Proprietary; publisher rights page recorded | Prohibited absent permission | Unknown | Prohibited | Planned |
 | `targum-corpus` | Not started | No general bulk-reuse license found | Unknown | Unknown | Prohibited | Planned |
 
-These are operational classifications as of the review date. The pinned MACULA Hebrew, MACULA Greek, OSHB, and exact OpenBible snapshots are acquired and validated for their approved local roles. OpenBible validation authorizes only Tier 3 acquisition, processing, weak supervision, and broad knownness filtering under the conservative publication boundary above. UBS Parallel Passages and the future Project Echoes-authored Tier 1 metadata remain inactive; the Tier 1 file is a header-only schema with no curated evidence. Source-specific unresolved questions and publication boundaries, including the MACULA Greek permission-only derived-output question, are preserved in the machine-readable manifest.
+These are operational classifications as of the review date. The pinned MACULA
+Hebrew, MACULA Greek, OSHB, and exact OpenBible snapshots are acquired and
+validated for their approved local roles and for the narrow private ephemeral
+Milestone 7 processing boundary above. OpenBible validation authorizes only
+Tier 3 acquisition, processing, weak supervision, and broad knownness
+filtering under the conservative publication boundary above. UBS Parallel
+Passages and the future Project Echoes-authored Tier 1 metadata remain
+inactive; the Tier 1 file is a header-only schema with no curated evidence.
+Source-specific unresolved questions and publication boundaries, including the
+MACULA Greek permission-only derived-output question, are preserved in the
+machine-readable manifest.

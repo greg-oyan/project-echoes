@@ -6,6 +6,31 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 ### Added
 
+- Safe single-node cloud execution preparation for the interrupted Milestone 7
+  recovery. ADR 0017 and `docs/cloud-execution.md` preserve the local-first
+  architecture while authorizing an owner-provisioned Ubuntu 24.04 Hetzner
+  CCX43 as a narrow execution exception. The contract records explicit
+  machine, memory, thread, disk, wall-clock, cost, checkpoint, status, abort,
+  output, and retention field for every heavy milestone, treating unresolved
+  future fields as launch blockers; fills every previously blank master-plan
+  `time_budget`; and prohibits another real M7 run on the under-provisioned
+  Windows laptop. Manifest-driven WinSCP transfer, systemd execution, one-shot
+  status and validation, result packaging, and fail-closed Linux/DuckDB
+  portability checks live under `cloud/`. The source-specific private
+  processing determination excludes raw acquisitions and preserves the public
+  release boundary. Explicit Windows/POSIX resource implementations fix Ubuntu
+  typing; a transactional six-view passage rebind has pre/post database
+  receipts; signal-aware atomic writes, pre-promotion strict validation, and
+  retained recovery checkpoints prevent invalid or interrupted work from
+  becoming canonical. A durable promotion journal closes the filesystem/DuckDB
+  commit gap with a unique transaction marker and exact manifest/catalog
+  identities: bounded restart recovery retains a wholly exposed canonical run,
+  restores an unexposed tree to its exact staging path, and rejects ambiguous
+  state without deletion. Active-or-archived recovery is retry-safe, while a
+  failed, timed-out, signaled, OOM-killed, or otherwise non-successful systemd
+  result remains gate-blocking. Restricted data, local databases, staging, and
+  checkpoints remain untracked and are never automatically deleted.
+
 - One-shot Milestone 7 operations tooling and a bounded candidate-ranking
   storage correction after sole-worker attempt 5n. The failed resume
   authenticated the existing recovery inventory and produced 2,535 aligned

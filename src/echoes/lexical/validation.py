@@ -3550,8 +3550,10 @@ def validate_lexical_artifacts(
 ) -> LexicalValidationReport:
     """Validate one complete promoted lexical artifact set.
 
-    ``verify_anchors=False`` and ``verify_duckdb=False`` exist only for legally
-    safe synthetic tests.  Production CLI calls must retain both defaults.
+    Production CLI calls retain both verification defaults. The in-process
+    pre-promotion gate may disable them only after the same pipeline attempt
+    has authenticated upstream anchors and before its DuckDB exposure exists;
+    the detached post-run gate verifies both again.
     """
 
     resolved = output_dir.resolve(strict=False)

@@ -2661,9 +2661,15 @@ Codex must enforce the following:
 
 # 34. Milestone Plan for Codex
 
+Forward-looking time and resource budgets are provisional ceilings until
+measured on the exact contracted machine. They may be tightened from evidence;
+they may not be silently exceeded. Heavy execution is additionally governed by
+the contract registry incorporated into the active milestone.
+
 ## Milestone 0: Repository foundation
 
-time_budget:
+time_budget: 2 working days; local/CI commands are capped at 2 hours each and 8
+  cumulative compute hours.
 
 Build:
 
@@ -2686,7 +2692,8 @@ Acceptance:
 
 ## Milestone 1: Research and source governance
 
-time_budget:
+time_budget: 3 working days; local/CI commands are capped at 2 hours each and 8
+  cumulative compute hours.
 
 Build:
 
@@ -2706,7 +2713,8 @@ Acceptance:
 
 ## Milestone 2: Hebrew ingestion
 
-time_budget:
+time_budget: 7 working days; each full ingestion is capped at 12 hours, with
+  two deterministic acceptance runs.
 
 Build:
 
@@ -2732,7 +2740,8 @@ Acceptance:
 
 ## Milestone 3: Greek ingestion
 
-time_budget:
+time_budget: 5 working days; each full ingestion is capped at 8 hours, with two
+  deterministic acceptance runs.
 
 Build:
 
@@ -2749,7 +2758,8 @@ Acceptance:
 
 ## Milestone 4: Supplementary annotations
 
-time_budget:
+time_budget: 10 working days; each full supplementary build is capped at 12
+  hours, with two deterministic acceptance runs.
 
 Status: **Complete as of 2026-07-12** on the acceptance basis below; STEPBible
 activation is deferred under ADR 0012 and is not a closure dependency.
@@ -2779,7 +2789,8 @@ Acceptance:
 
 ## Milestone 5: Passage segmentation
 
-time_budget:
+time_budget: 7 working days; each full segmentation build is capped at 8 hours,
+  with two deterministic acceptance runs.
 
 Status: **Complete as of 2026-07-12**. Two strict full-corpus generations
 reproduced run ID `passages-v1-00e261abea9ed44ef087`, 914,497 passages,
@@ -2827,7 +2838,8 @@ Acceptance:
 
 ## Milestone 6: Known-link benchmark
 
-time_budget:
+time_budget: 7 working days; each full benchmark build is capped at 2 hours,
+  with two deterministic acceptance runs.
 
 Status: **Complete as of 2026-07-13**.
 PR #6 merged as `00f5e84a4a83227585bd77dd9a08a0567cd58a7f`, and the
@@ -2843,12 +2855,12 @@ zero rows. Two complete builds reproduced run
 physical differences; the expected metadata physical difference contains only
 runtime telemetry. Each strict validation returned zero errors, zero warnings,
 and 18 informational findings. Local quality and repository-audit gates passed.
-PR #7 remains open and unmerged at
-`https://github.com/greg-oyan/project-echoes/pull/7`; CI run
+PR #7 merged as `b9637ee2de1840cbc2056dfcec6aea163d1e9194`.
+Its successful CI run
 `https://github.com/greg-oyan/project-echoes/actions/runs/29235763865`
 succeeded for commit `a680c0b4c14cb6e3bab7e8b5305fd6a516ec37de`, with the
 quality job completing in 32 seconds. These results satisfy the Milestone 6
-acceptance gate. Milestone 7 has not begun.
+acceptance gate. Milestone 7 is the active milestone.
 
 Build:
 
@@ -2873,13 +2885,61 @@ time and persisted runtimes of 501.93041979987174 and 479.37766140000895
 seconds, with a 672,790,515-byte footprint. Each produced 344,799 source records
 and relationships, 689,598 endpoints, 1,379,196 mappings, 4,561,525 leakage
 memberships, 1,723,995 split assignments, 29,275 presumed negatives, 18 issues,
-and one metadata row. The unmerged PR #7 and successful CI run above complete
-the acceptance evidence. The exact next task is Milestone 7 only; it has not
-begun.
+and one metadata row. The merged PR #7 and successful CI run above complete the
+acceptance evidence. The exact next task is Milestone 7 only.
 
 ## Milestone 7: Lexical baseline
 
-time_budget:
+time_budget: 14 working days; each production run is capped at 48 hours, with
+  one recovery run and one fresh determinism run. The estimate remains
+  provisional until the first CCX43 measurement.
+
+Status: **In progress as of 2026-07-30**. The interrupted recovery staging is
+preserved, but canonical output, strict cloud validation, the fresh
+determinism run, and the acceptance evidence below are absent. Milestone 8 is
+not authorized.
+
+Execution boundary:
+
+* ADR 0017 and `docs/cloud-execution.md` are incorporated into this milestone
+  as its binding operational contract; unresolved contract fields block a run.
+* Never execute the real Milestone 7 pipeline, a full DuckDB ranking query, or
+  a real-corpus benchmark on the under-provisioned Windows laptop.
+* Production uses an owner-created Hetzner CCX43 in Hillsboro (`hil`) with
+  Ubuntu 24.04, 16 dedicated AMD vCPUs, 64 GiB RAM, and a 360 GB local SSD.
+  Codex does not purchase, create, connect to, launch, or destroy that server.
+* The first run resumes the exact preserved staging tree. The later fresh
+  determinism run requires a separate authorization and preserves the recovery
+  run first. Each run has a 48-hour worker cap and a 72-hour server-lifecycle
+  cap; together they are capped at USD 76.18 before tax and USD 100 all-in,
+  provisionally and subject to an owner price check before each server order.
+* Before the first launch, every transferred file is size- and SHA-256-verified.
+  The original DuckDB hash is verified before six Windows-bound passage views
+  are transactionally rebound to the verified Linux passage tree; an atomic
+  receipt records both database hashes, the pinned DuckDB version, resolved
+  globs, and bounded reads.
+* Exactly one `echoes-m7.service` worker may run. It uses DuckDB
+  `memory_limit=48 GiB`, a process ceiling of 56 GiB,
+  `MemoryHigh=50G`, `MemoryMax=56G`, at most 12 computational threads,
+  local-SSD spill, at least 250 GiB free before launch,
+  `RuntimeMaxSec=48h`, and `Restart=no`.
+* Signals, failures, timeout, and OOM preserve staging and checkpoints.
+  Canonical promotion requires strict technical validation. A technically
+  valid scientific negative is promoted and reported, but it does not pass
+  this milestone's acceptance gate or authorize Milestone 8.
+  A durable promotion journal precedes the staging-to-canonical rename and
+  spans the DuckDB exposure transaction. The same transaction records a unique
+  promotion ID plus exact artifact-manifest and lexical-view-catalog hashes.
+  On restart, those identities and bounded one-row reads retain canonical only
+  when the entire lexical exposure committed; otherwise the validated tree
+  returns to its exact staging path. Any partial or ambiguous state fails
+  closed without deleting either side. A committed witness preserves bytes but
+  never converts a signal, timeout, OOM, nonzero systemd result, or recorded
+  failed execution into acceptance.
+* Private cloud processing is limited to the activated, source-governed
+  derived artifacts listed by the transfer manifest. Raw acquisitions,
+  credentials, secrets, unrelated data, and public redistribution are
+  excluded.
 
 Build:
 
@@ -2901,10 +2961,18 @@ Acceptance:
 * Synthetic passages preserve passage lengths and book- or genre-conditioned lemma frequencies.
 * At every review threshold, reports include observed count, mean null count, 95% empirical interval, enrichment, empirical tail probability where appropriate, and estimated empirical false-discovery rate.
 * A lemma or root at or below the configured frequency threshold cannot qualify a candidate without an independent co-signal.
+* The recovery and fresh executions each retain their launch metadata,
+  execution manifest, validation receipt, logical hashes, and protected result
+  manifest; the fresh run reproduces the recovery run's governed logical
+  outputs. The separately authorized fresh run preserves the recovery result
+  first, uses a new staging directory, and may replace sealed canonical state
+  only through the explicit governed `--force` path; an active interrupted
+  journal remains blocking.
 
 ## Milestone 8: First unknown-candidate review
 
-time_budget:
+time_budget: 10 working days; candidate preparation is capped at 8 compute
+  hours and human review at 40 working hours.
 
 Build:
 
@@ -2926,7 +2994,8 @@ Acceptance:
 
 ## Milestone 9: Septuagint bridge
 
-time_budget:
+time_budget: 15 working days; each full bridge build is capped at 24 hours,
+  with two deterministic acceptance runs.
 
 Build:
 
@@ -2947,7 +3016,8 @@ Acceptance:
 
 ## Milestone 10: Semantic retrieval
 
-time_budget:
+time_budget: 15 working days; each registered representation benchmark is
+  capped at 24 hours and the milestone at 72 cumulative compute hours.
 
 Build:
 
@@ -2968,7 +3038,8 @@ Acceptance:
 
 ## Milestone 11: Syntactic and narrative engines
 
-time_budget:
+time_budget: 15 working days; each full syntactic/narrative run is capped at 24
+  hours and the milestone at 72 cumulative compute hours.
 
 Build:
 
@@ -2984,7 +3055,8 @@ Acceptance:
 
 ## Milestone 12: Anomaly and structural engines
 
-time_budget:
+time_budget: 15 working days; each full anomaly/structural run is capped at 24
+  hours and the milestone at 72 cumulative compute hours.
 
 Build:
 
@@ -3000,7 +3072,8 @@ Acceptance:
 
 ## Milestone 13: Candidate ensemble
 
-time_budget:
+time_budget: 10 working days; each full ensemble build is capped at 24 hours,
+  with two deterministic acceptance runs.
 
 Build:
 
@@ -3018,7 +3091,8 @@ Acceptance:
 
 ## Milestone 14: Review console
 
-time_budget:
+time_budget: 10 working days; each console data rebuild is capped at 4 hours
+  and interactive review sessions are user-bounded.
 
 Build:
 
@@ -3037,7 +3111,8 @@ Acceptance:
 
 ## Milestone 15: Pauline case study
 
-time_budget:
+time_budget: 20 working days; each registered case-study run is capped at 24
+  hours and the milestone at 96 cumulative compute hours.
 
 Build:
 
@@ -3058,7 +3133,8 @@ Acceptance:
 
 ## Milestone 16: Whole-canon run
 
-time_budget:
+time_budget: 20 working days; each whole-canon production run is capped at 48
+  hours, with two deterministic acceptance runs.
 
 Build:
 

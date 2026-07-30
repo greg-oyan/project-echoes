@@ -70,10 +70,13 @@ from echoes.lexical.storage import (
     LexicalStorageError,
     processed_from_directory,
     read_artifact_frame,
+    read_current_lexical_promotion_witness,
     read_hash_manifest,
+    recover_interrupted_lexical_promotion,
 )
 from echoes.lexical.validation import (
     LexicalValidationError,
+    LexicalValidationReport,
     compare_lexical_ablation,
     lexical_summary,
     show_lexical_candidate,
@@ -82,7 +85,9 @@ from echoes.lexical.validation import (
 )
 from echoes.manifest import (
     build_run_manifest,
+    finalize_recovered_execution_success,
     format_reproduction_command,
+    load_execution_manifest,
     reproduction_command_path_mismatches,
     reproduction_environment_mismatches,
     resolve_execution_manifest,
@@ -109,6 +114,8 @@ from echoes.segment.storage import (
     PassageStorageError,
     read_passage,
     read_passage_membership,
+    rebind_passage_duckdb_views,
+    verify_passage_view_rebind_receipt,
 )
 from echoes.segment.streams import SegmentationInputError, load_segmentation_inputs
 from echoes.segment.validation import validate_passage_artifacts
@@ -966,6 +973,109 @@ def segment_passages_command(
     typer.echo(
         f"Runtime: {result.runtime_seconds:.3f}s; output size: {result.output_size_bytes} bytes."
     )
+
+
+@app.command("rebind-passage-views")
+def rebind_passage_views_command(
+    database: Annotated[
+        Path,
+        typer.Option("--database", help="Transferred DuckDB database path."),
+    ],
+    passage_root: Annotated[
+        Path,
+        typer.Option(
+            "--passage-root",
+            help="Transferred schema-v1 passage Parquet root.",
+        ),
+    ],
+    expected_database_sha256: Annotated[
+        str,
+        typer.Option(
+            "--expected-database-sha256",
+            help="SHA-256 verified for the transferred database before mutation.",
+        ),
+    ],
+    receipt_path: Annotated[
+        Path,
+        typer.Option("--receipt", help="New atomic rebind receipt path."),
+    ],
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit the complete rebind receipt as JSON."),
+    ] = False,
+) -> None:
+    """Rebind transferred passage views after checking the original DB hash."""
+
+    if receipt_path.exists():
+        typer.echo(
+            f"Passage view rebind failed: refusing to overwrite rebind receipt: {receipt_path}",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    try:
+        receipt = rebind_passage_duckdb_views(
+            database,
+            passage_root,
+            expected_database_sha256=expected_database_sha256,
+            receipt_path=receipt_path,
+        )
+    except (PassageStorageError, OSError) as exc:
+        typer.echo(f"Passage view rebind failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if json_output:
+        _echo_json(receipt)
+    else:
+        typer.echo(f"Rebound {len(receipt.view_globs)} passage views.")
+        typer.echo(f"DuckDB: {receipt.database_path}")
+        typer.echo(f"Passage root: {receipt.passage_root}")
+        typer.echo(f"Receipt: {receipt_path}")
+        typer.echo(f"Post-rebind SHA-256: {receipt.after_database_sha256}")
+
+
+@app.command("verify-passage-view-rebind")
+def verify_passage_view_rebind_command(
+    database: Annotated[
+        Path,
+        typer.Option("--database", help="Rebound DuckDB database path."),
+    ],
+    passage_root: Annotated[
+        Path,
+        typer.Option("--passage-root", help="Bound schema-v1 passage Parquet root."),
+    ],
+    expected_before_database_sha256: Annotated[
+        str,
+        typer.Option(
+            "--expected-before-database-sha256",
+            help="Original transferred database SHA-256 recorded by the receipt.",
+        ),
+    ],
+    receipt_path: Annotated[
+        Path,
+        typer.Option("--receipt", help="Rebind receipt path."),
+    ],
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit the verified rebind receipt as JSON."),
+    ] = False,
+) -> None:
+    """Verify the current post-rebind DB hash, paths, version, and tiny reads."""
+
+    try:
+        receipt = verify_passage_view_rebind_receipt(
+            database,
+            passage_root,
+            receipt_path,
+            expected_before_database_sha256=expected_before_database_sha256,
+        )
+    except (PassageStorageError, OSError) as exc:
+        typer.echo(f"Passage view rebind verification failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if json_output:
+        _echo_json(receipt)
+    else:
+        typer.echo(f"Verified passage view rebind receipt: {receipt_path}")
+        typer.echo(f"DuckDB version: {receipt.duckdb_version}")
+        typer.echo(f"Post-rebind SHA-256: {receipt.after_database_sha256}")
 
 
 @app.command("validate-passages")
@@ -1889,6 +1999,141 @@ def run_lexical_pipeline_command(
         f"rankings={result.ranking_count}, candidates={result.candidate_count}, "
         f"queue={result.queue_count}, status={result.acceptance_status}."
     )
+
+
+@app.command("recover-lexical-promotion")
+def recover_lexical_promotion_command(
+    database: Annotated[
+        Path, typer.Option("--database", help="Governed DuckDB database path.")
+    ] = Path("data/processed/project_echoes.duckdb"),
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="Governed lexical schema-v1 directory."),
+    ] = DEFAULT_LEXICAL_ROOT,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit the recovery state as JSON."),
+    ] = False,
+) -> None:
+    """Resolve a crash journal across lexical promotion and DuckDB exposure."""
+
+    try:
+        state = recover_interrupted_lexical_promotion(output_dir, database)
+    except (LexicalStorageError, OSError) as exc:
+        typer.echo(f"Lexical promotion recovery failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    payload = {
+        "state": state,
+        "canonical_output_present": output_dir.is_dir() and not output_dir.is_symlink(),
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2, ensure_ascii=True))
+    else:
+        typer.echo(f"Lexical promotion recovery: {state}.")
+
+
+@app.command("finalize-lexical-promotion-recovery")
+def finalize_lexical_promotion_recovery_command(
+    validation_report: Annotated[
+        Path,
+        typer.Option(
+            "--validation-report",
+            help="Successful strict lexical-validation JSON for the committed output.",
+        ),
+    ],
+    service_result: Annotated[
+        str,
+        typer.Option(
+            "--service-result",
+            help="Authenticated systemd Result value for the completed worker.",
+        ),
+    ],
+    database: Annotated[
+        Path, typer.Option("--database", help="Governed DuckDB database path.")
+    ] = Path("data/processed/project_echoes.duckdb"),
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="Governed lexical schema-v1 directory."),
+    ] = DEFAULT_LEXICAL_ROOT,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit the finalized provenance receipt as JSON."),
+    ] = False,
+) -> None:
+    """Finalize post-COMMIT provenance after strict recovery validation."""
+
+    try:
+        state = recover_interrupted_lexical_promotion(output_dir, database)
+        if state != "canonical_committed":
+            raise LexicalStorageError(
+                f"recovery finalization requires a journaled committed exposure; observed {state}"
+            )
+        if not validation_report.is_file() or validation_report.is_symlink():
+            raise LexicalStorageError(
+                f"strict recovery validation report is missing or unsafe: {validation_report}"
+            )
+        validation = LexicalValidationReport.model_validate_json(
+            validation_report.read_text(encoding="utf-8")
+        )
+        if (
+            not validation.passed
+            or not validation.strict
+            or Path(validation.output_dir).resolve() != output_dir.resolve()
+        ):
+            raise LexicalStorageError(
+                "recovery validation must be strict, passing, and bound to canonical output"
+            )
+        journal = read_current_lexical_promotion_witness(output_dir, database)
+        manifest = load_execution_manifest(journal.execution_manifest_path)
+        if (
+            manifest.execution_id != journal.execution_id
+            or validation.experiment_run_id != manifest.run_id
+            or validation.table_logical_hashes != manifest.output_table_hashes
+            or validation.table_physical_hashes != manifest.output_table_physical_hashes
+        ):
+            raise LexicalStorageError(
+                "strict validation, promotion journal, and execution manifest identities differ"
+            )
+        prior_status = manifest.execution_status
+        validation_sha256 = sha256_file(validation_report)
+        finalized = finalize_recovered_execution_success(
+            journal.execution_manifest_path,
+            validation_report_sha256=validation_sha256,
+            service_result=service_result,
+        )
+        sealed_state = recover_interrupted_lexical_promotion(
+            output_dir,
+            database,
+            archive_committed=True,
+        )
+        if sealed_state != "canonical_committed":
+            raise LexicalStorageError(f"could not seal committed lexical promotion: {sealed_state}")
+    except (
+        LexicalStorageError,
+        OSError,
+        UnicodeError,
+        ValueError,
+        ValidationError,
+    ) as exc:
+        typer.echo(f"Lexical promotion recovery finalization failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    payload = {
+        "state": sealed_state,
+        "execution_id": finalized.execution_id,
+        "prior_execution_status": prior_status,
+        "execution_status": finalized.execution_status,
+        "validation_report": str(validation_report.resolve()),
+        "validation_report_sha256": validation_sha256,
+        "service_result": service_result,
+        "active_journal_present": False,
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2, ensure_ascii=True))
+    else:
+        typer.echo(
+            "Lexical promotion recovery finalized: "
+            f"{finalized.execution_id} ({prior_status} -> {finalized.execution_status})."
+        )
 
 
 @app.command("build-lexical-index")
