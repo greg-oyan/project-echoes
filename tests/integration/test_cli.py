@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import polars as pl
+from rich.text import Text
 from typer.testing import CliRunner
 
 import echoes.cli as cli_module
@@ -208,7 +209,7 @@ def test_lexical_validation_exposes_determinism_reference() -> None:
     result = runner.invoke(app, ["validate-lexical", "--help"])
 
     assert result.exit_code == 0
-    assert "--determinism-reference-root" in result.stdout
+    assert "--determinism-reference-root" in Text.from_ansi(result.stdout).plain
 
 
 def test_lexical_promotion_recovery_cli_reports_machine_state(
