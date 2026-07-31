@@ -4,12 +4,32 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+
+- ADR 0017 is amended from its original CCX43 selection because
+  CCX43, CCX53, and CCX63 are unavailable to the owner's Hetzner account. The
+  active Milestone 7 execution appliance is now an owner-provisioned CCX33 in
+  Hillsboro, with Ashburn as fallback: Ubuntu 24.04, 8 dedicated AMD vCPUs,
+  32 GiB RAM, 240 GB SSD, DuckDB 22 GiB, `MemoryHigh=26G`,
+  `MemoryMax=28G`, a six-thread machine ceiling, 120 GiB launch floor, and
+  checkpoint-bound safe stop below 25 GiB. The actual frozen thread count
+  remains exactly one. Owner-supplied rates set formal gross ceilings of USD
+  12.816 per 48-hour worker, USD 19.224 per 72-hour lifecycle, and USD 38.448
+  for two lifecycles; the separate USD 25.00 credit leaves estimated exposure
+  of USD 0.00 after one and USD 13.448 after two. This is operational only:
+  the frozen scientific configuration and hash, scientific pipeline stages,
+  protected database, corpus, passage, staging, checkpoint, generated-data and
+  final-output transfer entries, promotion and recovery semantics, strict
+  validation, and acceptance criteria remain unchanged. Only scoped
+  tracked-file manifest metadata is refreshed.
+
 ### Added
 
 - Safe single-node cloud execution preparation for the interrupted Milestone 7
   recovery. ADR 0017 and `docs/cloud-execution.md` preserve the local-first
   architecture while authorizing an owner-provisioned Ubuntu 24.04 Hetzner
-  CCX43 as a narrow execution exception. The contract records explicit
+  CCX43 as the initial, now-superseded narrow execution exception. The
+  contract records explicit
   machine, memory, thread, disk, wall-clock, cost, checkpoint, status, abort,
   output, and retention field for every heavy milestone, treating unresolved
   future fields as launch blockers; fills every previously blank master-plan

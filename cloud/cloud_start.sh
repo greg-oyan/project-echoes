@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 SERVICE_NAME="echoes-m7.service"
 ENV_FILE="/etc/project-echoes/m7.env"
-MINIMUM_FREE_BYTES=$((250 * 1024 * 1024 * 1024))
+MINIMUM_FREE_BYTES=$((120 * 1024 * 1024 * 1024))
 
 if [[ $EUID -ne 0 ]]; then
     printf 'cloud_start.sh must run as root (use sudo).\n' >&2
@@ -18,7 +18,8 @@ source "$ENV_FILE"
 
 for name in ECHOES_REPO_ROOT ECHOES_EXPECTED_BRANCH ECHOES_EXPECTED_COMMIT \
     ECHOES_M7_CLOUD_EXECUTION ECHOES_MAXIMUM_MEMORY_BYTES \
-    ECHOES_DUCKDB_MEMORY_LIMIT_BYTES ECHOES_THREAD_COUNT \
+    ECHOES_DUCKDB_MEMORY_LIMIT_BYTES ECHOES_MINIMUM_FREE_DISK_BYTES \
+    ECHOES_THREAD_COUNT \
     ECHOES_DUCKDB_TEMP_DIRECTORY TMPDIR \
     ECHOES_TRANSFER_MANIFEST ECHOES_TRANSFER_MANIFEST_SHA256 ECHOES_DATABASE \
     ECHOES_PASSAGE_ROOT ECHOES_DATABASE_REBIND_RECEIPT \
@@ -33,8 +34,9 @@ for name in ECHOES_REPO_ROOT ECHOES_EXPECTED_BRANCH ECHOES_EXPECTED_COMMIT \
     }
 done
 if [[ "$ECHOES_M7_CLOUD_EXECUTION" != "1" ||
-    "$ECHOES_MAXIMUM_MEMORY_BYTES" != "60129542144" ||
-    "$ECHOES_DUCKDB_MEMORY_LIMIT_BYTES" != "51539607552" ||
+    "$ECHOES_MAXIMUM_MEMORY_BYTES" != "30064771072" ||
+    "$ECHOES_DUCKDB_MEMORY_LIMIT_BYTES" != "23622320128" ||
+    "$ECHOES_MINIMUM_FREE_DISK_BYTES" != "26843545600" ||
     "$ECHOES_THREAD_COUNT" != "1" ||
     "$ECHOES_DUCKDB_TEMP_DIRECTORY" != "/var/lib/project-echoes/tmp/duckdb" ||
     "$TMPDIR" != "/var/lib/project-echoes/tmp" ]]; then
@@ -452,8 +454,8 @@ for directive in \
     "ExecStart=/usr/local/libexec/echoes-m7-worker" \
     "Restart=no" \
     "RuntimeMaxSec=48h" \
-    "MemoryHigh=50G" \
-    "MemoryMax=56G" \
+    "MemoryHigh=26G" \
+    "MemoryMax=28G" \
     "MemorySwapMax=0" \
     "KillSignal=SIGINT"; do
     if ! grep -Fqx -- "$directive" "$UNIT_PATH"; then

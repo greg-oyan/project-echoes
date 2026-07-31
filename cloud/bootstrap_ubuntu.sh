@@ -19,7 +19,7 @@ MANIFEST_PATH=""
 EXPECTED_BRANCH=""
 EXPECTED_COMMIT=""
 UV_VERSION="0.11.28"
-MINIMUM_FREE_BYTES=$((250 * 1024 * 1024 * 1024))
+MINIMUM_FREE_BYTES=$((120 * 1024 * 1024 * 1024))
 SERVICE_USER="echoes"
 SERVICE_GROUP="echoes"
 STATE_ROOT="/var/lib/project-echoes/m7"
@@ -94,7 +94,7 @@ if [[ "${ID:-}" != "ubuntu" || "${VERSION_ID:-}" != "24.04" ]]; then
     exit 1
 fi
 if [[ "$(uname -m)" != "x86_64" ]]; then
-    printf 'The governed CCX43 target is x86_64; observed %s.\n' "$(uname -m)" >&2
+    printf 'The governed CCX33 target is x86_64; observed %s.\n' "$(uname -m)" >&2
     exit 1
 fi
 if [[ ! -d "$REPO_ROOT/.git" || ! -f "$REPO_ROOT/docs/master-plan.md" ]]; then
@@ -386,7 +386,7 @@ if not database.is_file() or database.is_symlink():
     raise SystemExit(f"transferred DuckDB database is missing or unsafe: {database}")
 spill.mkdir(parents=True, exist_ok=True)
 with duckdb.connect() as connection:
-    connection.execute("SET memory_limit='48GiB'")
+    connection.execute("SET memory_limit='22GiB'")
     connection.execute("SET threads=1")
     observed_limit, observed_threads = connection.execute(
         "SELECT current_setting('memory_limit'), current_setting('threads')"
@@ -407,7 +407,7 @@ print(
             "database_engine_version": database_version,
             "database_table_count": table_count,
             "sample_tables": [row[0] for row in sample],
-            "supports_48_gib_memory_limit": str(observed_limit) == "48.0 GiB",
+            "supports_22_gib_memory_limit": str(observed_limit) == "22.0 GiB",
             "observed_memory_limit": str(observed_limit),
             "observed_threads": int(observed_threads),
         },
@@ -416,8 +416,8 @@ print(
 )
 PY
 )"
-if [[ "$(jq -r '.supports_48_gib_memory_limit' <<<"$PORTABILITY_JSON")" != "true" ]]; then
-    printf 'DuckDB did not retain the required 48 GiB setting: %s\n' "$PORTABILITY_JSON" >&2
+if [[ "$(jq -r '.supports_22_gib_memory_limit' <<<"$PORTABILITY_JSON")" != "true" ]]; then
+    printf 'DuckDB did not retain the required 22 GiB setting: %s\n' "$PORTABILITY_JSON" >&2
     exit 1
 fi
 

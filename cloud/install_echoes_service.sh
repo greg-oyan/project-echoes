@@ -25,8 +25,9 @@ ENV_DIRECTORY="/etc/project-echoes"
 ENV_FILE="$ENV_DIRECTORY/m7.env"
 WORKER_PATH="/usr/local/libexec/echoes-m7-worker"
 UNIT_PATH="/etc/systemd/system/$SERVICE_NAME"
-DUCKDB_MEMORY_BYTES=51539607552
-MAXIMUM_MEMORY_BYTES=60129542144
+DUCKDB_MEMORY_BYTES=23622320128
+MAXIMUM_MEMORY_BYTES=30064771072
+MINIMUM_FREE_DISK_BYTES=26843545600
 THREAD_COUNT=1
 
 while (($#)); do
@@ -245,6 +246,7 @@ ECHOES_LOG_ROOT=$LOG_ROOT
 ECHOES_PACKAGE_ROOT=$PACKAGE_ROOT
 ECHOES_MAXIMUM_MEMORY_BYTES=$MAXIMUM_MEMORY_BYTES
 ECHOES_DUCKDB_MEMORY_LIMIT_BYTES=$DUCKDB_MEMORY_BYTES
+ECHOES_MINIMUM_FREE_DISK_BYTES=$MINIMUM_FREE_DISK_BYTES
 ECHOES_THREAD_COUNT=$THREAD_COUNT
 ECHOES_DUCKDB_TEMP_DIRECTORY=$TEMP_ROOT/duckdb
 TMPDIR=$TEMP_ROOT
@@ -300,6 +302,7 @@ required_variables=(
     ECHOES_LOG_ROOT
     ECHOES_MAXIMUM_MEMORY_BYTES
     ECHOES_DUCKDB_MEMORY_LIMIT_BYTES
+    ECHOES_MINIMUM_FREE_DISK_BYTES
     ECHOES_THREAD_COUNT
     ECHOES_DUCKDB_TEMP_DIRECTORY
 )
@@ -477,6 +480,7 @@ jq -n \
     )" \
     --argjson maximum_memory_bytes "$ECHOES_MAXIMUM_MEMORY_BYTES" \
     --argjson duckdb_memory_limit_bytes "$ECHOES_DUCKDB_MEMORY_LIMIT_BYTES" \
+    --argjson minimum_free_disk_bytes "$ECHOES_MINIMUM_FREE_DISK_BYTES" \
     --argjson thread_count "$ECHOES_THREAD_COUNT" \
     --arg duckdb_temp_directory "$ECHOES_DUCKDB_TEMP_DIRECTORY" \
     --argjson command "$(printf '%s\n' "${command[@]}" | jq -R . | jq -s .)" \
@@ -516,10 +520,13 @@ jq -n \
         limits: {
             process_memory_bytes: $maximum_memory_bytes,
             duckdb_memory_limit_bytes: $duckdb_memory_limit_bytes,
+            minimum_free_disk_bytes: $minimum_free_disk_bytes,
             computational_threads: $thread_count,
+            maximum_computational_threads: 6,
             duckdb_temp_directory: $duckdb_temp_directory,
-            systemd_memory_high_bytes: 53687091200,
-            systemd_memory_max_bytes: 60129542144,
+            launch_minimum_free_disk_bytes: 128849018880,
+            systemd_memory_high_bytes: 27917287424,
+            systemd_memory_max_bytes: 30064771072,
             runtime_max_seconds: 172800,
             restart: "no"
         }
@@ -562,8 +569,8 @@ KillMode=control-group
 SendSIGKILL=yes
 OOMPolicy=stop
 MemoryAccounting=yes
-MemoryHigh=50G
-MemoryMax=56G
+MemoryHigh=26G
+MemoryMax=28G
 MemorySwapMax=0
 CPUAccounting=yes
 TasksAccounting=yes

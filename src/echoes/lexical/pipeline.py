@@ -2746,6 +2746,7 @@ def _run_lexical_pipeline_impl(
         operational_limits = resolve_operational_limits(
             configured_maximum_memory_bytes=config.resource_limits.maximum_memory_bytes,
             configured_thread_count=config.resource_limits.thread_count,
+            configured_minimum_free_disk_bytes=(config.resource_limits.minimum_free_disk_bytes),
         )
     except LexicalResourceError as exc:
         raise LexicalPipelineError(f"could not resolve operational resource limits: {exc}") from exc
@@ -2874,7 +2875,7 @@ def _run_lexical_pipeline_impl(
             resume_staging_dir=resume_staging_dir,
             preserve_staging_on_error=True,
             required_free_bytes=(
-                config.resource_limits.minimum_free_disk_bytes
+                operational_limits.minimum_free_disk_bytes
                 if config.resource_limits.check_disk_before_build
                 else 0
             ),
@@ -3376,7 +3377,7 @@ def _run_lexical_pipeline_impl(
                 preregistration_hash=preregistration_hash,
                 resource_guard=resource_guard,
                 spill_directory=writer.staging_dir / ".critical-sensitivity-spill",
-                minimum_free_disk_bytes=config.resource_limits.minimum_free_disk_bytes,
+                minimum_free_disk_bytes=operational_limits.minimum_free_disk_bytes,
             ):
                 writer.write_frame("sensitivity_results", frame, part=sensitivity_part)
                 sensitivity_part += 1
@@ -3401,7 +3402,7 @@ def _run_lexical_pipeline_impl(
                 preregistration_hash=preregistration_hash,
                 resource_guard=resource_guard,
                 spill_directory=writer.staging_dir / ".qere-ketiv-sensitivity-spill",
-                minimum_free_disk_bytes=config.resource_limits.minimum_free_disk_bytes,
+                minimum_free_disk_bytes=operational_limits.minimum_free_disk_bytes,
             ):
                 writer.write_frame("sensitivity_results", frame, part=sensitivity_part)
                 sensitivity_part += 1

@@ -222,8 +222,8 @@ if [[ "$MODE" == "--submit" ]]; then
         --property=Type=exec \
         --property=Restart=no \
         --property=RuntimeMaxSec=12h \
-        --property=MemoryHigh=50G \
-        --property=MemoryMax=56G \
+        --property=MemoryHigh=26G \
+        --property=MemoryMax=28G \
         --property=MemorySwapMax=0 \
         --property=UMask=0077 \
         --property="StandardOutput=append:$stdout_path" \

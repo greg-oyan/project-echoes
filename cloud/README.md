@@ -8,18 +8,18 @@ checkpoints.
 
 The governed server selection is:
 
-- Hetzner Cloud `CCX43`, dedicated x86 (AMD), in `hil` (Hillsboro, Oregon)
+- Hetzner Cloud `CCX33`, dedicated x86 (AMD)
+- Hillsboro, Oregon as the primary location; Ashburn, Virginia as the fallback
 - Ubuntu 24.04
-- 16 dedicated vCPUs, 64 GiB RAM, 360 GB local SSD
+- 8 dedicated vCPUs, 32 GiB RAM, 240 GB local SSD
 - one public Primary IP selected manually only if required for SSH
 
-As of 2026-07-30, the published `CCX43` US price is USD 0.5280/hour before
-tax, plus USD 0.0010/hour for a Primary IPv4 when one is required. The
-governed lifecycle is at most 72 server-hours for transfer, the 48-hour
-pipeline boundary, validation, and retrieval: USD 38.09 before tax and USD 50
-all-in. Confirm the live Console price before creating the server. See Hetzner's
-[price-adjustment table](https://docs.hetzner.com/general/infrastructure-and-availability/price-adjustment/)
-and [CCX plan description](https://www.hetzner.com/cloud/general-purpose/).
+The owner-verified CCX33 rate is USD 0.2660/hour and the Primary IPv4 planning
+rate is USD 0.0010/hour, for a combined USD 0.2670/hour. Formal gross ceilings
+are USD 12.816 for the 48-hour worker, USD 19.224 for one 72-hour lifecycle,
+and USD 38.448 for two separately authorized lifecycles. The existing USD
+25.00 account credit remains separate from those ceilings. Estimated remaining
+cash exposure is USD 0.00 after one lifecycle and USD 13.448 after two.
 
 ## Fixed server layout
 
@@ -37,8 +37,9 @@ The service environment is exact:
 
 ```text
 ECHOES_M7_CLOUD_EXECUTION=1
-ECHOES_MAXIMUM_MEMORY_BYTES=60129542144
-ECHOES_DUCKDB_MEMORY_LIMIT_BYTES=51539607552
+ECHOES_MAXIMUM_MEMORY_BYTES=30064771072
+ECHOES_DUCKDB_MEMORY_LIMIT_BYTES=23622320128
+ECHOES_MINIMUM_FREE_DISK_BYTES=26843545600
 ECHOES_THREAD_COUNT=1
 ECHOES_DUCKDB_TEMP_DIRECTORY=/var/lib/project-echoes/tmp/duckdb
 ECHOES_PROMOTION_JOURNAL=/srv/project-echoes/repo/data/processed/lexical/.schema-v1.promotion-intent.json
@@ -46,8 +47,8 @@ TMPDIR=/var/lib/project-echoes/tmp
 ```
 
 One thread retains the frozen deterministic Milestone 7 configuration and is
-within the twelve-thread ceiling. systemd separately enforces
-`MemoryHigh=50G`, `MemoryMax=56G`, no swap, `RuntimeMaxSec=48h`, and
+within the six-thread ceiling. systemd separately enforces
+`MemoryHigh=26G`, `MemoryMax=28G`, no swap, `RuntimeMaxSec=48h`, and
 `Restart=no`.
 
 ## Transfer-manifest contract
@@ -90,6 +91,16 @@ Git `HEAD` and the remote branch tip. The upload script transfers the manifest
 as a control file and verifies every listed payload byte.
 `total_upload_bytes` is therefore the exact governed payload size and excludes
 only the small control manifest itself.
+
+The manifest builder's SHA-256 logic and upload allowlist remain unchanged.
+The scoped acceptance requirement is:
+
+> All database, corpus, staging, checkpoint, generated-data,
+> execution-manifest, scientific-configuration, and final-output manifest
+> entries remain unchanged. Only entries for scoped tracked code,
+> documentation, configuration, tests, and cloud tooling may be refreshed.
+
+Passage-artifact entries are protected and remain unchanged as well.
 
 The file manifest intentionally records regular files, not empty directories.
 The currently empty `.candidate-review-queue-spool` directory is operationally
@@ -153,10 +164,10 @@ an accept-any host-key option.
      --expected-commit <FULL_40_CHARACTER_COMMIT>
    ```
 
-   Bootstrap refuses the wrong OS/architecture, fewer than 250 GiB free,
+   Bootstrap refuses the wrong OS/architecture, fewer than 120 GiB free,
    branch or commit drift, a remote branch tip mismatch, dirty tracked files,
    transfer hash failure, lockfile failure, DuckDB version/read failure, or a
-   failed 48 GiB setting probe. After authenticating the original transferred
+   failed 22 GiB setting probe. After authenticating the original transferred
    database and passage tree, it uses the repository's governed transactional
    rebind command to replace the six Windows-bound passage views with Linux
    globs, performs at-most-one-row reads through each view, and records a
@@ -182,9 +193,9 @@ an accept-any host-key option.
    sudo bash cloud/cloud_start.sh
    ```
 
-   The launcher checks the free-disk floor again, refuses another pipeline
-   process, and first runs the bounded `recover-lexical-promotion` command as
-   the `echoes` service user. Any live
+   The launcher checks the 120 GiB free-disk floor again, refuses another
+   pipeline process, and first runs the bounded `recover-lexical-promotion`
+   command as the `echoes` service user. Any live
    `data/processed/lexical/.schema-v1.promotion-intent.json` is copied to an
    immutable protected state artifact before recovery. A restored-staging
    result proceeds through the normal staging gates; a committed-canonical
@@ -298,17 +309,17 @@ an accept-any host-key option.
 | Field | Governed value |
 | --- | --- |
 | Executor | `echoes-m7.service`, dedicated `echoes` user, nonblocking SSH-independent systemd process, `flock -n` singleton |
-| Machine | Hetzner `CCX43`, `hil` (Hillsboro), Ubuntu 24.04 x86_64, 16 dedicated AMD vCPU, 64 GiB RAM, 360 GB local SSD |
-| Process/cgroup memory | cloud process ceiling 56 GiB; `MemoryHigh=50G`; `MemoryMax=56G`; `MemorySwapMax=0` |
-| DuckDB | pinned 1.5.4; 48 GiB connection limit; spill under `/var/lib/project-echoes/tmp/duckdb` on local SSD |
-| Threads | exactly 1 for the frozen run; hard policy is no more than 12 |
-| Disk | refuse launch below 250 GiB free; no local or remote duplicate of the transferred staging tree |
+| Machine | Hetzner `CCX33`, Hillsboro primary and Ashburn fallback, Ubuntu 24.04 x86_64, 8 dedicated AMD vCPU, 32 GiB RAM, 240 GB local SSD |
+| Process/cgroup memory | cloud process ceiling 28 GiB; `MemoryHigh=26G`; `MemoryMax=28G`; `MemorySwapMax=0` |
+| DuckDB | pinned 1.5.4; 22 GiB connection limit; spill under `/var/lib/project-echoes/tmp/duckdb` on local SSD |
+| Threads | exactly 1 for the frozen run; hard machine-level policy is no more than 6 |
+| Disk | refuse launch below 120 GiB free; checkpoint-bound safe stop below 25 GiB during execution; no local or remote duplicate of the transferred staging tree |
 | Pipeline wall clock | hard 48 hours through `RuntimeMaxSec=48h` |
 | Validation/package wall clock | detached transient units, each capped at 12 hours |
-| Maximum expected cost | 72-hour lifecycle: provisional USD 38.09 before tax and USD 50 all-in; verify live price first |
+| Maximum expected cost | combined planning rate USD 0.2670/hour; formal gross USD 12.816 per 48-hour worker, USD 19.224 per 72-hour lifecycle, and USD 38.448 for two; USD 25.00 credit is separate, leaving USD 0.00/13.448 estimated exposure |
 | Checkpoints | event-based primary candidate parts and Tier 3 profile/detector completion manifests; no fabricated time interval |
 | Status | `sudo bash cloud/cloud_status.sh`, one snapshot only |
-| Abort conditions | hash/commit/config drift, duplicate worker, ambiguous/unsafe promotion journal, canonical preexistence without a committed recovery witness, staging ambiguity, fewer than 250 GiB free at launch, memory/cgroup limit, I/O or Parquet corruption, service failure/OOM, 48-hour timeout, or an explicit human stop |
+| Abort conditions | hash/commit/config drift, duplicate worker, ambiguous/unsafe promotion journal, canonical preexistence without a committed recovery witness, staging ambiguity, fewer than 120 GiB free at launch, crossing the 25 GiB execution safe-stop floor, memory/cgroup limit, I/O or Parquet corruption, service failure/OOM, 48-hour timeout, or an explicit human stop |
 | Required outputs | canonical `schema-v1`, `table-hashes.json`, one preserved committed promotion journal bound to the DuckDB marker and successful recovered execution manifest, DuckDB lexical exposure, strict validation receipt, small review package, protected full-result manifest |
 | Retention | preserve all active/resolved promotion journals, recovery receipts, failed staging, checkpoints, manifests, logs, validation receipts, canonical results, and packages until the owner explicitly authorizes deletion |
 
@@ -321,6 +332,10 @@ designing that fresh run. Never repurpose `--force` to erase the first result.
 ## Failure behavior
 
 - `Restart=no` prevents a failed/OOM run from silently restarting.
+- The event-bound in-process disk guard fails below 25 GiB at governed write,
+  sensitivity-spill, and finalization boundaries. Its error is retained in
+  execution state and stderr, while staging and checkpoints remain preserved
+  for the one-shot status and recovery paths.
 - Strict validation and packaging require an inactive worker whose exact
   systemd `Result` is `success`. Active or archived committed-journal evidence
   preserves and explains canonical bytes but never turns `signal`, `oom-kill`,

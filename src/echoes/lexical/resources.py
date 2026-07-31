@@ -30,18 +30,27 @@ THREAD_ENVIRONMENT_VARIABLES: tuple[str, ...] = (
 MEBIBYTE = 1024**2
 GIBIBYTE = 1024**3
 MINIMUM_DUCKDB_MEMORY_BYTES = 64 * MEBIBYTE
-M7_CLOUD_MAXIMUM_MEMORY_BYTES = 56 * GIBIBYTE
-M7_CLOUD_DUCKDB_MEMORY_BYTES = 48 * GIBIBYTE
+M7_CLOUD_MACHINE_MEMORY_BYTES = 32 * GIBIBYTE
+M7_CLOUD_MACHINE_STORAGE_BYTES = 240_000_000_000
+M7_CLOUD_MACHINE_CPU_COUNT = 8
+M7_CLOUD_MEMORY_HIGH_BYTES = 26 * GIBIBYTE
+M7_CLOUD_MAXIMUM_MEMORY_BYTES = 28 * GIBIBYTE
+M7_CLOUD_DUCKDB_MEMORY_BYTES = 22 * GIBIBYTE
+M7_CLOUD_MAXIMUM_THREAD_COUNT = 6
+M7_CLOUD_MINIMUM_LAUNCH_FREE_DISK_BYTES = 120 * GIBIBYTE
+M7_CLOUD_SAFE_STOP_FREE_DISK_BYTES = 25 * GIBIBYTE
 M7_CLOUD_EXECUTION_ENV = "ECHOES_M7_CLOUD_EXECUTION"
 MAXIMUM_MEMORY_ENV = "ECHOES_MAXIMUM_MEMORY_BYTES"
 DUCKDB_MEMORY_LIMIT_ENV = "ECHOES_DUCKDB_MEMORY_LIMIT_BYTES"
 THREAD_COUNT_ENV = "ECHOES_THREAD_COUNT"
 DUCKDB_TEMP_DIRECTORY_ENV = "ECHOES_DUCKDB_TEMP_DIRECTORY"
+MINIMUM_FREE_DISK_ENV = "ECHOES_MINIMUM_FREE_DISK_BYTES"
 _OPERATIONAL_OVERRIDE_ENVIRONMENT = (
     MAXIMUM_MEMORY_ENV,
     DUCKDB_MEMORY_LIMIT_ENV,
     THREAD_COUNT_ENV,
     DUCKDB_TEMP_DIRECTORY_ENV,
+    MINIMUM_FREE_DISK_ENV,
 )
 
 
@@ -220,6 +229,7 @@ class LexicalOperationalLimits:
     duckdb_memory_limit_bytes: int | None
     thread_count: int
     duckdb_temp_directory: Path | None
+    minimum_free_disk_bytes: int
     cloud_execution: bool
 
     def manifest_values(self) -> dict[str, object]:
@@ -235,6 +245,7 @@ class LexicalOperationalLimits:
                 if self.duckdb_temp_directory is None
                 else self.duckdb_temp_directory.as_posix()
             ),
+            "minimum_free_disk_bytes": self.minimum_free_disk_bytes,
         }
 
 
@@ -242,6 +253,7 @@ def resolve_operational_limits(
     *,
     configured_maximum_memory_bytes: int,
     configured_thread_count: int,
+    configured_minimum_free_disk_bytes: int,
 ) -> LexicalOperationalLimits:
     """Resolve an explicit cloud profile without changing frozen config hashes."""
 
@@ -257,6 +269,7 @@ def resolve_operational_limits(
             duckdb_memory_limit_bytes=None,
             thread_count=configured_thread_count,
             duckdb_temp_directory=None,
+            minimum_free_disk_bytes=configured_minimum_free_disk_bytes,
             cloud_execution=False,
         )
     if cloud_raw != "1":
@@ -265,14 +278,17 @@ def resolve_operational_limits(
     maximum_memory_bytes = _positive_environment_integer(MAXIMUM_MEMORY_ENV)
     duckdb_memory_limit_bytes = _positive_environment_integer(DUCKDB_MEMORY_LIMIT_ENV)
     thread_count = _positive_environment_integer(THREAD_COUNT_ENV)
+    minimum_free_disk_bytes = _positive_environment_integer(MINIMUM_FREE_DISK_ENV)
     raw_temp = os.environ.get(DUCKDB_TEMP_DIRECTORY_ENV)
     if raw_temp is None or not raw_temp.strip():
         raise LexicalResourceError(f"cloud execution requires {DUCKDB_TEMP_DIRECTORY_ENV}")
     temp_directory = Path(raw_temp)
     if not temp_directory.is_absolute():
         raise LexicalResourceError(f"{DUCKDB_TEMP_DIRECTORY_ENV} must be an absolute path")
-    if thread_count > 12:
-        raise LexicalResourceError("cloud execution cannot exceed twelve computational threads")
+    if thread_count > M7_CLOUD_MAXIMUM_THREAD_COUNT:
+        raise LexicalResourceError(
+            f"cloud execution cannot exceed {M7_CLOUD_MAXIMUM_THREAD_COUNT} computational threads"
+        )
     if maximum_memory_bytes != M7_CLOUD_MAXIMUM_MEMORY_BYTES:
         raise LexicalResourceError(
             "Milestone 7 cloud process ceiling must be exactly "
@@ -282,6 +298,11 @@ def resolve_operational_limits(
         raise LexicalResourceError(
             f"Milestone 7 cloud DuckDB limit must be exactly {M7_CLOUD_DUCKDB_MEMORY_BYTES} bytes"
         )
+    if minimum_free_disk_bytes != M7_CLOUD_SAFE_STOP_FREE_DISK_BYTES:
+        raise LexicalResourceError(
+            "Milestone 7 cloud safe-stop disk floor must be exactly "
+            f"{M7_CLOUD_SAFE_STOP_FREE_DISK_BYTES} bytes"
+        )
     if thread_count != configured_thread_count:
         raise LexicalResourceError(
             "cloud thread count must preserve the frozen scientific configuration: "
@@ -290,6 +311,10 @@ def resolve_operational_limits(
     if maximum_memory_bytes < configured_maximum_memory_bytes:
         raise LexicalResourceError(
             "cloud process ceiling cannot be lower than the frozen configured ceiling"
+        )
+    if minimum_free_disk_bytes < configured_minimum_free_disk_bytes:
+        raise LexicalResourceError(
+            "cloud safe-stop disk floor cannot be lower than the frozen configured floor"
         )
     if duckdb_memory_limit_bytes < MINIMUM_DUCKDB_MEMORY_BYTES:
         raise LexicalResourceError(
@@ -304,6 +329,7 @@ def resolve_operational_limits(
         duckdb_memory_limit_bytes=duckdb_memory_limit_bytes,
         thread_count=thread_count,
         duckdb_temp_directory=temp_directory.resolve(),
+        minimum_free_disk_bytes=minimum_free_disk_bytes,
         cloud_execution=True,
     )
 

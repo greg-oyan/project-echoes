@@ -50,7 +50,7 @@ value is a fail-closed contract value, not permission to improvise.
 | 4 supplementary annotations | Exact future-rerun host unresolved; no rerun authorized | Planning ceiling: 16 GiB process, 4 threads, 75 GB free | 12 h/run; external cost authorization USD 0 | Per source/artifact boundary; exact status command unresolved |
 | 5 passage segmentation | Exact future-rerun host unresolved; no rerun authorized | Planning ceiling: 16 GiB process, 4 threads, 100 GB free | 8 h/run; external cost authorization USD 0 | Per table/partition boundary; exact status command unresolved |
 | 6 known-link benchmark | Exact future-rerun host unresolved; no rerun authorized | Planning ceiling: 12 GiB process, 4 threads, 50 GB free | 2 h/run; external cost authorization USD 0 | Per benchmark table boundary; exact status command unresolved |
-| 7 lexical baseline | Owner-provisioned Hetzner CCX43 `hil`, Ubuntu 24.04, 16 dedicated AMD vCPUs, 64 GiB RAM, 360 GB SSD; systemd sole worker | DuckDB 48 GiB, `MemoryHigh=50G`, `MemoryMax=56G`, one frozen thread (hard ceiling 12), at least 250 GB free before launch | Per run: 48 h worker, 72 h server lifecycle, provisional USD 38.09 before tax / USD 50 all-in; two-run program USD 76.18 before tax / USD 100 all-in | Every primary/Tier 3 checkpoint and governed artifact part; `sudo bash /srv/project-echoes/repo/cloud/cloud_status.sh` |
+| 7 lexical baseline | Owner-provisioned Hetzner CCX33, Hillsboro primary and Ashburn fallback, Ubuntu 24.04, 8 dedicated AMD vCPUs, 32 GiB RAM, 240 GB SSD; systemd sole worker | DuckDB 22 GiB, `MemoryHigh=26G`, `MemoryMax=28G`, one frozen thread (hard ceiling 6), at least 120 GiB free before launch and checkpoint-bound safe stop below 25 GiB | Per run: 48 h worker, 72 h lifecycle; formal gross USD 12.816/worker and USD 19.224/lifecycle; two lifecycles USD 38.448; USD 25.00 credit is separate, leaving USD 0.00/13.448 estimated exposure | Every primary/Tier 3 checkpoint and governed artifact part; `sudo bash /srv/project-echoes/repo/cloud/cloud_status.sh` |
 | 9 Septuagint bridge | Single worker on a machine selected after source activation; no cloud run authorized yet | Planning ceiling 48 GiB, 12 threads, 250 GB free | 24 h/run; external cost cap unresolved, therefore USD 0 authorized | Per source/alignment partition; milestone-specific one-shot status command required before launch |
 | 10 semantic retrieval | Single worker; exact CPU/GPU host selected after registered fixture benchmark; no cloud run authorized yet | Planning ceiling 64 GiB host RAM, 12 CPU threads, 250 GB free; GPU limit unresolved | 24 h/benchmark and 72 h total; external cost cap unresolved, therefore USD 0 authorized | Per representation/evaluation split; milestone-specific one-shot status command required |
 | 11 syntactic and narrative engines | Single worker; exact host selected after fixture benchmark; no cloud run authorized yet | Planning ceiling 64 GiB, 12 threads, 250 GB free | 24 h/run and 72 h total; external cost cap unresolved, therefore USD 0 authorized | Per representation/book partition; milestone-specific one-shot status command required |
@@ -88,40 +88,41 @@ execution evidence; it does not weaken any acceptance item.
 
 ### Executor and machine
 
-- Owner-created Hetzner Cloud server type: `CCX43`
-- Location: Hillsboro, Oregon, USA (`hil`)
+- Owner-created Hetzner Cloud server type: `CCX33`
+- Primary location: Hillsboro, Oregon, USA
+- Allowed fallback location: Ashburn, Virginia, USA
 - Image: Ubuntu 24.04 LTS, x86_64
-- Compute: 16 dedicated AMD vCPUs
-- Memory: 64 GiB
-- Local storage: 360 GB SSD
+- Compute: 8 dedicated AMD vCPUs
+- Memory: 32 GiB
+- Local storage: 240 GB SSD
 - Worker owner: `echoes-m7.service`; exactly one active worker
 - Interactive SSH, VS Code, Codex, and the laptop are not worker owners
 
-Hetzner listed CCX43 at 16 dedicated AMD vCPUs, 64 GB RAM, and 360 GB SSD on
-2026-07-30. Its post-2026-06-15 US price was USD 0.5280/hour, excluding IPv4 and
-tax. A Primary IPv4 was USD 0.0010/hour; IPv6 was free. One 72-hour lifecycle
-therefore has a provisional provider-charge ceiling of USD 38.09 before tax
-and an owner authorization ceiling of USD 50 all-in. The recovery and later
-fresh run are separately authorized lifecycles; together their ceilings are
-USD 76.18 before tax and USD 100 all-in. Recheck the official pages and the
-account-specific checkout total before each order:
-
-- <https://www.hetzner.com/cloud/general-purpose/>
-- <https://docs.hetzner.com/general/infrastructure-and-availability/price-adjustment/>
-- <https://docs.hetzner.com/cloud/servers/primary-ips/overview/>
+The owner-verified CCX33 planning rate is USD 0.2660/hour. A Primary IPv4, if
+required for SSH, is planned at USD 0.0010/hour, for a combined rate of USD
+0.2670/hour. The gross 48-hour worker ceiling is USD 0.2670 × 48 =
+USD 12.8160 (formal gross USD 12.816). The gross 72-hour lifecycle ceiling is
+USD 0.2670 × 72 = USD 19.2240 (formal gross USD 19.224). The recovery and later
+fresh run remain separately authorized; their combined gross ceiling is USD
+0.2670 × 144 = USD 38.4480 (formal gross USD 38.448). The existing USD 25.00
+account credit does not reduce these formal gross ceilings. Estimated remaining
+cash exposure is USD 0.00 after one lifecycle and USD 13.448 after two.
 
 ### Limits and checkpoints
 
-- The service is `Restart=no`, `RuntimeMaxSec=48h`, `MemoryHigh=50G`, and
-  `MemoryMax=56G`.
-- The process guard ceiling is 56 GiB.
-- Every governed DuckDB pipeline connection receives a 48 GiB memory limit.
-- Computational libraries and DuckDB use no more than 12 threads. The recovery
-  run may retain the frozen single-thread setting; one thread satisfies this
-  upper bound and avoids changing deterministic checkpoint identity.
+- The service is `Restart=no`, `RuntimeMaxSec=48h`, `MemoryHigh=26G`, and
+  `MemoryMax=28G`.
+- The process guard ceiling is 28 GiB.
+- Every governed DuckDB pipeline connection receives a 22 GiB memory limit.
+- Computational libraries and DuckDB use exactly the frozen scientific
+  setting of one thread, which remains below the machine-level ceiling of 6.
 - DuckDB spill is confined to a dedicated directory on the server's local SSD.
-- Launch requires at least 250 GB free on the filesystem holding repository
+- Launch requires at least 120 GiB free on the filesystem holding repository
   data and spill.
+- During execution, the existing checkpoint-bound in-process guard requests a
+  safe stop below 25 GiB free. It records the failing stage and observed space
+  in execution state and logs while preserving staging, checkpoints, and
+  recovery state; it introduces no polling loop, timer, or monitoring daemon.
 - Existing primary, Tier 3, candidate, artifact, execution-manifest, and
   progress checkpoints are retained.
 - Checkpoints occur at existing governed part boundaries; no time-only
@@ -132,6 +133,12 @@ account-specific checkout total before each order:
   records original and rebound database hashes plus the pinned DuckDB version
   and resolved Linux globs in an atomic receipt, and performs at most one-row
   reads through every rebound artifact view.
+- The scoped transfer-manifest acceptance requirement is: “All database,
+  corpus, staging, checkpoint, generated-data, execution-manifest,
+  scientific-configuration, and final-output manifest entries remain
+  unchanged. Only entries for scoped tracked code, documentation,
+  configuration, tests, and cloud tooling may be refreshed.” Passage-artifact
+  entries are protected and remain unchanged as well.
 - Bootstrap, service installation, and pre-launch checks require the current
   rebound database hash to match that receipt. The successful pipeline later
   changes the database when it installs lexical views, so post-run validation
@@ -160,7 +167,7 @@ these conditions applies:
 - a required transfer path, size, or SHA-256 differs;
 - the pinned Python or DuckDB version is unavailable or the database cannot be
   opened read-only with a bounded metadata query;
-- free disk is below 250 GB;
+- free disk is below 120 GiB at bootstrap or launch;
 - more than one matching worker exists;
 - canonical `data/processed/lexical/schema-v1` already exists when a resume
   launch is requested, except that a matching durable promotion journal is
@@ -170,6 +177,7 @@ these conditions applies:
   parent, or inconsistent with its checkpoint manifests;
 - memory or runtime limits are exceeded, the kernel OOM-kills the service, or
   the worker exits nonzero;
+- execution free disk crosses below the 25 GiB safe-stop floor;
 - staging loses required parts, a checkpoint hash differs, a partition is
   missing or duplicated, or Parquet metadata is unreadable;
 - strict post-run validation fails.

@@ -90,8 +90,8 @@
       "classification": "required",
       "path": "CHANGELOG.md",
       "required": true,
-      "sha256": "ab8436ba03b7597c5adb9d339ae0cdfd515283077f347571f7ea06ed662c75f1",
-      "size_bytes": 26696
+      "sha256": "5f7043fb39af24ca264efa8cea0c2c891c460d5b6710e5a416c54532c9db1db3",
+      "size_bytes": 27895
     },
     {
       "classification": "required",
@@ -104,14 +104,14 @@
       "classification": "required",
       "path": "cloud/README.md",
       "required": true,
-      "sha256": "877d6bb89c135bdeac8fd47708a8a5f30b81636280924a759d42d53ca0fb218a",
-      "size_bytes": 16951
+      "sha256": "48d86e07f0b82da11c375d38229618b429ea68dad61f2005e5996b743f913deb",
+      "size_bytes": 17941
     },
     {
       "classification": "required",
       "path": "cloud/bootstrap_ubuntu.sh",
       "required": true,
-      "sha256": "52ae7a857c20082f53df022dbbed1b3ce37429894fcd70ac21df8c6f0e5d0ce9",
+      "sha256": "b18eafbceabf937fe59ec6c8b34364160573ffd3ec65c650af25821db786ce07",
       "size_bytes": 26097
     },
     {
@@ -125,8 +125,8 @@
       "classification": "required",
       "path": "cloud/cloud_start.sh",
       "required": true,
-      "sha256": "1b7ca20baa18af5ee32e004047503a88992282a4964379543d46f95c1e194cb8",
-      "size_bytes": 21315
+      "sha256": "120510104645ecb2eda085085f077ec581a5bfd8b880475b7bad0d220fdb9703",
+      "size_bytes": 21410
     },
     {
       "classification": "required",
@@ -146,7 +146,7 @@
       "classification": "required",
       "path": "cloud/cloud_validate.sh",
       "required": true,
-      "sha256": "af4ae8e0f5577cd475b3fa34079d5e95a7ba2ba811bfe56228b7bf35ed2f08a9",
+      "sha256": "809e62d435cd0e42d45749e9004a5946a945ce866617a54389edeb036233635c",
       "size_bytes": 84646
     },
     {
@@ -160,8 +160,8 @@
       "classification": "required",
       "path": "cloud/install_echoes_service.sh",
       "required": true,
-      "sha256": "7a6cae57e602f49fdd87eb65b05597edf53489aa2072cbdb3d68fd0d937e4516",
-      "size_bytes": 23385
+      "sha256": "535a2cbbcd53b1c14e9d4371014e63fb8b76f8deb465cabd5cf58e0ef259e67f",
+      "size_bytes": 23753
     },
     {
       "classification": "required",
@@ -137815,8 +137815,8 @@
       "classification": "required",
       "path": "docs/cloud-execution.md",
       "required": true,
-      "sha256": "9902db5e866114778639b103daffce10c1753e10503e9c0ba4c75f5fd0518202",
-      "size_bytes": 19711
+      "sha256": "7625856f8bc40a4214bca75cfc1869fe1d11365d8ca3b02c41356d2046eb863a",
+      "size_bytes": 20508
     },
     {
       "classification": "required",
@@ -137829,15 +137829,15 @@
       "classification": "required",
       "path": "docs/decisions/0017-single-node-cloud-execution-exception.md",
       "required": true,
-      "sha256": "13b0bb4af617384da884026fd1fde95e4f607a2b33141738b4843e731698e2f6",
-      "size_bytes": 7288
+      "sha256": "6dbf8f28d03a3ab8e9f317627c5918d6bdd913cc49067607c7847ed32c334b12",
+      "size_bytes": 8683
     },
     {
       "classification": "required",
       "path": "docs/master-plan.md",
       "required": true,
-      "sha256": "3f074b74dda3c02eda2084c7a750ad96d20751855e5d1bfdee40ad7d750f7802",
-      "size_bytes": 103216
+      "sha256": "d20081ad84b0b6b1963f4bdbd54a73ba201478ad4a88ca132bffe76fc2570857",
+      "size_bytes": 103731
     },
     {
       "classification": "final_output",
@@ -138284,15 +138284,15 @@
       "classification": "required",
       "path": "src/echoes/lexical/pipeline.py",
       "required": true,
-      "sha256": "6d4de7bf4635218207c1d27f8fe0b9dec758fef7fb91887e738c14edb03d85ad",
-      "size_bytes": 170608
+      "sha256": "87467a4eb00871f223ad99be784fd216148d9784f003f0eeccd0de6bd15367da",
+      "size_bytes": 170693
     },
     {
       "classification": "required",
       "path": "src/echoes/lexical/resources.py",
       "required": true,
-      "sha256": "47a299424eff32943bb112129130aa4bafea5ad7eacdf775673840bc9667bc7e",
-      "size_bytes": 17682
+      "sha256": "c7bcc5cf6f5e99edc9f26ef59f6a08ac0ce07bf30f2f2574b47cec0b25c0c1ca",
+      "size_bytes": 18960
     },
     {
       "classification": "required",
@@ -138562,7 +138562,7 @@
     "bytes_by_classification": {
       "final_output": 62397,
       "recoverable_checkpoint": 17061310800,
-      "required": 5078351224
+      "required": 5078357946
     },
     "file_count": 19782,
     "files_by_classification": {
@@ -138571,5 +138571,5 @@
       "required": 3713
     }
   },
-  "total_upload_bytes": 22139724421
+  "total_upload_bytes": 22139731143
 }

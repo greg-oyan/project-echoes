@@ -1,6 +1,7 @@
 # 0017 — Single-node cloud execution exception
 
 - Status: Accepted
+- Amendment: 2026-07-30 — CCX33 operational re-parameterization
 - Date: 2026-07-30
 - executing_agent: Codex
 - Owner authorization: The project owner requested safe cloud preparation for
@@ -21,12 +22,20 @@ single-process Python, DuckDB, Parquet, Polars, and `uv` architecture. It must
 not create a cloud database, distributed system, managed research service, or
 new publication boundary.
 
+The original decision selected CCX43. CCX43, CCX53, and CCX63 are unavailable
+to the owner's Hetzner account, while CCX33 is available. The 2026-07-30
+amendment therefore changes only the machine-size, operational-resource, and
+cost terms below; every scientific, provenance, validation, transfer,
+recovery, retention, and acceptance term remains in force.
+
 ## Decision
 
 Milestone 7 production execution moves to one owner-provisioned, ephemeral
-Hetzner CCX43 in Hillsboro (`hil`), running Ubuntu 24.04 on 16 dedicated AMD
-vCPUs, 64 GiB RAM, and a 360 GB local SSD. Codex does not purchase, create,
-connect to, or launch this resource.
+Hetzner CCX33 in Hillsboro, Oregon, with Ashburn, Virginia as the allowed
+fallback. It runs Ubuntu 24.04 on 8 dedicated AMD vCPUs, 32 GiB RAM, and a
+240 GB local SSD, with one public IPv4 address only if required for SSH. Codex
+does not purchase, create, connect to, configure, resize, launch, stop, or
+destroy this resource.
 
 The first cloud execution resumes
 `data/processed/lexical/.schema-v1.writing-238902db1f6e479596bea47e70ccf30b`.
@@ -48,9 +57,18 @@ The cloud host is an execution appliance, not a new storage authority:
   controls are execution metadata rather than scoring parameters;
 - one systemd service owns the worker independently of SSH, VS Code, Codex,
   and the laptop;
-- the service uses at most 12 computational threads, a 48 GiB DuckDB memory
-  ceiling, `MemoryHigh=50G`, `MemoryMax=56G`, `RuntimeMaxSec=48h`, and
-  `Restart=no`;
+- the service preserves the actual frozen scientific thread count of exactly
+  one under a machine-level ceiling of 6 computational threads, a 22 GiB
+  (23,622,320,128-byte) DuckDB memory ceiling, `MemoryHigh=26G`,
+  `MemoryMax=28G`, `RuntimeMaxSec=48h`, and `Restart=no`;
+- launch requires at least 120 GiB (128,849,018,880 bytes) free; the existing
+  checkpoint-bound in-process disk guard applies a cloud-only 25 GiB
+  (26,843,545,600-byte) runtime floor before and after governed artifact parts,
+  at sensitivity spill boundaries, and during finalization;
+- crossing the runtime disk floor records the stage and observed free space,
+  requests a controlled stop, preserves staging and checkpoints, and remains
+  visible in execution state, stderr, and one-shot status output without a
+  polling process, timer, monitoring daemon, or second worker;
 - start, stop, status, validation, packaging, and transfer are explicit
   one-shot commands; no monitor or polling loop is introduced;
 - failures, timeouts, signals, and OOMs preserve staging and checkpoints;
@@ -81,13 +99,14 @@ Pre-launch checks authenticate that receipt. Post-run validation expects the
 pipeline's lexical load to have changed the database and records its new hash
 instead of applying a stale pre-run hash.
 
-The current price ceiling is provisional and must be checked again before
-ordering. At the official 2026-07-30 US CCX43 rate of USD 0.5280/hour plus USD
-0.0010/hour for a Primary IPv4, the governed 72-hour end-to-end lifecycle
-ceiling is USD 38.09 before tax and USD 50 all-in. The worker itself remains
-hard-capped at 48 hours. The recovery and fresh determinism runs are separate
-authorized lifecycles, for a two-run ceiling of USD 76.18 before tax and USD
-100 all-in. Keeping either server after its governed lifecycle is outside this
+Only the owner-verified planning rates supplied for this amendment are used:
+CCX33 is USD 0.2660/hour, Primary IPv4 is USD 0.0010/hour, and the combined
+rate is USD 0.2670/hour. The formal gross ceilings are USD 12.816 for the
+unchanged 48-hour worker cap, USD 19.224 for one 72-hour server lifecycle, and
+USD 38.448 for two separately authorized 72-hour lifecycles. The existing
+USD 25.00 account credit does not reduce those gross ceilings; estimated
+remaining cash exposure is USD 0.00 after one lifecycle and USD 13.448 after
+two. Keeping either server after its governed lifecycle is outside this
 contract.
 
 `docs/cloud-execution.md` is the execution contract. It records the required
@@ -97,8 +116,9 @@ been resolved.
 
 ## Rationale
 
-A dedicated single node supplies enough memory and local spill space without
-changing the research architecture or introducing distributed execution.
+A dedicated available single node supplies governed memory and local spill
+space without changing the research architecture or introducing distributed
+execution.
 Systemd supplies one-worker exclusion, OS-level memory and runtime limits, and
 execution independence. A file-level transfer manifest and hash verification
 make private data movement auditable without creating a second local archive.
@@ -134,3 +154,4 @@ allows the valid checkpoints to resume under the same experiment identity.
   duplicates the 17 GB staging tree and creates another failure surface.
 - Let an interactive SSH or editor session own the worker: rejected because
   disconnection would weaken execution control and provenance.
+- CCX43, CCX53, or CCX63: unavailable to the owner's Hetzner account.

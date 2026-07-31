@@ -2892,7 +2892,7 @@ acceptance evidence. The exact next task is Milestone 7 only.
 
 time_budget: 14 working days; each production run is capped at 48 hours, with
   one recovery run and one fresh determinism run. The estimate remains
-  provisional until the first CCX43 measurement.
+  provisional until the first CCX33 measurement.
 
 Status: **In progress as of 2026-07-30**. The interrupted recovery staging is
 preserved, but canonical output, strict cloud validation, the fresh
@@ -2901,28 +2901,36 @@ not authorized.
 
 Execution boundary:
 
-* ADR 0017 and `docs/cloud-execution.md` are incorporated into this milestone
-  as its binding operational contract; unresolved contract fields block a run.
+* ADR 0017, as amended for CCX33, and `docs/cloud-execution.md` are
+  incorporated into this milestone as its binding operational contract;
+  unresolved contract fields block a run.
 * Never execute the real Milestone 7 pipeline, a full DuckDB ranking query, or
   a real-corpus benchmark on the under-provisioned Windows laptop.
-* Production uses an owner-created Hetzner CCX43 in Hillsboro (`hil`) with
-  Ubuntu 24.04, 16 dedicated AMD vCPUs, 64 GiB RAM, and a 360 GB local SSD.
+* Production uses an owner-created Hetzner CCX33 with Hillsboro, Oregon as the
+  primary location and Ashburn, Virginia as the allowed fallback. It runs
+  Ubuntu 24.04 on 8 dedicated AMD vCPUs, 32 GiB RAM, and a 240 GB local SSD.
   Codex does not purchase, create, connect to, launch, or destroy that server.
 * The first run resumes the exact preserved staging tree. The later fresh
   determinism run requires a separate authorization and preserves the recovery
   run first. Each run has a 48-hour worker cap and a 72-hour server-lifecycle
-  cap; together they are capped at USD 76.18 before tax and USD 100 all-in,
-  provisionally and subject to an owner price check before each server order.
+  cap. At the owner-verified combined CCX33 and IPv4 planning rate of USD
+  0.2670/hour, the formal gross ceilings are USD 12.816 per 48-hour worker,
+  USD 19.224 per 72-hour lifecycle, and USD 38.448 for two separately
+  authorized lifecycles. The existing USD 25.00 account credit is separate
+  from those gross ceilings; estimated remaining cash exposure is USD 0.00
+  after one lifecycle and USD 13.448 after two.
 * Before the first launch, every transferred file is size- and SHA-256-verified.
   The original DuckDB hash is verified before six Windows-bound passage views
   are transactionally rebound to the verified Linux passage tree; an atomic
   receipt records both database hashes, the pinned DuckDB version, resolved
   globs, and bounded reads.
 * Exactly one `echoes-m7.service` worker may run. It uses DuckDB
-  `memory_limit=48 GiB`, a process ceiling of 56 GiB,
-  `MemoryHigh=50G`, `MemoryMax=56G`, at most 12 computational threads,
-  local-SSD spill, at least 250 GiB free before launch,
-  `RuntimeMaxSec=48h`, and `Restart=no`.
+  `memory_limit=22 GiB`, a process ceiling of 28 GiB,
+  `MemoryHigh=26G`, `MemoryMax=28G`, an actual frozen scientific thread count
+  of exactly 1 under a maximum computational ceiling of 6, local-SSD spill, at
+  least 120 GiB free before launch, and a checkpoint-bound safe stop below
+  25 GiB free during execution. It retains `RuntimeMaxSec=48h` and
+  `Restart=no`.
 * Signals, failures, timeout, and OOM preserve staging and checkpoints.
   Canonical promotion requires strict technical validation. A technically
   valid scientific negative is promoted and reported, but it does not pass
