@@ -381,7 +381,11 @@ class ProcessResourceGuard:
         reserve_for_python_bytes: int,
         minimum_bytes: int = MINIMUM_DUCKDB_MEMORY_BYTES,
     ) -> int:
-        """Return a MiB-aligned DuckDB ceiling while retaining Python-process headroom."""
+        """Return a MiB-aligned DuckDB ceiling while retaining Python-process headroom.
+
+        The configured cloud DuckDB value is a hard upper bound for any one
+        connection, not a mandatory allocation for every stage.
+        """
 
         if preferred_bytes < minimum_bytes:
             raise LexicalResourceError("preferred DuckDB memory is below its safe minimum")
@@ -395,16 +399,10 @@ class ProcessResourceGuard:
                 f"{stage}: rss={rss}, python_reserve={reserve_for_python_bytes}, "
                 f"minimum_duckdb={minimum_bytes}, maximum={self.maximum_memory_bytes}"
             )
+        candidates = [preferred_bytes, available]
         if self.duckdb_memory_limit_bytes is not None:
-            if self.duckdb_memory_limit_bytes > available:
-                raise LexicalResourceError(
-                    "cloud DuckDB memory limit does not fit beneath the governed process "
-                    f"ceiling at {stage}: requested={self.duckdb_memory_limit_bytes}, "
-                    f"available={available}"
-                )
-            selected = self.duckdb_memory_limit_bytes
-        else:
-            selected = min(preferred_bytes, available)
+            candidates.append(self.duckdb_memory_limit_bytes)
+        selected = min(candidates)
         return max(minimum_bytes, (selected // MEBIBYTE) * MEBIBYTE)
 
 
