@@ -138291,8 +138291,8 @@
       "classification": "required",
       "path": "src/echoes/lexical/resources.py",
       "required": true,
-      "sha256": "c7bcc5cf6f5e99edc9f26ef59f6a08ac0ce07bf30f2f2574b47cec0b25c0c1ca",
-      "size_bytes": 18960
+      "sha256": "9c04c0ece4efa60510a7e6d4c720b101787d55d56deb45b2b782a2a21ae3eef9",
+      "size_bytes": 18789
     },
     {
       "classification": "required",
@@ -138571,5 +138571,5 @@
       "required": 3713
     }
   },
-  "total_upload_bytes": 22139731143
+  "total_upload_bytes": 22139730972
 }
