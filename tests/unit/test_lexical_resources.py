@@ -125,7 +125,7 @@ def test_cloud_operational_limits_are_explicit_and_preserve_frozen_threads(
         )
 
 
-def test_cloud_duckdb_override_is_exact_and_leaves_process_headroom(
+def test_cloud_duckdb_override_is_a_ceiling_and_leaves_process_headroom(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(lexical_resources, "process_rss_bytes", lambda: 2 * 1024**3)
@@ -140,7 +140,8 @@ def test_cloud_duckdb_override_is_exact_and_leaves_process_headroom(
         reserve_for_python_bytes=4 * 1024**3,
     )
 
-    assert selected == M7_CLOUD_DUCKDB_MEMORY_BYTES
+    assert selected == 512 * 1024**2
+    assert selected <= M7_CLOUD_DUCKDB_MEMORY_BYTES
 
 
 def test_simulated_ccx33_profile_satisfies_the_operational_contract() -> None:
