@@ -276,10 +276,10 @@ and direct 100,000-score timings of both null kernels at all 1,000 production
 iterations. It reads no source text, loads no model, makes no network request,
 and starts no cloud resource.
 
-The canonical clean-commit measurement completed in 33.521 seconds on the
-Windows development laptop. Detector calibration took 9.133 seconds after
+The canonical clean-commit measurement completed in 51.834 seconds on the
+Windows development laptop. Detector calibration took 15.744 seconds after
 row-wise DuckDB binding was replaced by exact Arrow batch insertion; the
-direct permutation-like and bootstrap kernels took 4.263 and 1.014 seconds.
+direct permutation-like and bootstrap kernels took 6.242 and 2.157 seconds.
 Bit-exact disk-versus-reference tests retain the registered detector, stratum,
 candidate, seed, RNG, batching, p-value, and normalization semantics.
 
@@ -288,10 +288,10 @@ pairs, 11,718,699 raw/calibrated evidence rows, at most 6,633 pair strata and
 59,697 detector-strata, 10.123211 billion permutation-like cells, and 1.595488
 billion bootstrap cells. It counts the compact group/null integration path
 only once. With a 1.25 measured-work safety factor, measured stages project to
-25.254 hours. An additional explicit 32-hour planning reserve covers the
+32.600 hours. An additional explicit 32-hour planning reserve covers the
 unbenchmarked representation/detector feature work, B2 transfer and
 verification, strict validation, packaging, and review artifacts. The current
-planning range is therefore 25.254--57.254 hours against the 96-hour ceiling.
+planning range is therefore 32.600--64.600 hours against the 96-hour ceiling.
 This is a capacity estimate, not a runtime guarantee or evidence that E5 is
 valid for ancient-language similarity.
 
@@ -303,7 +303,7 @@ above the 80-GiB checkpoint floor; the modeled minimum initial free space is
 
 The schema-2 acceptance gate also requires a measurable process peak RSS no
 greater than the registered production cgroup `MemoryMax=56G`. The canonical
-measurement observed 258,920,448 bytes. A missing peak RSS measurement fails
+measurement observed 260,739,072 bytes. A missing peak RSS measurement fails
 closed. The benchmark command preserves its report but returns nonzero whenever
 the runtime, memory, disk, or exact-cardinality gate does not pass.
 
@@ -315,8 +315,8 @@ commit, code hashes, configuration hashes, and report SHA-256 agree. Dirty-tree
 development reports are explicitly provisional and must not be promoted as
 the launch artifact. The clean report is therefore a post-commit gate, not a
 hash that may be predeclared in this document. The canonical report is bound to
-commit `bc0e0dcbc038e55ba7f409df7dca0b4c9258a4e3` and has SHA-256
-`3f03d2c21a1585fbf9c91f9f48d2eb693ad985c58d6d07d74465128ff0e50725`.
+commit `e0a48cfad963b709dd70e8f8df46ab4d18aed03e` and has SHA-256
+`2e5102d8c5c85da225f7a9e53e0a25627ff4ef7c74ccc1630153775fc7124175`.
 
 ## Local reproduction boundary
 
