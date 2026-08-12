@@ -126,6 +126,64 @@ def test_validate_passages_requires_all() -> None:
     assert "select --all" in result.output
 
 
+def test_rebind_passage_views_writes_integrity_receipt(
+    monkeypatch: Any,
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "project_echoes.duckdb"
+    passage_root = tmp_path / "passages" / "schema-v1"
+    receipt_path = tmp_path / "state" / "passage-view-rebind.json"
+    expected_sha256 = "a" * 64
+    receipt = SimpleNamespace(
+        database_path=database.resolve(),
+        passage_root=passage_root.resolve(),
+        view_globs={"passages": "fixture"},
+        after_database_sha256="b" * 64,
+    )
+    captured: dict[str, object] = {}
+
+    def fake_rebind(
+        selected_database: Path,
+        selected_root: Path,
+        *,
+        expected_database_sha256: str,
+        receipt_path: Path,
+    ) -> SimpleNamespace:
+        captured.update(
+            database=selected_database,
+            passage_root=selected_root,
+            expected_database_sha256=expected_database_sha256,
+            receipt_path=receipt_path,
+        )
+        return receipt
+
+    monkeypatch.setattr(cli_module, "rebind_passage_duckdb_views", fake_rebind)
+
+    result = runner.invoke(
+        app,
+        [
+            "rebind-passage-views",
+            "--database",
+            str(database),
+            "--passage-root",
+            str(passage_root),
+            "--expected-database-sha256",
+            expected_sha256,
+            "--receipt",
+            str(receipt_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Rebound 1 passage views" in result.output
+    assert captured == {
+        "database": database,
+        "passage_root": passage_root,
+        "expected_database_sha256": expected_sha256,
+        "receipt_path": receipt_path,
+    }
+
+
 def test_validate_passages_returns_nonzero_for_errors(monkeypatch: Any, tmp_path: Path) -> None:
     finding = SimpleNamespace(
         severity="error",

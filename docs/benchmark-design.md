@@ -1,22 +1,21 @@
 # Benchmark design
 
-Status: **Milestone 6 complete as of 2026-07-13**
+Status: **Milestone 6 accepted; Milestone 7 Tier 3 evaluation implementation in progress**
 
 The [master plan](master-plan.md) remains the governing specification. The active data
 contracts are documented in [benchmark-schema.md](benchmark-schema.md), and the executable
-policy is `config/benchmark.yaml`. Milestone 6 creates reference, mapping, split,
-contrastive-example, and metric infrastructure only. It does not implement lexical
-scoring, retrieval, embeddings, candidate generation, or human review.
+policy is `config/benchmark.yaml`. Milestone 6 created the reference, mapping, split,
+contrastive-example, and metric infrastructure. Milestone 7 consumes those immutable
+artifacts for transparent lexical retrieval and Tier 3 weak-supervision evaluation under
+the frozen preregistration. It does not conduct human review.
 
 The validated local build identity is run `benchmark-v1-dff1d3ef650c8ccd4930`,
 benchmark version `known-links-v1-dff1d3ef650c`. Two complete builds reproduced every
 logical table hash, row count, and content-table physical hash. Each strict validation
 returned zero errors, zero warnings, and 18 informational source-reference findings.
-Unmerged [PR #7](https://github.com/greg-oyan/project-echoes/pull/7) retains the
-accepted implementation for review; [CI run
-29235763865](https://github.com/greg-oyan/project-echoes/actions/runs/29235763865)
-succeeded for commit `a680c0b4c14cb6e3bab7e8b5305fd6a516ec37de`, with the quality
-job completing in 32 seconds. Milestone 7 has not begun.
+[PR #7](https://github.com/greg-oyan/project-echoes/pull/7) was merged as
+`b9637ee2de1840cbc2056dfcec6aea163d1e9194` after its successful CI gate. Milestone 7
+works from that verified merge and must preserve every benchmark anchor below.
 
 ## Active benchmark tiers
 
@@ -181,11 +180,26 @@ ingested without explicit permission covering machine processing and intended pu
 Lawful manual consultation may be cited, but it must not become transcription, systematic
 extraction, reconstructed ordering, or copied benchmark data.
 
-## Later lexical calibration
+## Milestone 7 lexical recovery evaluation
 
-Milestone 7, not Milestone 6, must evaluate transparent lexical retrieval and both required
-null families. A shared lemma or root at or below the configured rare-evidence threshold
-cannot independently make a candidate review-eligible; it requires an independent
-co-signal. Hypergeometric calculations remain simple independence baselines, not
-probabilities of literary dependence, and empirical book- or genre-conditioned nulls take
-precedence for calibration.
+Milestone 7 evaluates the frozen transparent lexical system only as **Tier 3
+weak-supervision recovery**. Tier 1 remains empty. Consequently no result may be described
+as ground-truth quotation recovery, scholarly benchmark accuracy, or validated allusion
+recovery. Same-label mappings remain provisional, and the OpenBible vote strata remain
+descriptive source-ranking bands rather than confidence labels.
+
+Evaluation remains separate for HB-HB, GNT-GNT, and the exploratory HB-GNT English-gloss
+bridge; the bridge cannot satisfy an original-language recovery gate. Eligible mapping
+statuses, held-out-book/book-pair/source-passage/genre splits, partitions, mapping quality,
+vote strata, disputed text, and reference gaps stay explicit. Recall@5/10/20, MRR,
+nDCG@20, Precision@10, coverage, query/relationship counts, exclusions, and fixed-seed
+bootstrap intervals are reported against random, length-only, and simple unweighted-overlap
+baselines. Test results cannot tune the frozen RRF weights.
+
+Both repeated null families calibrate every governed detector and composite threshold on
+the registered deterministic 20,000-pair candidate-union sample. This is not a global
+all-pairs FDR claim. A shared lemma or root at or below the configured rare-evidence
+threshold cannot independently make a candidate review-eligible; it requires a traceable
+independent co-signal. Hypergeometric calculations remain simple independence baselines,
+not probabilities of literary dependence, and empirical book- or genre-conditioned nulls
+take precedence. Full details are in [lexical-methodology.md](lexical-methodology.md).

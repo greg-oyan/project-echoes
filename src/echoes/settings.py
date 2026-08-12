@@ -12,6 +12,12 @@ from typing import ClassVar, Literal, Self, cast
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from echoes.lexical.config import (
+    LexicalConfig,
+    LexicalConfigError,
+    LexicalExperimentPreregistration,
+    validate_preregistration_against_config,
+)
 from echoes.manifests.experiments import ExperimentManifest
 
 
@@ -1345,9 +1351,13 @@ CONFIG_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "greek_ingestion.yaml": GreekIngestionConfig,
     "segmentation.yaml": SegmentationConfig,
     "benchmark.yaml": BenchmarkConfig,
+    "lexical.yaml": LexicalConfig,
     "scoring.yaml": ScoringConfig,
     "models.yaml": ModelsConfig,
     "review.yaml": ReviewConfig,
+}
+EXPERIMENT_CONFIG_SCHEMAS: Mapping[str, type[BaseModel]] = {
+    "m7-lexical-baseline.yaml": LexicalExperimentPreregistration,
 }
 REQUIRED_CONFIG_FILES: frozenset[str] = frozenset(CONFIG_SCHEMAS)
 
@@ -1391,7 +1401,7 @@ def _load_yaml_mapping(path: Path) -> dict[str, object]:
 def schema_for_path(path: Path) -> type[BaseModel]:
     """Select the strict schema associated with a configuration path."""
     if path.parent.name == "experiments":
-        return ExperimentManifest
+        return EXPERIMENT_CONFIG_SCHEMAS.get(path.name, ExperimentManifest)
     try:
         return CONFIG_SCHEMAS[path.name]
     except KeyError as exc:
@@ -1433,4 +1443,13 @@ def validate_config_directory(config_dir: Path) -> dict[Path, BaseModel]:
     if missing:
         missing_list = ", ".join(missing)
         raise ConfigLoadError(f"required configuration files are missing: {missing_list}")
+    lexical = validated.get(config_dir / "lexical.yaml")
+    preregistration = validated.get(config_dir / "experiments" / "m7-lexical-baseline.yaml")
+    if isinstance(lexical, LexicalConfig) and isinstance(
+        preregistration, LexicalExperimentPreregistration
+    ):
+        try:
+            validate_preregistration_against_config(preregistration, lexical)
+        except LexicalConfigError as exc:
+            raise ConfigLoadError(f"lexical preregistration mismatch: {exc}") from exc
     return validated

@@ -1,13 +1,22 @@
+# ruff: noqa: E402
 """Command-line interface for Project Echoes."""
 
 from __future__ import annotations
 
 import json
+import subprocess
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated, cast
 
+from echoes.lexical.resources import initialize_thread_controls
+
+# Establish deterministic numeric defaults before DuckDB/Polars/Numpy can
+# initialize worker pools through any of the project imports below.
+initialize_thread_controls(1)
+
 import duckdb
+import polars as pl
 import typer
 from pydantic import BaseModel, ValidationError
 
@@ -42,7 +51,50 @@ from echoes.corpus.storage import CorpusStorageError, corpus_summary
 from echoes.corpus.validation import CorpusValidationError
 from echoes.ingest.macula_greek import GreekIngestionError
 from echoes.ingest.macula_hebrew import HebrewIngestionError
-from echoes.manifest import build_run_manifest, write_run_manifest
+from echoes.lexical.audit import LexicalAuditError, generate_lexical_feature_audit
+from echoes.lexical.config import (
+    lexical_config_sha256,
+    lexical_preregistration_sha256,
+    load_lexical_config,
+    load_lexical_preregistration,
+    validate_preregistration_against_config,
+)
+from echoes.lexical.models import LEXICAL_ARTIFACT_COLUMNS, LexicalArtifactName
+from echoes.lexical.pipeline import (
+    DEFAULT_LEXICAL_ROOT,
+    LexicalPipelineError,
+    LexicalPipelineResult,
+    run_lexical_pipeline,
+)
+from echoes.lexical.storage import (
+    LexicalStorageError,
+    processed_from_directory,
+    read_artifact_frame,
+    read_current_lexical_promotion_witness,
+    read_hash_manifest,
+    recover_interrupted_lexical_promotion,
+)
+from echoes.lexical.validation import (
+    LexicalValidationError,
+    LexicalValidationReport,
+    compare_lexical_ablation,
+    lexical_summary,
+    show_lexical_candidate,
+    show_lexical_evidence,
+    validate_lexical_artifacts,
+)
+from echoes.manifest import (
+    build_run_manifest,
+    finalize_recovered_execution_success,
+    format_reproduction_command,
+    load_execution_manifest,
+    reproduction_command_path_mismatches,
+    reproduction_environment_mismatches,
+    resolve_execution_manifest,
+    sha256_file,
+    validate_execution_manifest_outputs,
+    write_run_manifest,
+)
 from echoes.manifests.sources import (
     SourceManifestError,
     SourceRole,
@@ -62,6 +114,8 @@ from echoes.segment.storage import (
     PassageStorageError,
     read_passage,
     read_passage_membership,
+    rebind_passage_duckdb_views,
+    verify_passage_view_rebind_receipt,
 )
 from echoes.segment.streams import SegmentationInputError, load_segmentation_inputs
 from echoes.segment.validation import validate_passage_artifacts
@@ -80,6 +134,8 @@ app = typer.Typer(
     no_args_is_help=True,
     add_completion=False,
 )
+
+DEFAULT_EXECUTION_MANIFEST_ROOT = Path("data/processed/lexical/execution-manifests")
 
 
 def _echo_json(value: BaseModel) -> None:
@@ -919,6 +975,109 @@ def segment_passages_command(
     )
 
 
+@app.command("rebind-passage-views")
+def rebind_passage_views_command(
+    database: Annotated[
+        Path,
+        typer.Option("--database", help="Transferred DuckDB database path."),
+    ],
+    passage_root: Annotated[
+        Path,
+        typer.Option(
+            "--passage-root",
+            help="Transferred schema-v1 passage Parquet root.",
+        ),
+    ],
+    expected_database_sha256: Annotated[
+        str,
+        typer.Option(
+            "--expected-database-sha256",
+            help="SHA-256 verified for the transferred database before mutation.",
+        ),
+    ],
+    receipt_path: Annotated[
+        Path,
+        typer.Option("--receipt", help="New atomic rebind receipt path."),
+    ],
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit the complete rebind receipt as JSON."),
+    ] = False,
+) -> None:
+    """Rebind transferred passage views after checking the original DB hash."""
+
+    if receipt_path.exists():
+        typer.echo(
+            f"Passage view rebind failed: refusing to overwrite rebind receipt: {receipt_path}",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    try:
+        receipt = rebind_passage_duckdb_views(
+            database,
+            passage_root,
+            expected_database_sha256=expected_database_sha256,
+            receipt_path=receipt_path,
+        )
+    except (PassageStorageError, OSError) as exc:
+        typer.echo(f"Passage view rebind failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if json_output:
+        _echo_json(receipt)
+    else:
+        typer.echo(f"Rebound {len(receipt.view_globs)} passage views.")
+        typer.echo(f"DuckDB: {receipt.database_path}")
+        typer.echo(f"Passage root: {receipt.passage_root}")
+        typer.echo(f"Receipt: {receipt_path}")
+        typer.echo(f"Post-rebind SHA-256: {receipt.after_database_sha256}")
+
+
+@app.command("verify-passage-view-rebind")
+def verify_passage_view_rebind_command(
+    database: Annotated[
+        Path,
+        typer.Option("--database", help="Rebound DuckDB database path."),
+    ],
+    passage_root: Annotated[
+        Path,
+        typer.Option("--passage-root", help="Bound schema-v1 passage Parquet root."),
+    ],
+    expected_before_database_sha256: Annotated[
+        str,
+        typer.Option(
+            "--expected-before-database-sha256",
+            help="Original transferred database SHA-256 recorded by the receipt.",
+        ),
+    ],
+    receipt_path: Annotated[
+        Path,
+        typer.Option("--receipt", help="Rebind receipt path."),
+    ],
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit the verified rebind receipt as JSON."),
+    ] = False,
+) -> None:
+    """Verify the current post-rebind DB hash, paths, version, and tiny reads."""
+
+    try:
+        receipt = verify_passage_view_rebind_receipt(
+            database,
+            passage_root,
+            receipt_path,
+            expected_before_database_sha256=expected_before_database_sha256,
+        )
+    except (PassageStorageError, OSError) as exc:
+        typer.echo(f"Passage view rebind verification failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if json_output:
+        _echo_json(receipt)
+    else:
+        typer.echo(f"Verified passage view rebind receipt: {receipt_path}")
+        typer.echo(f"DuckDB version: {receipt.duckdb_version}")
+        typer.echo(f"Post-rebind SHA-256: {receipt.after_database_sha256}")
+
+
 @app.command("validate-passages")
 def validate_passages_command(
     all_passages: Annotated[
@@ -1748,6 +1907,818 @@ def show_benchmark_mapping_command(
             f"passages={mapping['target_passage_ids_json']}, "
             f"ambiguity={mapping['ambiguity_reason']}"
         )
+
+
+def _lexical_pipeline_payload(result: LexicalPipelineResult) -> dict[str, object]:
+    return {
+        "experiment_run_id": result.experiment_run_id,
+        "experiment_version": result.experiment_version,
+        "configuration_hash": result.configuration_hash,
+        "preregistration_hash": result.preregistration_hash,
+        "table_counts": result.processed.table_counts,
+        "table_logical_hashes": result.processed.table_logical_hashes,
+        "feature_counts": result.feature_counts,
+        "index_summaries": result.index_summaries,
+        "ranking_count": result.ranking_count,
+        "candidate_count": result.candidate_count,
+        "review_eligible_count": result.review_eligible_count,
+        "queue_count": result.queue_count,
+        "null_iteration_count": result.null_iteration_count,
+        "evaluation_count": result.evaluation_count,
+        "acceptance_status": result.acceptance_status,
+        "stage_runtime_seconds": result.stage_runtime_seconds,
+        "approximate_peak_memory_bytes": result.approximate_peak_memory_bytes,
+    }
+
+
+@app.command("audit-lexical-features")
+def audit_lexical_features_command(
+    database: Annotated[
+        Path, typer.Option("--database", help="Anchored local DuckDB database path.")
+    ] = Path("data/processed/project_echoes.duckdb"),
+    output: Annotated[
+        Path, typer.Option("--output", help="Sanitized tracked audit report path.")
+    ] = Path("outputs/reports/m7-lexical-feature-audit.md"),
+) -> None:
+    """Audit full lexical coverage and feasibility without generating candidates."""
+
+    try:
+        report = generate_lexical_feature_audit(database_path=database, output_path=output)
+    except (LexicalAuditError, OSError) as exc:
+        typer.echo(f"Lexical feature audit failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"Lexical feature audit passed: {output} ({len(report)} characters).")
+
+
+@app.command("run-lexical-pipeline")
+def run_lexical_pipeline_command(
+    primary: Annotated[
+        bool, typer.Option("--primary", help="Run the frozen verse-level primary scope.")
+    ] = False,
+    database: Annotated[
+        Path, typer.Option("--database", help="Anchored local DuckDB database path.")
+    ] = Path("data/processed/project_echoes.duckdb"),
+    output_dir: Annotated[
+        Path, typer.Option("--output-dir", help="Generated lexical schema-v1 directory.")
+    ] = DEFAULT_LEXICAL_ROOT,
+    force: Annotated[
+        bool, typer.Option("--force", help="Atomically replace generated lexical artifacts.")
+    ] = False,
+    resume_staging_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--resume-staging-dir",
+            help="Adopt one validated interrupted lexical staging directory.",
+        ),
+    ] = None,
+    json_output: Annotated[
+        bool, typer.Option("--json", help="Emit the complete run summary as JSON.")
+    ] = False,
+) -> None:
+    """Run the complete preregistered lexical pipeline behind one atomic boundary."""
+
+    if not primary:
+        typer.echo("Lexical pipeline failed: select --primary.", err=True)
+        raise typer.Exit(code=1)
+    try:
+        result = run_lexical_pipeline(
+            database_path=database,
+            output_dir=output_dir,
+            force=force,
+            resume_staging_dir=resume_staging_dir,
+        )
+    except (LexicalPipelineError, LexicalStorageError, OSError, ValueError) as exc:
+        typer.echo(f"Lexical pipeline failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    payload = _lexical_pipeline_payload(result)
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2, ensure_ascii=True))
+        return
+    typer.echo(
+        f"Lexical pipeline completed: {result.experiment_run_id}; "
+        f"rankings={result.ranking_count}, candidates={result.candidate_count}, "
+        f"queue={result.queue_count}, status={result.acceptance_status}."
+    )
+
+
+@app.command("recover-lexical-promotion")
+def recover_lexical_promotion_command(
+    database: Annotated[
+        Path, typer.Option("--database", help="Governed DuckDB database path.")
+    ] = Path("data/processed/project_echoes.duckdb"),
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="Governed lexical schema-v1 directory."),
+    ] = DEFAULT_LEXICAL_ROOT,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit the recovery state as JSON."),
+    ] = False,
+) -> None:
+    """Resolve a crash journal across lexical promotion and DuckDB exposure."""
+
+    try:
+        state = recover_interrupted_lexical_promotion(output_dir, database)
+    except (LexicalStorageError, OSError) as exc:
+        typer.echo(f"Lexical promotion recovery failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    payload = {
+        "state": state,
+        "canonical_output_present": output_dir.is_dir() and not output_dir.is_symlink(),
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2, ensure_ascii=True))
+    else:
+        typer.echo(f"Lexical promotion recovery: {state}.")
+
+
+@app.command("finalize-lexical-promotion-recovery")
+def finalize_lexical_promotion_recovery_command(
+    validation_report: Annotated[
+        Path,
+        typer.Option(
+            "--validation-report",
+            help="Successful strict lexical-validation JSON for the committed output.",
+        ),
+    ],
+    service_result: Annotated[
+        str,
+        typer.Option(
+            "--service-result",
+            help="Authenticated systemd Result value for the completed worker.",
+        ),
+    ],
+    database: Annotated[
+        Path, typer.Option("--database", help="Governed DuckDB database path.")
+    ] = Path("data/processed/project_echoes.duckdb"),
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="Governed lexical schema-v1 directory."),
+    ] = DEFAULT_LEXICAL_ROOT,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit the finalized provenance receipt as JSON."),
+    ] = False,
+) -> None:
+    """Finalize post-COMMIT provenance after strict recovery validation."""
+
+    try:
+        state = recover_interrupted_lexical_promotion(output_dir, database)
+        if state != "canonical_committed":
+            raise LexicalStorageError(
+                f"recovery finalization requires a journaled committed exposure; observed {state}"
+            )
+        if not validation_report.is_file() or validation_report.is_symlink():
+            raise LexicalStorageError(
+                f"strict recovery validation report is missing or unsafe: {validation_report}"
+            )
+        validation = LexicalValidationReport.model_validate_json(
+            validation_report.read_text(encoding="utf-8")
+        )
+        if (
+            not validation.passed
+            or not validation.strict
+            or Path(validation.output_dir).resolve() != output_dir.resolve()
+        ):
+            raise LexicalStorageError(
+                "recovery validation must be strict, passing, and bound to canonical output"
+            )
+        journal = read_current_lexical_promotion_witness(output_dir, database)
+        manifest = load_execution_manifest(journal.execution_manifest_path)
+        if (
+            manifest.execution_id != journal.execution_id
+            or validation.experiment_run_id != manifest.run_id
+            or validation.table_logical_hashes != manifest.output_table_hashes
+            or validation.table_physical_hashes != manifest.output_table_physical_hashes
+        ):
+            raise LexicalStorageError(
+                "strict validation, promotion journal, and execution manifest identities differ"
+            )
+        prior_status = manifest.execution_status
+        validation_sha256 = sha256_file(validation_report)
+        finalized = finalize_recovered_execution_success(
+            journal.execution_manifest_path,
+            validation_report_sha256=validation_sha256,
+            service_result=service_result,
+        )
+        sealed_state = recover_interrupted_lexical_promotion(
+            output_dir,
+            database,
+            archive_committed=True,
+        )
+        if sealed_state != "canonical_committed":
+            raise LexicalStorageError(f"could not seal committed lexical promotion: {sealed_state}")
+    except (
+        LexicalStorageError,
+        OSError,
+        UnicodeError,
+        ValueError,
+        ValidationError,
+    ) as exc:
+        typer.echo(f"Lexical promotion recovery finalization failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    payload = {
+        "state": sealed_state,
+        "execution_id": finalized.execution_id,
+        "prior_execution_status": prior_status,
+        "execution_status": finalized.execution_status,
+        "validation_report": str(validation_report.resolve()),
+        "validation_report_sha256": validation_sha256,
+        "service_result": service_result,
+        "active_journal_present": False,
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2, ensure_ascii=True))
+    else:
+        typer.echo(
+            "Lexical promotion recovery finalized: "
+            f"{finalized.execution_id} ({prior_status} -> {finalized.execution_status})."
+        )
+
+
+@app.command("build-lexical-index")
+def build_lexical_index_command(
+    all_indexes: Annotated[
+        bool, typer.Option("--all", help="Build all governed lexical representations.")
+    ] = False,
+    database: Annotated[
+        Path, typer.Option("--database", help="Anchored local DuckDB database path.")
+    ] = Path("data/processed/project_echoes.duckdb"),
+    output_dir: Annotated[
+        Path, typer.Option("--output-dir", help="Generated lexical schema-v1 directory.")
+    ] = DEFAULT_LEXICAL_ROOT,
+    force: Annotated[
+        bool, typer.Option("--force", help="Atomically replace generated lexical artifacts.")
+    ] = False,
+) -> None:
+    """Build indexes through the complete atomic workflow and report their count."""
+
+    if not all_indexes:
+        typer.echo("Lexical index build failed: select --all.", err=True)
+        raise typer.Exit(code=1)
+    try:
+        result = run_lexical_pipeline(
+            database_path=database,
+            output_dir=output_dir,
+            force=force,
+        )
+    except (LexicalPipelineError, LexicalStorageError, OSError, ValueError) as exc:
+        typer.echo(f"Lexical index build failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(
+        f"Built {len(result.index_summaries)} governed sparse indexes for "
+        f"{result.experiment_run_id}; the complete atomic artifact set is materialized."
+    )
+
+
+def _verify_lexical_stage(
+    *,
+    output_dir: Path,
+    artifact: str,
+    label: str,
+    force: bool,
+    allow_empty: bool = False,
+) -> None:
+    try:
+        processed = processed_from_directory(output_dir)
+        counts = processed.table_counts
+        manifest = read_hash_manifest(output_dir)
+        name = cast(LexicalArtifactName, artifact)
+        file_hashes = cast(dict[str, object], manifest["file_sha256"])
+        artifact_files = {
+            relative: str(digest)
+            for relative, digest in file_hashes.items()
+            if relative.startswith(f"{artifact}/")
+        }
+        if not artifact_files:
+            raise LexicalStorageError(f"{artifact} has no governed Parquet leaves")
+        for relative, expected_digest in artifact_files.items():
+            path = output_dir / Path(relative)
+            if not path.is_file() or sha256_file(path) != expected_digest:
+                raise LexicalStorageError(f"{artifact} physical hash mismatch: {relative}")
+        paths = sorted((output_dir / artifact).glob("part-*.parquet"))
+        scan = pl.scan_parquet(paths)
+        actual_columns = tuple(scan.collect_schema().names())
+        expected_columns = LEXICAL_ARTIFACT_COLUMNS[name]
+        if actual_columns != expected_columns:
+            raise LexicalStorageError(
+                f"{artifact} schema differs; expected={expected_columns}, actual={actual_columns}"
+            )
+        actual_count = int(
+            scan.select(pl.len().alias("row_count")).collect(engine="streaming").item()
+        )
+        metadata = read_artifact_frame(output_dir, "lexical_metadata")
+        if metadata.height != 1:
+            raise LexicalStorageError("lexical metadata must contain exactly one row")
+        if actual_count != counts.get(artifact):
+            raise LexicalStorageError(
+                f"{artifact} manifest count differs from its typed Parquet rows"
+            )
+        config = load_lexical_config()
+        preregistration = load_lexical_preregistration()
+        validate_preregistration_against_config(preregistration, config)
+        if metadata.item(0, "configuration_hash") != lexical_config_sha256(config):
+            raise LexicalStorageError("lexical metadata configuration hash is stale")
+        if metadata.item(0, "preregistration_hash") != lexical_preregistration_sha256(
+            preregistration
+        ):
+            raise LexicalStorageError("lexical metadata preregistration hash is stale")
+        stage_runtimes = json.loads(str(metadata.item(0, "stage_runtime_seconds_json")))
+        if (
+            not isinstance(stage_runtimes, dict)
+            or not stage_runtimes
+            or any(
+                not isinstance(value, (int, float)) or value < 0
+                for value in stage_runtimes.values()
+            )
+        ):
+            raise LexicalStorageError("lexical metadata stage runtimes are invalid")
+        declared_counts = {
+            "directional_rankings": int(metadata.item(0, "ranking_count")),
+            "candidate_pairs": int(metadata.item(0, "candidate_count")),
+            "evaluation_results": int(metadata.item(0, "evaluation_count")),
+        }
+        for declared_artifact, declared_count in declared_counts.items():
+            if counts.get(declared_artifact) != declared_count:
+                raise LexicalStorageError(
+                    f"metadata {declared_artifact} count differs from the hash manifest"
+                )
+
+        if artifact == "directional_rankings":
+            expected_detectors = {*config.enabled_detectors, "rrf_composite"}
+            expected_pairs = {"hb_hb", "gnt_gnt", "hb_gnt_english_bridge"}
+            cells = {
+                (str(pair), str(detector))
+                for pair, detector in scan.filter(
+                    (pl.col("experiment_scope") == "primary")
+                    & (pl.col("analysis_profile") == "edition_complete")
+                )
+                .select("corpus_pair", "detector")
+                .unique()
+                .collect(engine="streaming")
+                .iter_rows()
+            }
+            missing_cells = sorted(
+                (pair, detector)
+                for pair in expected_pairs
+                for detector in expected_detectors
+                if (pair, detector) not in cells
+            )
+            if missing_cells:
+                raise LexicalStorageError(
+                    f"primary directional rankings omit governed cells: {missing_cells[:10]}"
+                )
+            sensitivity_scopes = set(
+                scan.select("experiment_scope")
+                .unique()
+                .collect(engine="streaming")
+                .get_column("experiment_scope")
+            )
+            required_scopes = {
+                "critical_core_greek_sensitivity",
+                "hebrew_qere_ketiv_sensitivity",
+            }
+            if not required_scopes.issubset(sensitivity_scopes):
+                raise LexicalStorageError("directional rankings omit required sensitivity scopes")
+            if counts.get("sensitivity_results", 0) < 1:
+                raise LexicalStorageError("typed sensitivity comparison results are empty")
+        elif artifact == "null_replicate_summaries":
+            required_families = {
+                "within_book_reassignment",
+                "frequency_preserving_synthetic",
+            }
+            null_summary = (
+                scan.group_by("corpus_pair")
+                .agg(
+                    pl.col("null_family").unique().sort().alias("null_families"),
+                    pl.col("iteration").max().alias("maximum_iteration"),
+                )
+                .collect(engine="streaming")
+            )
+            observed_families = {
+                str(family)
+                for families in null_summary.get_column("null_families")
+                for family in families
+            }
+            if observed_families != required_families:
+                raise LexicalStorageError("null output does not contain both registered families")
+            for pair in ("hb_hb", "gnt_gnt", "hb_gnt_english_bridge"):
+                pair_frame = null_summary.filter(pl.col("corpus_pair") == pair)
+                maximum_iteration = (
+                    None if pair_frame.is_empty() else pair_frame.item(0, "maximum_iteration")
+                )
+                if (
+                    pair_frame.is_empty()
+                    or maximum_iteration is None
+                    or int(str(maximum_iteration)) != config.null_models.iterations_per_family
+                ):
+                    raise LexicalStorageError(
+                        f"null output is incomplete for governed corpus pair {pair}"
+                    )
+        elif artifact == "evaluation_results":
+            if not {"edition_complete", "critical_core"}.issubset(
+                set(
+                    scan.select("analysis_profile")
+                    .unique()
+                    .collect(engine="streaming")
+                    .get_column("analysis_profile")
+                )
+            ):
+                raise LexicalStorageError(
+                    "Tier 3 evaluation omits primary or critical-core profile results"
+                )
+        elif artifact == "candidate_review_queue" and actual_count:
+            queue_summary = scan.select(
+                pl.col("review_eligible").all().alias("all_eligible"),
+                pl.col("queue_rank").min().alias("minimum_rank"),
+                pl.col("queue_rank").max().alias("maximum_rank"),
+                pl.col("queue_rank").n_unique().alias("unique_rank_count"),
+            ).collect(engine="streaming")
+            if not bool(queue_summary.item(0, "all_eligible")):
+                raise LexicalStorageError("review queue contains an ineligible candidate")
+            if (
+                queue_summary.item(0, "minimum_rank") != 1
+                or queue_summary.item(0, "maximum_rank") != actual_count
+                or queue_summary.item(0, "unique_rank_count") != actual_count
+            ):
+                raise LexicalStorageError("review queue ranks are not contiguous from one")
+    except (LexicalStorageError, OSError, KeyError, ValueError, pl.exceptions.PolarsError) as exc:
+        typer.echo(f"{label} failed: complete lexical artifacts are required: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    count = counts.get(artifact, 0)
+    if count < 1 and not allow_empty:
+        typer.echo(f"{label} failed: {artifact} is empty.", err=True)
+        raise typer.Exit(code=1)
+    suffix = " --force acknowledged; no identity-changing rebuild was needed." if force else ""
+    typer.echo(f"{label} verified: {artifact} rows={count}.{suffix}")
+
+
+@app.command("run-lexical-baseline")
+def run_lexical_baseline_command(
+    primary: Annotated[
+        bool, typer.Option("--primary", help="Use the frozen verse-level primary scope.")
+    ] = False,
+    output_dir: Annotated[
+        Path, typer.Option("--output-dir", help="Generated lexical schema-v1 directory.")
+    ] = DEFAULT_LEXICAL_ROOT,
+    force: Annotated[bool, typer.Option("--force", help="Acknowledge generated output.")] = False,
+) -> None:
+    """Verify the fully materialized detector rankings and candidate baseline."""
+
+    if not primary:
+        typer.echo("Lexical baseline failed: select --primary.", err=True)
+        raise typer.Exit(code=1)
+    _verify_lexical_stage(
+        output_dir=output_dir,
+        artifact="directional_rankings",
+        label="Lexical baseline",
+        force=force,
+    )
+
+
+@app.command("run-lexical-null-models")
+def run_lexical_null_models_command(
+    primary: Annotated[
+        bool, typer.Option("--primary", help="Use the frozen verse-level primary scope.")
+    ] = False,
+    output_dir: Annotated[
+        Path, typer.Option("--output-dir", help="Generated lexical schema-v1 directory.")
+    ] = DEFAULT_LEXICAL_ROOT,
+    force: Annotated[bool, typer.Option("--force", help="Acknowledge generated output.")] = False,
+) -> None:
+    """Verify both retained preregistered null-model families."""
+
+    if not primary:
+        typer.echo("Lexical null models failed: select --primary.", err=True)
+        raise typer.Exit(code=1)
+    _verify_lexical_stage(
+        output_dir=output_dir,
+        artifact="null_replicate_summaries",
+        label="Lexical null models",
+        force=force,
+    )
+
+
+@app.command("evaluate-lexical-baseline")
+def evaluate_lexical_baseline_command(
+    primary: Annotated[
+        bool, typer.Option("--primary", help="Use the frozen Tier 3 primary evaluation.")
+    ] = False,
+    output_dir: Annotated[
+        Path, typer.Option("--output-dir", help="Generated lexical schema-v1 directory.")
+    ] = DEFAULT_LEXICAL_ROOT,
+    force: Annotated[bool, typer.Option("--force", help="Acknowledge generated output.")] = False,
+) -> None:
+    """Verify the preregistered leakage-aware Tier 3 evaluation outputs."""
+
+    if not primary:
+        typer.echo("Lexical evaluation failed: select --primary.", err=True)
+        raise typer.Exit(code=1)
+    _verify_lexical_stage(
+        output_dir=output_dir,
+        artifact="evaluation_results",
+        label="Lexical evaluation",
+        force=force,
+    )
+
+
+@app.command("build-lexical-review-queue")
+def build_lexical_review_queue_command(
+    output_dir: Annotated[
+        Path, typer.Option("--output-dir", help="Generated lexical schema-v1 directory.")
+    ] = DEFAULT_LEXICAL_ROOT,
+    force: Annotated[bool, typer.Option("--force", help="Acknowledge generated output.")] = False,
+) -> None:
+    """Verify the frozen-policy unreviewed Milestone 8 handoff queue."""
+
+    _verify_lexical_stage(
+        output_dir=output_dir,
+        artifact="candidate_review_queue",
+        label="Unreviewed lexical queue",
+        force=force,
+        allow_empty=True,
+    )
+
+
+@app.command("validate-lexical")
+def validate_lexical_command(
+    all_artifacts: Annotated[
+        bool, typer.Option("--all", help="Validate every governed lexical artifact.")
+    ] = False,
+    strict: Annotated[
+        bool, typer.Option("--strict", help="Treat warnings as validation failures.")
+    ] = False,
+    output_dir: Annotated[
+        Path, typer.Option("--output-dir", help="Generated lexical schema-v1 directory.")
+    ] = DEFAULT_LEXICAL_ROOT,
+    database: Annotated[
+        Path, typer.Option("--database", help="Anchored local DuckDB database path.")
+    ] = Path("data/processed/project_echoes.duckdb"),
+    determinism_reference_root: Annotated[
+        Path | None,
+        typer.Option(
+            "--determinism-reference-root",
+            help="First-run lexical schema directory for exact logical-hash comparison.",
+        ),
+    ] = None,
+    json_output: Annotated[
+        bool, typer.Option("--json", help="Emit the complete validation report as JSON.")
+    ] = False,
+) -> None:
+    """Strictly validate identities, evidence, nulls, evaluation, and determinism."""
+
+    if not all_artifacts:
+        typer.echo("Lexical validation failed: select --all.", err=True)
+        raise typer.Exit(code=1)
+    try:
+        report = validate_lexical_artifacts(
+            output_dir,
+            database_path=database,
+            determinism_reference_root=determinism_reference_root,
+            strict=strict,
+        )
+    except (LexicalValidationError, OSError, ValueError) as exc:
+        typer.echo(f"Lexical validation failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if json_output:
+        typer.echo(report.model_dump_json(indent=2))
+    else:
+        typer.echo(
+            f"Lexical validation: run={report.experiment_run_id}, "
+            f"errors={report.error_count}, warnings={report.warning_count}, "
+            f"informationals={report.informational_count}, passed={report.passed}, "
+            f"scientific_gate={report.scientific_gate_passed}."
+        )
+    if not report.passed:
+        raise typer.Exit(code=report.exit_code)
+
+
+@app.command("lexical-summary")
+def lexical_summary_command(
+    all_artifacts: Annotated[
+        bool, typer.Option("--all", help="Summarize every governed lexical artifact.")
+    ] = False,
+    output_dir: Annotated[
+        Path, typer.Option("--output-dir", help="Generated lexical schema-v1 directory.")
+    ] = DEFAULT_LEXICAL_ROOT,
+    json_output: Annotated[
+        bool, typer.Option("--json", help="Emit the complete summary as JSON.")
+    ] = False,
+) -> None:
+    """Print a sanitized aggregate lexical-run summary."""
+
+    if not all_artifacts:
+        typer.echo("Lexical summary failed: select --all.", err=True)
+        raise typer.Exit(code=1)
+    try:
+        summary = lexical_summary(output_dir)
+    except (LexicalValidationError, OSError, ValueError) as exc:
+        typer.echo(f"Lexical summary failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if json_output:
+        typer.echo(summary.model_dump_json(indent=2))
+        return
+    typer.echo(
+        f"Lexical run {summary.experiment_run_id} ({summary.experiment_version}); "
+        f"status={summary.acceptance_status}."
+    )
+    typer.echo(f"Rows: {_counts(summary.table_counts)}")
+    typer.echo(
+        f"Review eligible={summary.review_eligible_count}; queue={summary.queue_count}; "
+        f"English-derived={summary.english_derived_candidate_count}."
+    )
+
+
+def _show_lexical_payload(payload: dict[str, object] | None, candidate_pair_id: str) -> None:
+    if payload is None:
+        typer.echo(f"Lexical candidate not found: {candidate_pair_id}", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(json.dumps(payload, indent=2, ensure_ascii=True))
+
+
+@app.command("show-lexical-candidate")
+def show_lexical_candidate_command(
+    candidate_pair_id: Annotated[str, typer.Argument(help="Stable candidate-pair ID.")],
+    output_dir: Annotated[
+        Path, typer.Option("--output-dir", help="Generated lexical schema-v1 directory.")
+    ] = DEFAULT_LEXICAL_ROOT,
+) -> None:
+    """Display all text-free decomposed candidate evidence and calibration."""
+
+    _show_lexical_payload(show_lexical_candidate(candidate_pair_id, output_dir), candidate_pair_id)
+
+
+@app.command("show-lexical-evidence")
+def show_lexical_evidence_command(
+    candidate_pair_id: Annotated[str, typer.Argument(help="Stable candidate-pair ID.")],
+    output_dir: Annotated[
+        Path, typer.Option("--output-dir", help="Generated lexical schema-v1 directory.")
+    ] = DEFAULT_LEXICAL_ROOT,
+) -> None:
+    """Display feature positions, alternatives, scores, penalties, and calibration."""
+
+    _show_lexical_payload(show_lexical_evidence(candidate_pair_id, output_dir), candidate_pair_id)
+
+
+@app.command("compare-lexical-ablation")
+def compare_lexical_ablation_command(
+    candidate_pair_id: Annotated[str, typer.Argument(help="Stable candidate-pair ID.")],
+    output_dir: Annotated[
+        Path, typer.Option("--output-dir", help="Generated lexical schema-v1 directory.")
+    ] = DEFAULT_LEXICAL_ROOT,
+) -> None:
+    """Display English-derived evidence and mandatory removal-ablation status."""
+
+    _show_lexical_payload(
+        compare_lexical_ablation(candidate_pair_id, output_dir), candidate_pair_id
+    )
+
+
+@app.command("validate-run-manifest")
+def validate_run_manifest_command(
+    run_id: Annotated[str, typer.Argument(help="Scientific experiment run ID.")],
+    execution_id: Annotated[
+        str | None,
+        typer.Option(
+            "--execution-id",
+            help="Exact execution attempt; defaults to the newest successful attempt.",
+        ),
+    ] = None,
+    manifest_root: Annotated[
+        Path,
+        typer.Option(
+            "--manifest-root",
+            help="Ignored execution-manifest sidecar root.",
+        ),
+    ] = DEFAULT_EXECUTION_MANIFEST_ROOT,
+    artifact_root: Annotated[
+        Path | None,
+        typer.Option(
+            "--artifact-root",
+            help=(
+                "Exact canonical or archived lexical artifact root to authenticate; "
+                "must be a direct sibling of the recorded schema-v1 directory."
+            ),
+        ),
+    ] = None,
+) -> None:
+    """Validate execution provenance and exact canonical or archived output hashes."""
+    project_root = Path.cwd().resolve()
+    notices: list[str] = []
+    try:
+        manifest_path, manifest = resolve_execution_manifest(
+            manifest_root,
+            run_id=run_id,
+            execution_id=execution_id,
+        )
+        failures = [
+            *reproduction_environment_mismatches(
+                manifest,
+                project_root=project_root,
+                notices=notices,
+            ),
+            *validate_execution_manifest_outputs(
+                manifest,
+                project_root=project_root,
+                artifact_root=artifact_root,
+            ),
+        ]
+    except (FileNotFoundError, OSError, ValidationError, ValueError) as exc:
+        typer.echo(f"Run-manifest validation failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    for notice in notices:
+        typer.echo(f"Provenance notice: {notice}")
+    if failures:
+        typer.echo("Run-manifest validation failed:", err=True)
+        for failure in failures:
+            typer.echo(f"- {failure}", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(
+        "Run manifest validated: "
+        f"run={manifest.run_id}, execution={manifest.execution_id}, path={manifest_path}"
+    )
+
+
+@app.command("reproduce")
+def reproduce_command(
+    run_id: Annotated[str, typer.Argument(help="Scientific experiment run ID.")],
+    execution_id: Annotated[
+        str | None,
+        typer.Option(
+            "--execution-id",
+            help="Exact execution attempt; defaults to the newest successful attempt.",
+        ),
+    ] = None,
+    manifest_root: Annotated[
+        Path,
+        typer.Option(
+            "--manifest-root",
+            help="Ignored execution-manifest sidecar root.",
+        ),
+    ] = DEFAULT_EXECUTION_MANIFEST_ROOT,
+    execute: Annotated[
+        bool,
+        typer.Option(
+            "--execute",
+            help="Execute the authenticated argv; the default only prints it.",
+        ),
+    ] = False,
+) -> None:
+    """Resolve and print an exact command, executing it only with --execute."""
+    project_root = Path.cwd().resolve()
+    try:
+        manifest_path, manifest = resolve_execution_manifest(
+            manifest_root,
+            run_id=run_id,
+            execution_id=execution_id,
+        )
+    except (FileNotFoundError, OSError, ValidationError, ValueError) as exc:
+        typer.echo(f"Reproduction resolution failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(
+        f"Resolved execution: run={manifest.run_id}, "
+        f"execution={manifest.execution_id}, path={manifest_path}"
+    )
+    typer.echo(f"Command: {format_reproduction_command(manifest.reproduction_command)}")
+    if not execute:
+        typer.echo("Dry run only; pass --execute to run this argv without a shell.")
+        return
+
+    try:
+        notices: list[str] = []
+        mismatches = reproduction_environment_mismatches(
+            manifest,
+            project_root=project_root,
+            notices=notices,
+        )
+        mismatches.extend(
+            reproduction_command_path_mismatches(
+                manifest,
+                project_root=project_root,
+            )
+        )
+    except (OSError, ValueError) as exc:
+        typer.echo(f"Reproduction preflight failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    for notice in notices:
+        typer.echo(f"Provenance notice: {notice}")
+    if mismatches:
+        typer.echo("Reproduction preflight failed:", err=True)
+        for mismatch in mismatches:
+            typer.echo(f"- {mismatch}", err=True)
+        raise typer.Exit(code=1)
+    completed = subprocess.run(
+        manifest.reproduction_command,
+        cwd=project_root,
+        check=False,
+    )
+    if completed.returncode != 0:
+        typer.echo(
+            f"Reproduction command failed with exit code {completed.returncode}.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
 
 
 @app.command("create-run-manifest")

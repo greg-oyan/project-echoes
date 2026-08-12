@@ -15,11 +15,12 @@ import shutil
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal, Self, cast
 from uuid import uuid4
 
 import duckdb
 import polars as pl
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from echoes.corpus.storage import logical_frame_hash
 from echoes.manifest import sha256_file
@@ -57,6 +58,43 @@ ARTIFACT_NAMES: tuple[ArtifactName, ...] = (
     "segmentation_exclusions",
     "segmentation_issues",
     "segmentation_metadata",
+)
+PASSAGE_CONVENIENCE_VIEW_DEFINITIONS: tuple[tuple[str, str], ...] = (
+    (
+        "hebrew_qere_passages",
+        "SELECT * FROM passages WHERE corpus = 'hebrew' AND analysis_reading = 'qere'",
+    ),
+    (
+        "hebrew_ketiv_passages",
+        "SELECT * FROM passages WHERE corpus = 'hebrew' AND analysis_reading = 'ketiv'",
+    ),
+    (
+        "greek_edition_complete_passages",
+        "SELECT * FROM passages WHERE corpus = 'greek' AND analysis_profile = 'edition_complete'",
+    ),
+    (
+        "greek_critical_core_passages",
+        "SELECT * FROM passages WHERE corpus = 'greek' AND analysis_profile = 'critical_core'",
+    ),
+    ("verse_passages", "SELECT * FROM passages WHERE granularity = 'verse'"),
+    (
+        "window_passages",
+        "SELECT * FROM passages WHERE granularity IN ('two_verse', 'five_verse')",
+    ),
+    (
+        "passage_token_sequences",
+        "SELECT passage_id, list(token_id ORDER BY position_in_passage) AS token_ids "
+        "FROM passage_membership GROUP BY passage_id",
+    ),
+    (
+        "passage_uncertainty_summary",
+        "SELECT corpus, analysis_profile, analysis_reading, granularity, "
+        "count(*) AS passage_count, "
+        "count(*) FILTER (WHERE ketiv_structural_uncertainty) "
+        "AS ketiv_uncertain_count, "
+        "sum(sensitivity_exclusion_count) AS sensitivity_exclusion_count "
+        "FROM passages GROUP BY corpus, analysis_profile, analysis_reading, granularity",
+    ),
 )
 TABLE_HASH_FILE = "table-hashes.json"
 MINIMUM_DISK_PREFLIGHT_BYTES = 64 * 1024 * 1024
@@ -97,6 +135,8 @@ METADATA_NONDETERMINISTIC_COLUMNS: frozenset[str] = frozenset(
 )
 
 _SAFE_PARTITION_VALUE = re.compile(r"^[A-Za-z0-9_-]+$")
+_SHA256_VALUE = re.compile(r"^[0-9a-f]{64}$")
+PASSAGE_VIEW_REBIND_RECEIPT_SCHEMA_VERSION: Literal[1] = 1
 
 
 class PassageStorageError(RuntimeError):
@@ -127,6 +167,53 @@ class ProcessedPassages:
     table_physical_hashes: dict[str, str]
     table_logical_hashes: dict[str, str]
     table_counts: dict[str, int]
+
+
+class PassageViewRebindReceipt(BaseModel):
+    """Integrity receipt for one committed passage-view path rebind."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal[1] = PASSAGE_VIEW_REBIND_RECEIPT_SCHEMA_VERSION
+    database_path: Path
+    passage_root: Path
+    before_database_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    after_database_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    duckdb_version: str = Field(min_length=1)
+    view_globs: dict[ArtifactName, str]
+    tiny_read_has_rows: dict[ArtifactName, bool]
+
+    @model_validator(mode="after")
+    def validate_complete_view_inventory(self) -> Self:
+        expected = set(ARTIFACT_NAMES)
+        if set(self.view_globs) != expected:
+            raise ValueError("rebind receipt must contain exactly the six passage view globs")
+        if set(self.tiny_read_has_rows) != expected:
+            raise ValueError("rebind receipt must contain exactly the six tiny-read results")
+        if not self.database_path.is_absolute() or not self.passage_root.is_absolute():
+            raise ValueError("rebind receipt paths must be absolute")
+        return self
+
+
+class PassageViewRebindIntent(BaseModel):
+    """Durable proof that the original transfer hash passed before mutation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal[1] = PASSAGE_VIEW_REBIND_RECEIPT_SCHEMA_VERSION
+    database_path: Path
+    passage_root: Path
+    before_database_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    duckdb_version: str = Field(min_length=1)
+    view_globs: dict[ArtifactName, str]
+
+    @model_validator(mode="after")
+    def validate_complete_view_inventory(self) -> Self:
+        if set(self.view_globs) != set(ARTIFACT_NAMES):
+            raise ValueError("rebind intent must contain exactly the six passage view globs")
+        if not self.database_path.is_absolute() or not self.passage_root.is_absolute():
+            raise ValueError("rebind intent paths must be absolute")
+        return self
 
 
 @dataclass(frozen=True, slots=True)
@@ -522,6 +609,441 @@ def read_artifact_frame(output_dir: Path, table: ArtifactName) -> pl.DataFrame:
     return frame.sort(sort_columns) if frame.height else frame.cast(ARTIFACT_SCHEMAS[table])
 
 
+def _passage_parquet_glob(passage_root: Path, table: ArtifactName) -> str:
+    return (passage_root / table / "**" / "*.parquet").as_posix()
+
+
+def _main_relation_names(
+    connection: duckdb.DuckDBPyConnection,
+) -> tuple[set[str], set[str]]:
+    tables = {
+        str(row[0])
+        for row in connection.execute(
+            "SELECT table_name FROM duckdb_tables() "
+            "WHERE database_name = current_database() AND schema_name = 'main'"
+        ).fetchall()
+    }
+    views = {
+        str(row[0])
+        for row in connection.execute(
+            "SELECT view_name FROM duckdb_views() "
+            "WHERE database_name = current_database() AND schema_name = 'main'"
+        ).fetchall()
+    }
+    return tables, views
+
+
+def _create_passage_views(
+    connection: duckdb.DuckDBPyConnection,
+    passage_root: Path,
+) -> None:
+    for table in ARTIFACT_NAMES:
+        escaped = _passage_parquet_glob(passage_root, table).replace("'", "''")
+        connection.execute(
+            f"CREATE VIEW {table} AS "
+            f"SELECT * FROM read_parquet('{escaped}', "
+            "union_by_name=true, hive_partitioning=false)"
+        )
+
+
+def _create_passage_convenience_views(connection: duckdb.DuckDBPyConnection) -> None:
+    for name, query in PASSAGE_CONVENIENCE_VIEW_DEFINITIONS:
+        connection.execute(f"CREATE VIEW {name} AS {query}")
+
+
+def _passage_catalog_sha256(connection: duckdb.DuckDBPyConnection) -> str:
+    expected_names = set(ARTIFACT_NAMES) | {
+        name for name, _ in PASSAGE_CONVENIENCE_VIEW_DEFINITIONS
+    }
+    definitions = {
+        str(row[0]): str(row[1])
+        for row in connection.execute(
+            "SELECT view_name, sql FROM duckdb_views() "
+            "WHERE database_name = current_database() AND schema_name = 'main'"
+        ).fetchall()
+        if str(row[0]) in expected_names
+    }
+    missing = sorted(expected_names.difference(definitions))
+    if missing:
+        raise PassageStorageError(f"passage DuckDB view catalog is incomplete: missing={missing}")
+    encoded = json.dumps(definitions, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _expected_passage_catalog_sha256(passage_root: Path) -> str:
+    """Build the exact governed catalog in memory for later-state comparison."""
+
+    with duckdb.connect(":memory:") as expected:
+        _create_passage_views(expected, passage_root)
+        _create_passage_convenience_views(expected)
+        return _passage_catalog_sha256(expected)
+
+
+def _verify_passage_view_bindings(
+    connection: duckdb.DuckDBPyConnection,
+    passage_root: Path,
+) -> None:
+    definitions = {
+        str(row[0]): str(row[1])
+        for row in connection.execute(
+            "SELECT view_name, sql FROM duckdb_views() "
+            "WHERE database_name = current_database() AND schema_name = 'main'"
+        ).fetchall()
+    }
+    missing = [table for table in ARTIFACT_NAMES if table not in definitions]
+    mismatched = [
+        table
+        for table in ARTIFACT_NAMES
+        if table in definitions
+        and _passage_parquet_glob(passage_root, table).replace("'", "''") not in definitions[table]
+    ]
+    if missing or mismatched:
+        details: list[str] = []
+        if missing:
+            details.append(f"missing={','.join(missing)}")
+        if mismatched:
+            details.append(f"path-mismatch={','.join(mismatched)}")
+        raise PassageStorageError(
+            "passage DuckDB view catalog verification failed: " + "; ".join(details)
+        )
+    observed_catalog_sha256 = _passage_catalog_sha256(connection)
+    expected_catalog_sha256 = _expected_passage_catalog_sha256(passage_root)
+    if observed_catalog_sha256 != expected_catalog_sha256:
+        raise PassageStorageError(
+            "passage DuckDB convenience-view catalog differs from the governed definitions"
+        )
+
+
+def _tiny_passage_view_reads(
+    connection: duckdb.DuckDBPyConnection,
+) -> dict[ArtifactName, bool]:
+    """Open every rebound Parquet relation while reading at most one row."""
+
+    return {
+        table: connection.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone() is not None
+        for table in ARTIFACT_NAMES
+    }
+
+
+def _replace_passage_views(
+    connection: duckdb.DuckDBPyConnection,
+    passage_root: Path,
+    *,
+    allow_materialized_migration: bool,
+) -> dict[ArtifactName, bool]:
+    existing_tables, existing_views = _main_relation_names(connection)
+    if not allow_materialized_migration:
+        missing = [table for table in ARTIFACT_NAMES if table not in existing_views]
+        materialized = [table for table in ARTIFACT_NAMES if table in existing_tables]
+        if missing or materialized:
+            details: list[str] = []
+            if missing:
+                details.append(f"missing external views={','.join(missing)}")
+            if materialized:
+                details.append(f"materialized relations={','.join(materialized)}")
+            raise PassageStorageError(
+                "refusing to rebind an incomplete passage view catalog: " + "; ".join(details)
+            )
+
+    # Drop only known dependent and artifact relations. Source corpus tables
+    # and unrelated user objects are never touched.
+    for view, _ in PASSAGE_CONVENIENCE_VIEW_DEFINITIONS:
+        if view in existing_views:
+            connection.execute(f"DROP VIEW {view}")
+    for table in ARTIFACT_NAMES:
+        if table in existing_views:
+            connection.execute(f"DROP VIEW {table}")
+        elif table in existing_tables and allow_materialized_migration:
+            # Migration path from the initial materializing loader.
+            connection.execute(f"DROP TABLE {table}")
+
+    _create_passage_views(connection, passage_root)
+    _create_passage_convenience_views(connection)
+    _verify_passage_view_bindings(connection, passage_root)
+    return _tiny_passage_view_reads(connection)
+
+
+def _validate_passage_view_root(passage_root: Path) -> Path:
+    resolved = _safe_output_path(passage_root)
+    if not resolved.is_dir():
+        raise PassageStorageError(f"passage artifact root does not exist: {resolved}")
+    for table in ARTIFACT_NAMES:
+        artifact_root = resolved / table
+        if not artifact_root.is_dir():
+            raise PassageStorageError(f"missing passage artifact directory: {artifact_root}")
+        if artifact_root.is_symlink():
+            raise PassageStorageError(
+                f"passage artifact directory may not be a symbolic link: {artifact_root}"
+            )
+        parquet_found = False
+        for candidate in artifact_root.rglob("*"):
+            if candidate.is_symlink():
+                raise PassageStorageError(
+                    f"passage artifact tree may not contain symbolic links: {candidate}"
+                )
+            if candidate.is_file() and candidate.suffix == ".parquet":
+                parquet_found = True
+        if not parquet_found:
+            raise PassageStorageError(f"no Parquet leaves exist for {table} in {artifact_root}")
+    return resolved
+
+
+def rebind_passage_duckdb_views(
+    database_path: Path,
+    passage_root: Path,
+    *,
+    expected_database_sha256: str,
+    receipt_path: Path,
+) -> PassageViewRebindReceipt:
+    """Transactionally rebind transferred passage views to a new Parquet root.
+
+    The existing database must already contain all six governed passage
+    relations as external views. Only those views and their eight known
+    convenience views are replaced. Catalog verification occurs inside the
+    transaction, so any bind or verification failure restores the old views.
+    """
+
+    expected_sha256 = expected_database_sha256.casefold()
+    if not _SHA256_VALUE.fullmatch(expected_sha256):
+        raise PassageStorageError("expected database SHA-256 must be 64 lowercase hex characters")
+    if receipt_path.exists() or receipt_path.is_symlink():
+        raise PassageStorageError(f"refusing to overwrite rebind receipt: {receipt_path}")
+    try:
+        if not database_path.is_file():
+            raise PassageStorageError(f"passage DuckDB does not exist: {database_path}")
+        resolved_database = database_path.resolve(strict=True)
+        resolved_root = _validate_passage_view_root(passage_root)
+        current_database_sha256 = sha256_file(resolved_database)
+        intent = PassageViewRebindIntent(
+            database_path=resolved_database,
+            passage_root=resolved_root,
+            before_database_sha256=expected_sha256,
+            duckdb_version=duckdb.__version__,
+            view_globs={
+                table: _passage_parquet_glob(resolved_root, table) for table in ARTIFACT_NAMES
+            },
+        )
+        intent_path = _passage_view_rebind_intent_path(receipt_path)
+        if intent_path.is_symlink():
+            raise PassageStorageError(f"rebind intent may not be a symlink: {intent_path}")
+        if intent_path.exists():
+            observed_intent = read_passage_view_rebind_intent(intent_path)
+            if observed_intent != intent:
+                raise PassageStorageError(
+                    "existing passage-view rebind intent differs from this request"
+                )
+        else:
+            if current_database_sha256 != expected_sha256:
+                raise PassageStorageError(
+                    "refusing to rebind passage DuckDB with a transfer hash mismatch: "
+                    f"expected {expected_sha256}, observed {current_database_sha256}"
+                )
+            write_passage_view_rebind_intent(intent, intent_path)
+
+        if current_database_sha256 != expected_sha256:
+            # A prior invocation passed the original hash and wrote its intent,
+            # then committed the transaction but stopped before its final
+            # receipt. Recover only from the exact expected catalog and tiny
+            # reads; never apply another mutation.
+            with duckdb.connect(str(resolved_database), read_only=True) as connection:
+                _verify_passage_view_bindings(connection, resolved_root)
+                tiny_read_has_rows = _tiny_passage_view_reads(connection)
+            recovered = PassageViewRebindReceipt(
+                database_path=resolved_database,
+                passage_root=resolved_root,
+                before_database_sha256=expected_sha256,
+                after_database_sha256=current_database_sha256,
+                duckdb_version=duckdb.__version__,
+                view_globs=intent.view_globs,
+                tiny_read_has_rows=tiny_read_has_rows,
+            )
+            write_passage_view_rebind_receipt(recovered, receipt_path)
+            return recovered
+
+        before_database_sha256 = current_database_sha256
+        if before_database_sha256 != expected_sha256:
+            raise PassageStorageError(
+                "refusing to rebind passage DuckDB with a transfer hash mismatch: "
+                f"expected {expected_sha256}, observed {before_database_sha256}"
+            )
+        with duckdb.connect(str(resolved_database)) as connection:
+            connection.execute("BEGIN TRANSACTION")
+            try:
+                tiny_read_has_rows = _replace_passage_views(
+                    connection,
+                    resolved_root,
+                    allow_materialized_migration=False,
+                )
+                connection.execute("COMMIT")
+            except Exception:
+                connection.execute("ROLLBACK")
+                raise
+    except PassageStorageError:
+        raise
+    except (duckdb.Error, OSError) as exc:
+        raise PassageStorageError(
+            f"could not rebind passage DuckDB {database_path}: {exc}"
+        ) from exc
+    try:
+        after_database_sha256 = sha256_file(resolved_database)
+    except OSError as exc:
+        raise PassageStorageError(
+            f"could not hash rebound passage DuckDB {resolved_database}: {exc}"
+        ) from exc
+    receipt = PassageViewRebindReceipt(
+        database_path=resolved_database,
+        passage_root=resolved_root,
+        before_database_sha256=before_database_sha256,
+        after_database_sha256=after_database_sha256,
+        duckdb_version=duckdb.__version__,
+        view_globs={table: _passage_parquet_glob(resolved_root, table) for table in ARTIFACT_NAMES},
+        tiny_read_has_rows=tiny_read_has_rows,
+    )
+    write_passage_view_rebind_receipt(receipt, receipt_path)
+    return receipt
+
+
+def _passage_view_rebind_intent_path(receipt_path: Path) -> Path:
+    return receipt_path.with_name(f"{receipt_path.name}.intent.json")
+
+
+def write_passage_view_rebind_intent(
+    intent: PassageViewRebindIntent,
+    intent_path: Path,
+) -> None:
+    """Atomically persist a pre-mutation intent without overwriting evidence."""
+
+    if intent_path.exists() or intent_path.is_symlink():
+        raise PassageStorageError(f"refusing to overwrite rebind intent: {intent_path}")
+    intent_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = intent_path.with_name(f".{intent_path.name}.writing-{uuid4().hex}")
+    try:
+        temporary.write_text(intent.model_dump_json(indent=2) + "\n", encoding="utf-8")
+        temporary.replace(intent_path)
+    except OSError as exc:
+        raise PassageStorageError(f"could not write rebind intent {intent_path}: {exc}") from exc
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def read_passage_view_rebind_intent(intent_path: Path) -> PassageViewRebindIntent:
+    """Read and strictly validate one pre-mutation passage-view intent."""
+
+    if not intent_path.is_file() or intent_path.is_symlink():
+        raise PassageStorageError(f"rebind intent is missing or unsafe: {intent_path}")
+    try:
+        return PassageViewRebindIntent.model_validate_json(intent_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValidationError) as exc:
+        raise PassageStorageError(f"invalid rebind intent {intent_path}: {exc}") from exc
+
+
+def write_passage_view_rebind_receipt(
+    receipt: PassageViewRebindReceipt,
+    receipt_path: Path,
+) -> None:
+    """Atomically persist a new rebind receipt without overwriting evidence."""
+
+    if receipt_path.exists():
+        raise PassageStorageError(f"refusing to overwrite rebind receipt: {receipt_path}")
+    receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = receipt_path.with_name(f".{receipt_path.name}.writing-{uuid4().hex}")
+    try:
+        temporary.write_text(receipt.model_dump_json(indent=2) + "\n", encoding="utf-8")
+        temporary.replace(receipt_path)
+    except OSError as exc:
+        raise PassageStorageError(f"could not write rebind receipt {receipt_path}: {exc}") from exc
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def read_passage_view_rebind_receipt(receipt_path: Path) -> PassageViewRebindReceipt:
+    """Read and strictly validate one passage-view rebind receipt."""
+
+    if not receipt_path.is_file() or receipt_path.is_symlink():
+        raise PassageStorageError(f"rebind receipt is missing or unsafe: {receipt_path}")
+    try:
+        return PassageViewRebindReceipt.model_validate_json(
+            receipt_path.read_text(encoding="utf-8")
+        )
+    except (OSError, UnicodeError, ValidationError) as exc:
+        raise PassageStorageError(f"invalid rebind receipt {receipt_path}: {exc}") from exc
+
+
+def verify_passage_view_rebind_receipt(
+    database_path: Path,
+    passage_root: Path,
+    receipt_path: Path,
+    *,
+    expected_before_database_sha256: str,
+) -> PassageViewRebindReceipt:
+    """Verify post-rebind integrity without reapplying the original DB hash."""
+
+    expected_before = expected_before_database_sha256.casefold()
+    if not _SHA256_VALUE.fullmatch(expected_before):
+        raise PassageStorageError("expected database SHA-256 must be 64 lowercase hex characters")
+    try:
+        if not database_path.is_file():
+            raise PassageStorageError(f"passage DuckDB does not exist: {database_path}")
+        resolved_database = database_path.resolve(strict=True)
+        resolved_root = _validate_passage_view_root(passage_root)
+        receipt = read_passage_view_rebind_receipt(receipt_path)
+        intent = read_passage_view_rebind_intent(_passage_view_rebind_intent_path(receipt_path))
+        if receipt.database_path != resolved_database:
+            raise PassageStorageError(
+                "rebind receipt database path mismatch: "
+                f"expected {resolved_database}, recorded {receipt.database_path}"
+            )
+        if receipt.passage_root != resolved_root:
+            raise PassageStorageError(
+                "rebind receipt passage root mismatch: "
+                f"expected {resolved_root}, recorded {receipt.passage_root}"
+            )
+        if receipt.before_database_sha256 != expected_before:
+            raise PassageStorageError(
+                "rebind receipt does not match the transferred database SHA-256"
+            )
+        if receipt.duckdb_version != duckdb.__version__:
+            raise PassageStorageError(
+                "rebind receipt DuckDB version mismatch: "
+                f"recorded {receipt.duckdb_version}, running {duckdb.__version__}"
+            )
+        expected_globs = {
+            table: _passage_parquet_glob(resolved_root, table) for table in ARTIFACT_NAMES
+        }
+        expected_intent = PassageViewRebindIntent(
+            database_path=resolved_database,
+            passage_root=resolved_root,
+            before_database_sha256=expected_before,
+            duckdb_version=duckdb.__version__,
+            view_globs=expected_globs,
+        )
+        if intent != expected_intent:
+            raise PassageStorageError("rebind intent does not match the verified receipt chain")
+        if receipt.view_globs != expected_globs:
+            raise PassageStorageError("rebind receipt passage view paths do not match")
+        observed_database_sha256 = sha256_file(resolved_database)
+        if receipt.after_database_sha256 != observed_database_sha256:
+            raise PassageStorageError(
+                "post-rebind database SHA-256 mismatch: "
+                f"expected {receipt.after_database_sha256}, "
+                f"observed {observed_database_sha256}"
+            )
+        with duckdb.connect(str(resolved_database), read_only=True) as connection:
+            _verify_passage_view_bindings(connection, resolved_root)
+            observed_tiny_reads = _tiny_passage_view_reads(connection)
+        if receipt.tiny_read_has_rows != observed_tiny_reads:
+            raise PassageStorageError("rebind receipt tiny-read results do not match")
+    except PassageStorageError:
+        raise
+    except (duckdb.Error, OSError) as exc:
+        raise PassageStorageError(
+            f"could not verify passage DuckDB rebind receipt {receipt_path}: {exc}"
+        ) from exc
+    return receipt
+
+
 def load_passage_duckdb(processed: ProcessedPassages, database_path: Path) -> None:
     """Transactionally expose segmentation Parquet as external DuckDB views.
 
@@ -534,94 +1056,14 @@ def load_passage_duckdb(processed: ProcessedPassages, database_path: Path) -> No
     """
 
     database_path.parent.mkdir(parents=True, exist_ok=True)
-    convenience_views = (
-        "hebrew_qere_passages",
-        "hebrew_ketiv_passages",
-        "greek_edition_complete_passages",
-        "greek_critical_core_passages",
-        "verse_passages",
-        "window_passages",
-        "passage_token_sequences",
-        "passage_uncertainty_summary",
-    )
     try:
         with duckdb.connect(str(database_path)) as connection:
             connection.execute("BEGIN TRANSACTION")
             try:
-                existing_tables = {
-                    str(row[0])
-                    for row in connection.execute(
-                        "SELECT table_name FROM duckdb_tables() "
-                        "WHERE database_name = current_database() AND schema_name = 'main'"
-                    ).fetchall()
-                }
-                existing_views = {
-                    str(row[0])
-                    for row in connection.execute(
-                        "SELECT view_name FROM duckdb_views() "
-                        "WHERE database_name = current_database() AND schema_name = 'main'"
-                    ).fetchall()
-                }
-                # Drop only known dependent and artifact relations. Source
-                # corpus tables and unrelated user objects are never touched.
-                for view in convenience_views:
-                    if view in existing_views:
-                        connection.execute(f"DROP VIEW {view}")
-                for table in ARTIFACT_NAMES:
-                    if table in existing_views:
-                        connection.execute(f"DROP VIEW {table}")
-                    elif table in existing_tables:
-                        # Migration path from the initial materializing loader.
-                        connection.execute(f"DROP TABLE {table}")
-                    glob = (processed.output_dir / table / "**" / "*.parquet").as_posix()
-                    escaped = glob.replace("'", "''")
-                    connection.execute(
-                        f"CREATE VIEW {table} AS "
-                        f"SELECT * FROM read_parquet('{escaped}', "
-                        "union_by_name=true, hive_partitioning=false)"
-                    )
-                connection.execute(
-                    "CREATE OR REPLACE VIEW hebrew_qere_passages AS "
-                    "SELECT * FROM passages WHERE corpus = 'hebrew' "
-                    "AND analysis_reading = 'qere'"
-                )
-                connection.execute(
-                    "CREATE OR REPLACE VIEW hebrew_ketiv_passages AS "
-                    "SELECT * FROM passages WHERE corpus = 'hebrew' "
-                    "AND analysis_reading = 'ketiv'"
-                )
-                connection.execute(
-                    "CREATE OR REPLACE VIEW greek_edition_complete_passages AS "
-                    "SELECT * FROM passages WHERE corpus = 'greek' "
-                    "AND analysis_profile = 'edition_complete'"
-                )
-                connection.execute(
-                    "CREATE OR REPLACE VIEW greek_critical_core_passages AS "
-                    "SELECT * FROM passages WHERE corpus = 'greek' "
-                    "AND analysis_profile = 'critical_core'"
-                )
-                connection.execute(
-                    "CREATE OR REPLACE VIEW verse_passages AS "
-                    "SELECT * FROM passages WHERE granularity = 'verse'"
-                )
-                connection.execute(
-                    "CREATE OR REPLACE VIEW window_passages AS "
-                    "SELECT * FROM passages WHERE granularity IN ('two_verse', 'five_verse')"
-                )
-                connection.execute(
-                    "CREATE OR REPLACE VIEW passage_token_sequences AS "
-                    "SELECT passage_id, list(token_id ORDER BY position_in_passage) AS token_ids "
-                    "FROM passage_membership GROUP BY passage_id"
-                )
-                connection.execute(
-                    "CREATE OR REPLACE VIEW passage_uncertainty_summary AS "
-                    "SELECT corpus, analysis_profile, analysis_reading, granularity, "
-                    "count(*) AS passage_count, "
-                    "count(*) FILTER (WHERE ketiv_structural_uncertainty) "
-                    "AS ketiv_uncertain_count, "
-                    "sum(sensitivity_exclusion_count) AS sensitivity_exclusion_count "
-                    "FROM passages GROUP BY corpus, analysis_profile, "
-                    "analysis_reading, granularity"
+                _replace_passage_views(
+                    connection,
+                    processed.output_dir,
+                    allow_materialized_migration=True,
                 )
                 connection.execute("COMMIT")
             except Exception:

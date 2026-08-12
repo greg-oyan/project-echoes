@@ -46,3 +46,6 @@ Decision records preserve durable methodological, data, licensing, architecture,
 - [0012 — Defer STEPBible activation](0012-defer-stepbible-activation.md)
 - [0013 — Passage identity, membership, and analytical continuity](0013-passage-identity-membership-and-analytical-continuity.md)
 - [0014 — Known-link benchmark identity, tiering, mapping, and leakage control](0014-known-link-benchmark-identity-tiering-mapping-and-leakage-control.md)
+- [0015 — Transparent lexical retrieval, calibration, and candidate evidence](0015-transparent-lexical-retrieval-calibration-and-candidate-evidence.md)
+- [0016 — Sanitized Build Week demonstration export](0016-sanitized-build-week-demonstration-export.md)
+- [0017 — Single-node cloud execution exception](0017-single-node-cloud-execution-exception.md)

@@ -1,0 +1,378 @@
+{
+  "criteria": [
+    {
+      "category": "positive_control",
+      "check_id": "positive-repeated-old-testament",
+      "description": "Repeated Old Testament wording with strong ordered overlap",
+      "expected_presence": true,
+      "predicates": [
+        {"column": "corpus_pair", "operator": "eq", "value": "hb_hb"},
+        {"column": "normalized_lcs", "operator": "ge", "value": 0.8}
+      ],
+      "sort": {"column": "rrf_score", "order": "descending"}
+    },
+    {
+      "category": "positive_control",
+      "check_id": "positive-hebrew-openbible-overlap",
+      "description": "Strongly overlapping Hebrew pair represented in the OpenBible snapshot",
+      "expected_presence": true,
+      "predicates": [
+        {"column": "corpus_pair", "operator": "eq", "value": "hb_hb"},
+        {"column": "known_link_status", "operator": "eq", "value": "represented_in_openbible_snapshot"},
+        {"column": "weighted_jaccard_score", "operator": "gt", "value": 0.0}
+      ],
+      "sort": {"column": "weighted_jaccard_score", "order": "descending"}
+    },
+    {
+      "category": "positive_control",
+      "check_id": "positive-greek-openbible-overlap",
+      "description": "Strongly overlapping Greek pair represented in the OpenBible snapshot",
+      "expected_presence": true,
+      "predicates": [
+        {"column": "corpus_pair", "operator": "eq", "value": "gnt_gnt"},
+        {"column": "known_link_status", "operator": "eq", "value": "represented_in_openbible_snapshot"},
+        {"column": "weighted_jaccard_score", "operator": "gt", "value": 0.0}
+      ],
+      "sort": {"column": "weighted_jaccard_score", "order": "descending"}
+    },
+    {
+      "category": "positive_control",
+      "check_id": "positive-formulaic-pair",
+      "description": "Formulaic candidate retaining its explicit penalty",
+      "expected_presence": true,
+      "predicates": [
+        {"column": "formulaic_penalty", "operator": "gt", "value": 0.0}
+      ],
+      "sort": {"column": "formulaic_penalty", "order": "descending"}
+    },
+    {
+      "category": "positive_control",
+      "check_id": "positive-near-duplicate",
+      "description": "Exact or near-exact duplicate candidate after registered exclusions",
+      "expected_presence": false,
+      "unavailable_reason": "Exact-overlap and self pairs are excluded; a remaining near-exact duplicate is data-dependent, so an empty match is retained as an explicit governed result.",
+      "predicates": [
+        {"column": "normalized_lcs", "operator": "ge", "value": 0.95}
+      ],
+      "sort": {"column": "normalized_lcs", "order": "descending"}
+    },
+    {
+      "category": "positive_control",
+      "check_id": "positive-high-vote",
+      "description": "OpenBible-represented pair in the descriptive 26-plus vote stratum",
+      "expected_presence": true,
+      "predicates": [
+        {"column": "known_link_status", "operator": "eq", "value": "represented_in_openbible_snapshot"},
+        {"column": "highest_openbible_vote", "operator": "ge", "value": 26}
+      ],
+      "sort": {"column": "highest_openbible_vote", "order": "descending"}
+    },
+    {
+      "category": "positive_control",
+      "check_id": "positive-low-vote",
+      "description": "OpenBible-represented pair in the descriptive one-to-two vote stratum",
+      "expected_presence": true,
+      "predicates": [
+        {"column": "known_link_status", "operator": "eq", "value": "represented_in_openbible_snapshot"},
+        {"column": "highest_openbible_vote", "operator": "ge", "value": 1},
+        {"column": "highest_openbible_vote", "operator": "le", "value": 2}
+      ],
+      "sort": {"column": "rrf_score", "order": "descending"}
+    },
+    {
+      "category": "positive_control",
+      "check_id": "positive-reverse-pair",
+      "description": "Canonical pair with directional support in both directions",
+      "expected_presence": true,
+      "predicates": [
+        {"column": "directional_support_count", "operator": "ge", "value": 2}
+      ],
+      "sort": {"column": "rrf_score", "order": "descending"}
+    },
+    {
+      "category": "positive_control",
+      "check_id": "positive-disputed-text",
+      "description": "Candidate carrying a disputed-text sensitivity flag",
+      "expected_presence": false,
+      "unavailable_reason": "The bounded retrieved union may contain no candidate incident to a passage flagged as disputed; zero matches are reported rather than manufactured.",
+      "predicates": [
+        {"column": "disputed_passage_flag", "operator": "eq", "value": true}
+      ],
+      "sort": {"column": "rrf_score", "order": "descending"}
+    },
+    {
+      "category": "positive_control",
+      "check_id": "positive-reference-gap",
+      "description": "Candidate carrying a reference-gap sensitivity flag",
+      "expected_presence": false,
+      "unavailable_reason": "The bounded retrieved union may contain no candidate incident to an unresolved reference gap; zero matches are reported rather than manufactured.",
+      "predicates": [
+        {"column": "reference_gap", "operator": "eq", "value": true}
+      ],
+      "sort": {"column": "rrf_score", "order": "descending"}
+    },
+    {
+      "category": "lexical_evidence",
+      "check_id": "evidence-shared-rare-lemma",
+      "description": "Shared rare lemma with stored positions and frequencies",
+      "expected_presence": true,
+      "predicates": [
+        {"column": "shared_rare_lemma_count", "operator": "gt", "value": 0}
+      ],
+      "sort": {"column": "rare_overlap_score", "order": "descending"}
+    },
+    {
+      "category": "lexical_evidence",
+      "check_id": "evidence-shared-rare-root",
+      "description": "Shared rare root if root coverage exists",
+      "expected_presence": false,
+      "unavailable_reason": "The governed full-corpus feature audit found zero non-null root coverage, so root evidence cannot truthfully be selected in Milestone 7.",
+      "predicates": [
+        {"column": "shared_rare_root_count", "operator": "gt", "value": 0}
+      ],
+      "sort": {"column": "rare_overlap_score", "order": "descending"}
+    },
+    {
+      "category": "lexical_evidence",
+      "check_id": "evidence-two-rare-items",
+      "description": "Candidate with at least two distinct shared rare lemmas",
+      "expected_presence": true,
+      "predicates": [
+        {"column": "shared_rare_lemma_count", "operator": "ge", "value": 2}
+      ],
+      "sort": {"column": "shared_rare_lemma_count", "order": "descending"}
+    },
+    {
+      "category": "lexical_evidence",
+      "check_id": "evidence-rare-phrase",
+      "description": "Candidate combining a shared phrase with shared rare material",
+      "expected_presence": false,
+      "unavailable_reason": "The frozen bounded candidate union may contain no pair satisfying both phrase and rare-material predicates; absence remains a reported result.",
+      "predicates": [
+        {"column": "shared_phrase_count", "operator": "gt", "value": 0},
+        {"column": "shared_rare_lemma_count", "operator": "gt", "value": 0}
+      ],
+      "sort": {"column": "phrase_score", "order": "descending"}
+    },
+    {
+      "category": "lexical_evidence",
+      "check_id": "evidence-trigram",
+      "description": "Strong phrase-association candidate for detailed trigram evidence inspection",
+      "expected_presence": true,
+      "predicates": [
+        {"column": "shared_phrase_count", "operator": "gt", "value": 0}
+      ],
+      "sort": {"column": "phrase_score", "order": "descending"}
+    },
+    {
+      "category": "lexical_evidence",
+      "check_id": "evidence-skipgram",
+      "description": "Candidate with stored shared skip-gram evidence",
+      "expected_presence": true,
+      "predicates": [
+        {"column": "shared_skipgram_count", "operator": "gt", "value": 0}
+      ],
+      "sort": {"column": "phrase_score", "order": "descending"}
+    },
+    {
+      "category": "lexical_evidence",
+      "check_id": "evidence-strong-lcs",
+      "description": "Candidate with strong normalized longest-common-subsequence evidence",
+      "expected_presence": true,
+      "predicates": [
+        {"column": "normalized_lcs", "operator": "ge", "value": 0.5}
+      ],
+      "sort": {"column": "normalized_lcs", "order": "descending"}
+    },
+    {
+      "category": "lexical_evidence",
+      "check_id": "evidence-strong-weighted-alignment",
+      "description": "Candidate with strong weighted ordered-sequence alignment",
+      "expected_presence": true,
+      "predicates": [
+        {"column": "weighted_alignment_score", "operator": "gt", "value": 0.0}
+      ],
+      "sort": {"column": "weighted_alignment_score", "order": "descending"}
+    },
+    {
+      "category": "lexical_evidence",
+      "check_id": "evidence-high-tfidf-weak-sequence",
+      "description": "High TF-IDF candidate with comparatively weak ordered-sequence evidence",
+      "expected_presence": false,
+      "unavailable_reason": "The registered numerical cutoffs describe an observational contrast and do not guarantee that the frozen candidate union contains such a pair.",
+      "predicates": [
+        {"column": "tfidf_score", "operator": "ge", "value": 0.2},
+        {"column": "normalized_lcs", "operator": "le", "value": 0.1}
+      ],
+      "sort": {"column": "tfidf_score", "order": "descending"}
+    },
+    {
+      "category": "lexical_evidence",
+      "check_id": "evidence-high-bm25-formulaic",
+      "description": "High BM25 candidate retaining an explicit formulaic penalty",
+      "expected_presence": false,
+      "unavailable_reason": "The registered observational conjunction is data-dependent; an empty match is retained explicitly without weakening either cutoff.",
+      "predicates": [
+        {"column": "bm25_score", "operator": "gt", "value": 0.0},
+        {"column": "formulaic_penalty", "operator": "gt", "value": 0.0}
+      ],
+      "sort": {"column": "bm25_score", "order": "descending"}
+    },
+    {
+      "category": "lexical_evidence",
+      "check_id": "evidence-proper-name-only",
+      "description": "Proper-name-only candidate if explicitly rejected by eligibility policy",
+      "expected_presence": false,
+      "unavailable_reason": "No governed proper-name annotation is available in the Milestone 7 inputs, so the implementation records annotation unavailability instead of inferring names heuristically.",
+      "predicates": [
+        {"column": "eligibility_reason", "operator": "contains", "value": "proper_name"}
+      ],
+      "sort": {"column": "rrf_score", "order": "descending"}
+    },
+    {
+      "category": "lexical_evidence",
+      "check_id": "evidence-single-rare-no-cosignal",
+      "description": "One rare lemma rejected because no independent co-signal survives",
+      "expected_presence": true,
+      "predicates": [
+        {"column": "shared_rare_lemma_count", "operator": "eq", "value": 1},
+        {"column": "independent_co_signal_count", "operator": "eq", "value": 0},
+        {"column": "rare_rule_passed", "operator": "eq", "value": false}
+      ],
+      "sort": {"column": "rare_overlap_score", "order": "descending"}
+    },
+    {
+      "category": "guardrail",
+      "check_id": "guardrail-adjacent-context",
+      "description": "Adjacent or nearby local-context candidate with an explicit penalty",
+      "expected_presence": true,
+      "predicates": [
+        {"column": "local_context_penalty", "operator": "gt", "value": 0.0}
+      ],
+      "sort": {"column": "local_context_penalty", "order": "descending"}
+    },
+    {
+      "category": "guardrail",
+      "check_id": "guardrail-overlap",
+      "description": "Overlapping candidate retained only as excluded evidence if one exists",
+      "expected_presence": false,
+      "unavailable_reason": "Exact and constituent-overlap pairs are excluded from discovery candidacy before the persisted bounded union; zero retained overlap rows is an allowed explicit result.",
+      "predicates": [
+        {"column": "overlap_exclusion", "operator": "eq", "value": true}
+      ],
+      "sort": {"column": "rrf_score", "order": "descending"}
+    },
+    {
+      "category": "guardrail",
+      "check_id": "guardrail-very-short",
+      "description": "Very short passage candidate with an explicit penalty",
+      "expected_presence": true,
+      "predicates": [
+        {"column": "short_passage_penalty", "operator": "gt", "value": 0.0}
+      ],
+      "sort": {"column": "short_passage_penalty", "order": "descending"}
+    },
+    {
+      "category": "guardrail",
+      "check_id": "guardrail-qere-ketiv-sensitivity",
+      "description": "Candidate carrying Ketiv structural uncertainty for Qere/Ketiv sensitivity",
+      "expected_presence": false,
+      "unavailable_reason": "Qere/Ketiv comparison is persisted in the dedicated sensitivity_results artifact over OSHB-affected references and is not required to appear in primary candidate pairs.",
+      "predicates": [
+        {"column": "ketiv_structural_uncertainty", "operator": "eq", "value": true}
+      ],
+      "sort": {"column": "rrf_score", "order": "descending"}
+    },
+    {
+      "category": "guardrail",
+      "check_id": "guardrail-critical-core-sensitivity",
+      "description": "Critical-core candidate if a bounded sensitivity artifact is present",
+      "expected_presence": false,
+      "unavailable_reason": "Critical-core retrieval is persisted and evaluated as a dedicated sensitivity scope rather than merged into the edition-complete primary candidate-pair artifact.",
+      "predicates": [
+        {"column": "analysis_profile", "operator": "eq", "value": "critical_core"}
+      ],
+      "sort": {"column": "rrf_score", "order": "descending"}
+    },
+    {
+      "category": "guardrail",
+      "check_id": "guardrail-english-bridge",
+      "description": "English-gloss-mediated cross-testament retrieval result",
+      "expected_presence": true,
+      "predicates": [
+        {"column": "corpus_pair", "operator": "eq", "value": "hb_gnt_english_bridge"},
+        {"column": "contains_english_derived_evidence", "operator": "eq", "value": true}
+      ],
+      "sort": {"column": "rrf_score", "order": "descending"}
+    },
+    {
+      "category": "guardrail",
+      "check_id": "guardrail-english-ablation-failure",
+      "description": "English bridge result that fails removal of all English-derived features",
+      "expected_presence": true,
+      "predicates": [
+        {"column": "corpus_pair", "operator": "eq", "value": "hb_gnt_english_bridge"},
+        {"column": "english_ablation_survives", "operator": "eq", "value": false}
+      ],
+      "sort": {"column": "rrf_score", "order": "descending"}
+    },
+    {
+      "category": "guardrail",
+      "check_id": "guardrail-english-ablation-survival",
+      "description": "English bridge result surviving ablation if independent non-English evidence exists",
+      "expected_presence": false,
+      "unavailable_reason": "The registered Milestone 7 cross-testament representation is exclusively English-gloss mediated; removing all English features leaves no non-English cross-language score.",
+      "predicates": [
+        {"column": "corpus_pair", "operator": "eq", "value": "hb_gnt_english_bridge"},
+        {"column": "english_ablation_survives", "operator": "eq", "value": true}
+      ],
+      "sort": {"column": "rrf_score", "order": "descending"}
+    },
+    {
+      "category": "guardrail",
+      "check_id": "guardrail-openbible-unrepresented",
+      "description": "Candidate not represented in the exact OpenBible snapshot",
+      "expected_presence": true,
+      "predicates": [
+        {"column": "known_link_status", "operator": "eq", "value": "not_represented_in_openbible_snapshot"}
+      ],
+      "sort": {"column": "rrf_score", "order": "descending"}
+    },
+    {
+      "category": "guardrail",
+      "check_id": "guardrail-empirical-fdr-exclusion",
+      "description": "Candidate excluded because empirical FDR exceeds the frozen limit",
+      "expected_presence": true,
+      "predicates": [
+        {"column": "estimated_empirical_fdr", "operator": "gt", "value": 0.2},
+        {"column": "review_eligible", "operator": "eq", "value": false}
+      ],
+      "sort": {"column": "estimated_empirical_fdr", "order": "descending"}
+    },
+    {
+      "category": "guardrail",
+      "check_id": "guardrail-formulaic-exclusion",
+      "description": "Candidate made ineligible while retaining formulaic penalty evidence",
+      "expected_presence": false,
+      "unavailable_reason": "Formulaic penalties are always persisted, but whether one independently contributes to ineligibility is data-dependent under the frozen conjunctive policy.",
+      "predicates": [
+        {"column": "formulaic_penalty", "operator": "gt", "value": 0.0},
+        {"column": "review_eligible", "operator": "eq", "value": false}
+      ],
+      "sort": {"column": "formulaic_penalty", "order": "descending"}
+    },
+    {
+      "category": "guardrail",
+      "check_id": "guardrail-rare-rule-exclusion",
+      "description": "Candidate made ineligible by the conjunctive rare-evidence rule",
+      "expected_presence": true,
+      "predicates": [
+        {"column": "rare_rule_passed", "operator": "eq", "value": false},
+        {"column": "review_eligible", "operator": "eq", "value": false}
+      ],
+      "sort": {"column": "rare_overlap_score", "order": "descending"}
+    }
+  ],
+  "schema_version": 1,
+  "selection_policy": "first_after_registered_stable_sort"
+}

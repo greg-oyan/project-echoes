@@ -218,4 +218,285 @@
 - Acceptance: all Milestone 6 local, governance, repository-audit, pull-request, and CI gates are satisfied. Milestone 6 is complete as of 2026-07-13.
 - Boundary: no TF-IDF, BM25, rare-lemma or phrase scoring, similarity search, null simulation, embeddings, semantic retrieval, candidate generation, human review, review console, Septuagint acquisition, or STEPBible activation began.
 
+## 2026-07-13 - Milestone 7 pre-heldout feasibility attempts (in progress)
+
+- Scope: exercise the complete atomic Milestone 7 build far enough to verify
+  implementation and local-resource feasibility before accepting or inspecting
+  any candidate or scientific result. Both attempts used the frozen
+  configuration and preregistration; neither changed the scientific methods,
+  scopes, seeds, thresholds, or acceptance gate.
+- Attempt 1: stopped after approximately three hours at 2.2 percent completion.
+  The measured retrieval rate was 4.626 seconds per query, projecting an
+  approximately 132-hour runtime. No staged output was promoted, and no
+  candidate or scientific output was inspected. The response was limited to
+  implementation reuse of immutable scoring contexts, feature extraction,
+  sequence intermediates, gloss and pair facts, and exact sparse-retrieval
+  state; registered scores and experiment semantics did not change.
+- Attempt 2: completed the primary Hebrew–Hebrew and GNT–GNT retrieval scopes
+  and had entered the primary English-gloss bridge when stopped. Measured
+  physical table sizes projected a violation of the mandatory 10-GiB free-disk
+  floor before atomic promotion. No staged output was promoted, and no
+  candidate identity, evidence conclusion, evaluation metric, or other
+  scientific output was inspected.
+- Compact split provenance: repeated leakage-group identifier arrays were
+  replaced by the unique group count, SHA-256 of sorted unique group IDs, and a
+  separate canonical assignment digest. The measured unique serialized
+  provenance map fell from approximately 283.3 MB to 33.9 MB. Strict validation
+  reconstructs the exact payload from the anchored benchmark database; split
+  membership, leakage policy, and eligibility are unchanged.
+- Directional-ablation normalization: English-removal facts remain inline on
+  each content-hashed bridge ranking, while the physical `ablation_results`
+  artifact retains all eight candidate-pair ablations and rejects duplicate
+  `subject_type=directional_ranking` rows. Avoiding the duplicate directional
+  rows saves a projected 6.589 GiB across the primary and critical-core bridge
+  scopes without changing any score, rank, identity, scope, threshold, or
+  ablation conclusion.
+- Atomicity and frozen science: both abandoned staging trees were excluded from
+  accepted output. Only operational timing, progress, memory, disk, and table
+  footprint telemetry informed the implementation and physical-storage
+  corrections. The frozen scientific configuration and preregistration remain
+  unchanged.
+- Resumed attempt 3 (2026-07-17): completed the primary, critical-core, and
+  Qere/Ketiv retrieval scopes, retaining 1,565 ranking parts
+  (5,718,310,351 bytes), three index-metadata parts, 154 sparse-index files, and
+  the governed feature tables. The first global critical-core sensitivity join
+  created 17 temporary DuckDB files totaling 13,426,360,320 bytes. Free disk
+  crossed the mandatory 10,737,418,240-byte floor and reached
+  8,606,294,016 bytes while still declining. The process was stopped before
+  disk exhaustion; the atomic output was not promoted and no candidate,
+  held-out evaluation, null, or science-gate result was inspected. The
+  disposable spill was removed only after exact inventory.
+- Sensitivity storage correction: the unchanged reference-keyed FULL OUTER
+  JOIN, window metrics, row identities, and output order now execute in
+  deterministic `(corpus_pair, detector, query-reference hash bucket)`
+  partitions. Four stable SHA-256 prefix buckets keep complete query windows
+  together. Each DuckDB partition is capped at 2 GiB of spill and reserves the
+  configured disk floor plus a 256-MiB safety margin, failing before query
+  execution when bounded headroom is unavailable. The sensitivity-only
+  preferred DuckDB budget is 1 GiB inside the unchanged process-wide guard.
+  Focused formatting, lint, type, multi-detector equivalence, spill-cleanup,
+  and fail-before-floor tests pass.
+- Full-scale physical diagnostic: the preserved attempt-3 ranking tree streamed
+  all 28,336,934 corrected critical-core comparison rows in 600 schema-cast
+  frames in 1,637.97 seconds. Stderr was empty, minimum free disk was
+  21,304,016,896 bytes, guarded peak RSS was 1,997,938,688 bytes, and the spill
+  directory cleaned completely. Only operational counts and resource
+  telemetry were read; no score, candidate identity, held-out metric, or
+  science-gate conclusion was inspected. No registered scientific parameter
+  changed.
+- Resumed attempt 4 (2026-07-17): ran from 19:48:56 to 23:25:25 local time and
+  completed all 1,565 ranking parts plus both sensitivity comparisons. The
+  intact, unpromoted staging tree retains 5,718,310,351 bytes of rankings,
+  640 sensitivity parts totaling 4,601,220,953 bytes, all 14 governed sparse
+  indexes, three index-metadata parts, and both feature tables. Tier 3 setup
+  then failed before producing an evaluation row when Rust could not allocate
+  708,873,488 bytes for the global Polars distinct-strata scan. Stderr contains
+  only that allocator failure. No candidate identity, held-out score, null
+  result, or science-gate value was inspected.
+- Attempt-4 recovery boundary: the preserved staging tree is now adopted only
+  after every existing Parquet leaf passes bounded schema, order, count, and
+  hash checks. Ranking strata are reconciled one leaf at a time. Because exact
+  primary candidate aggregate traces were lost with process memory and cannot
+  be recovered losslessly from top-100 rows, resume recomputes only primary
+  retrieval from the persisted primary sparse indexes and verifies every
+  regenerated ranking leaf against the preserved governed logical content.
+  Aggregate updates receive a private completion checkpoint. Completed
+  critical-core retrieval, Qere/Ketiv retrieval, and both sensitivities are
+  not repeated. Exact primary split-provenance payloads are reconciled from
+  bounded ranking leaves, with final strict validation retaining anchored
+  database reconstruction; this avoids repeating the measured 8.5-GB
+  provenance spill beside the preserved staging tree. Focused recovery tests,
+  Ruff, formatting, and mypy pass. This changes physical execution and
+  checkpointing only; all frozen scientific parameters remain unchanged.
+- First resume invocation: stopped before staging adoption because the prior
+  governed DuckDB spill root still contained empty `experiment/` and
+  `sequences/` directories. Inventory confirmed zero files and zero bytes.
+  Cleanup now accepts only an exact governed spill root whose complete
+  descendant tree contains directories and no files or symlinks; any content
+  still fails closed. The preserved staging tree was untouched.
+- Second resume invocation: bounded staging adoption and preparation completed,
+  then recovery stopped before retrieval because eight primary Hebrew passages
+  with no persisted top-100 ranking row were absent from the ranking-derived
+  split-provenance map. All eight have real Tier 3 mappings, so the generic
+  no-assignment payload was not substituted. Recovery now performs an exact,
+  512-MiB-spill-capped `json_contains` lookup for only missing passage IDs and
+  passes those rows through the unchanged grouping and canonical digest logic.
+  A fixture proves that targeted and full expansion payloads match exactly.
+  The preserved staging tree remained untouched; no candidate, score, held-out
+  metric, null result, or science-gate value was inspected.
+- Third resume launcher invocation: did not reach the pipeline because
+  PowerShell split the workspace path containing a space. Its usage-only
+  stderr is retained; no staging file was opened or changed.
+- Fourth resume invocation: successfully adopted the preserved tree, recovered
+  all eight exact split-provenance payloads, regenerated and matched all 968
+  primary ranking batches, and finalized the private candidate checkpoint as
+  968 Parquet parts plus its content-hashed completion manifest
+  (337,330,561 bytes total). The process then repeated the exact
+  708,873,488-byte Rust allocation failure before any Tier 3 output row was
+  written. This isolated the remaining allocator to the subsequent global
+  Polars candidate-universe grouping, not ranking-strata discovery.
+- Candidate-universe storage correction: directory-backed rankings now
+  accumulate the unchanged `(corpus pair, representation, query)` sets one
+  bounded Parquet leaf at a time, pool repeated identifiers, enforce the same
+  250-target maximum during accumulation, and return canonically sorted unique
+  targets. A fixture proves exact equality with the original global grouping,
+  including cross-detector target deduplication. The finalized checkpoint
+  prevents another resume from repeating primary retrieval. No score,
+  candidate identity, held-out metric, null result, or science-gate value was
+  inspected, and no scientific parameter changed.
+- Fifth resume invocation: loaded the finalized candidate checkpoint, passed
+  the former 708,873,488-byte candidate-universe failure point, and kept the
+  replacement universe pass near 1 GiB resident memory. Windows private commit
+  reached approximately 8.6 GiB and expanded the pagefile, while the separate
+  free-disk guard retained about 8 GiB above its mandatory floor. Before any
+  Tier 3 row was written, the following per-detector global ranking collection
+  attempted a different 1,827,928,004-byte Rust allocation and exited. Stderr
+  contains only that allocator failure.
+- Detector-ranking storage correction: evaluation now streams each detector's
+  query-filtered rows one sorted Parquet leaf at a time, pools repeated stable
+  IDs, enforces the unchanged top-100 target bound, checks canonical rank and
+  target order plus duplicate identities, and constructs the same query target
+  and scored-ranking maps. A fixture proves exact equality with the prior
+  materialized path. A tiny private progress marker inside the already ignored
+  checkpoint directory records the last resource-check stage for any raw
+  allocator exit and is removed with the checkpoint before promotion. No
+  scientific value or frozen parameter changed.
+- Sixth resume invocation: completed the full edition-complete Tier 3
+  evaluation and the critical-core baselines and detectors through the final
+  composite aggregation. Because result dictionaries were retained across all
+  baselines, detectors, and both profiles until final assembly, Windows private
+  commit reached approximately 10 GiB and expanded the pagefile. The final
+  progress marker was
+  `evaluation:critical_core:detector:rrf_composite:leaf-1536:groups-25222`;
+  stderr contains only `memory allocation of 1632 bytes failed`. No evaluation
+  artifact, null artifact, or science-gate report was emitted, and no
+  held-out value or candidate identity was inspected. The pagefile released
+  its transient space after exit; the 9.76-GiB staging tree and
+  337,330,561-byte candidate checkpoint remain intact.
+- Evaluation-result storage correction: each unchanged baseline or detector
+  batch is now schema-cast and written to a private completion-marked Parquet
+  checkpoint before its Python rows are released. Resumes validate run,
+  configuration, preregistration, profile, detector, physical SHA-256, schema,
+  row count, lineage singletons, and evaluation-ID uniqueness before reusing a
+  part. The final frame retains the governed global sort and gate semantics and
+  is written and released before null calibration. A fixture proves exact
+  equality among the direct, checkpointed, and checkpoint-resumed paths and
+  proves completed detector rankings are not reloaded. Focused Ruff, format,
+  mypy, and 25 evaluation/pipeline tests pass. No frozen scientific parameter
+  changed.
+- Background-launch diagnostics (2026-07-18): attempt 5g's sandboxed
+  `Start-Process` wrapper exited without a worker and left empty stdout and
+  stderr logs. Attempts 5h and 5i each created a child worker after their
+  transient wrapper disappeared. The persistent children were initially
+  mistaken for completed launches, overlapped, and both failed at approximately
+  15:04 local time under combined memory pressure. Attempt 5h retained a
+  4,442-byte allocator traceback after completing three edition-complete
+  baseline checkpoint parts; attempt 5i retained a 6,007-byte allocator
+  traceback before adding another trusted completion. Attempt 5j was a
+  two-second startup probe used only to establish the wrapper/child behavior;
+  its logs are empty. A later nonprivileged census confirmed all earlier
+  workers were gone before attempt 5k. All logs and the three physical parts
+  remain preserved. The parts are reusable only after every registered
+  checkpoint identity, schema, lineage, row-count, evaluation-ID, and SHA-256
+  check succeeds; the overlap is not treated as a scientific replicate.
+- Sole-worker attempt 5k (2026-07-18 18:09:27 through 2026-07-19 05:24:16
+  local time): **preserved failed execution**. It validated and reused the
+  three completed baseline checkpoints, completed and validated the remaining
+  23 Tier 3 batches, assembled the governed evaluation artifact, completed all
+  600 registered null replicates (100 iterations for each of two null families
+  across all three primary corpus pairs), materialized calibration, and
+  completed the global candidate-ranking preparation. It then wrote four
+  complete, aligned parts for each candidate-pair, detector-score,
+  candidate-evidence, shared-evidence, and ablation artifact before
+  materialization stopped on one BM25 evidence comparison:
+  `persisted=12.867698770178` and `recomputed=12.867698770179`. This is an
+  adjacent one-unit bin at the already frozen 12-decimal output precision,
+  caused by different deterministic float64 reduction paths. The scores,
+  ranks, configuration, preregistration, candidate identities, and held-out
+  results were not changed or inspected. The stderr log, a posthoc provenance
+  record, all 26 Tier 3 checkpoints, the complete primary-candidate checkpoint,
+  all null/calibration artifacts, and all complete candidate parts remain in
+  ignored local storage.
+- Adjacent-bin reconciliation and recovery provenance: governed evidence
+  reproduction now maps the persisted and recomputed float64 values to exact
+  integer bins after fixed-decimal formatting. Exact matches retain the
+  original trace bytes; a difference of exactly one bin is retained explicitly
+  in the evidence trace without changing either score; a difference greater
+  than one bin or any non-finite value still fails closed. Resumed candidate
+  leaves are replayed and compared rather than overwritten. Execution
+  sidecars are written before pipeline work, bind the frozen configuration,
+  upstream inputs, actual seeds, reused physical parts and checkpoints, and
+  promoted output hashes, and preserve failed and successful attempts
+  separately. These are numerical-provenance and execution-recovery
+  corrections only.
+- Sole-worker attempt 5l (2026-07-19 11:08:04 through 11:23:27 local time):
+  **preserved failed execution**. The clean-commit execution sidecar
+  authenticated and adopted 2,233 existing artifact leaves, the finalized
+  968-part primary-candidate checkpoint, and its completion manifest before
+  beginning bounded reconstruction of the completed evaluation state. A
+  transient Windows reader or scanner lock then denied one overwrite of the
+  private `progress.txt` diagnostic marker. The pipeline failed closed before
+  promotion; the canonical output remained absent, both worker processes
+  exited, and the complete 10,910,973,940-byte staging tree remained intact
+  with all 968 primary parts and all 26 Tier 3 manifests and parts. The stderr
+  SHA-256 is
+  `00431fd5391ca0d8800653f657326e8cb635809f6ae721dcafced77fccb3eb2d`;
+  the finalized failed-sidecar SHA-256 is
+  `d59a59ee497510cacc17b461d7c152ac3515a444ad25bf6e253c001a2d4f7aef`.
+  No candidate identity, held-out value, null result, or science-gate
+  conclusion was inspected.
+- Resume-marker lock correction: private progress-marker writes now follow the
+  repository's established bounded Windows scanner-lock policy. Only
+  `PermissionError` is retried, for ten total attempts with increasing
+  50-millisecond steps; any other operating-system error fails immediately,
+  and a persistent permission denial still raises the original fail-closed
+  pipeline error after at most 2.25 seconds. Tests cover transient recovery,
+  persistent denial, and immediate failure for other errors. The marker is
+  diagnostic and ignored; no scientific artifact, method, score, rank,
+  configuration, preregistration, or frozen parameter changed.
+- Late-failure preservation: the private primary/Tier 3 checkpoint tree now
+  moves to a governed ignored sibling immediately before final output
+  construction, is restored after failure or on the next invocation after a
+  process interruption, and is deleted only after DuckDB loading and the
+  successful execution manifest are durable. Fresh full builds opt into
+  preserving their governed staging tree on failure. This prevents a late
+  operational error from forcing repetition of authenticated expensive work.
+- Sole-worker attempt 5n (2026-07-19 11:45:30 through 2026-07-20 19:39:20
+  local time): **preserved failed execution**. The resume authenticated and
+  reused the 2,233 preserved artifact leaves, all 968 primary-candidate
+  checkpoint parts, and all 26 Tier 3 checkpoint parts. It completed 2,535
+  aligned leaves for each of the five candidate artifact families,
+  representing the exact sorted 975,000-candidate prefix of the 1,248,779
+  checkpointed candidate identities. It then failed after 114,830.59 seconds
+  with a DuckDB out-of-memory exception during the next bounded
+  candidate-rank lookup. The lazy `candidate_ranks` view had caused the same
+  baseline and eight ablation global window rankings to be expanded for every
+  5,000-identity lookup. The failed execution sidecar, stderr, 16,064-file
+  staging tree, checkpoints, null/calibration results, and complete candidate
+  leaves remain preserved; the canonical output was not promoted.
+- Candidate-rank storage correction: the identical governed SQL, global
+  candidate population, partitions, score ordering, and passage-ID tie breaks
+  are materialized once as a spill-controlled temporary DuckDB table before
+  bounded lookups begin. The input table is released after materialization.
+  Existing resumed leaves continue to be regenerated and compared logically;
+  none are accepted merely because they exist. A bounded fixture verifies
+  base-table materialization, partitioned/tied ranks, zero-score ablation
+  handling, and input-table release. The operational inventory confirmed that
+  the preserved prefix produced no review-eligible spool rows; no individual
+  candidate text, feature identity, score, rank, or held-out comparison was
+  inspected. No frozen parameter or science-gate rule changed.
+- Successful full run 1: **pending**. Record run identity, timing, resource
+  use, strict-validation result, table counts, and logical hashes here.
+- Successful full run 2 and determinism comparison: **pending**. Record the
+  independently rebuilt run identity, strict-validation result, and exact
+  comparison with run 1 here.
+- Final preregistered science-gate outcome: **pending**. Record known-link
+  recovery against every required baseline and stratum, both null families,
+  ablations, sensitivities, queue/evidence status, and whether Milestone 7 is
+  scientifically complete. Do not infer completion from implementation or
+  resource feasibility alone.
+- Boundary: Milestone 7 remains in progress. Milestone 8 review, semantic
+  retrieval, embeddings, learned ranking, Septuagint acquisition, and
+  STEPBible activation have not begun.
+
 Substantive experiments are prohibited until their prerequisite milestones and data-governance gates pass.

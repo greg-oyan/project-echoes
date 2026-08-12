@@ -31,7 +31,7 @@ TIER1_COLUMNS = [
 ]
 
 
-def test_master_plan_keeps_milestone_numbers_and_blank_time_budgets() -> None:
+def test_master_plan_keeps_milestone_numbers_and_bounded_time_budgets() -> None:
     plan = (PROJECT_ROOT / "docs" / "master-plan.md").read_text(encoding="utf-8")
     sections = re.findall(
         r"(?ms)^## Milestone (\d+):.*?(?=^## Milestone |^---\n\n# 35\.)",
@@ -44,7 +44,14 @@ def test_master_plan_keeps_milestone_numbers_and_blank_time_budgets() -> None:
         plan,
     )
     assert len(milestone_blocks) == 17
-    assert all(len(re.findall(r"(?m)^time_budget:\s*$", block)) == 1 for block in milestone_blocks)
+    for block in milestone_blocks:
+        budgets = re.findall(
+            r"(?ms)^time_budget:[^\S\r\n]*(\S.*?)(?=\n\n)",
+            block,
+        )
+        assert len(budgets) == 1
+        assert "working days" in budgets[0]
+        assert "capped" in budgets[0]
 
 
 def test_master_plan_contains_the_approved_methodological_gates() -> None:

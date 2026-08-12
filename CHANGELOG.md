@@ -4,7 +4,184 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+
+- ADR 0017 is amended from its original CCX43 selection because
+  CCX43, CCX53, and CCX63 are unavailable to the owner's Hetzner account. The
+  active Milestone 7 execution appliance is now an owner-provisioned CCX33 in
+  Hillsboro, with Ashburn as fallback: Ubuntu 24.04, 8 dedicated AMD vCPUs,
+  32 GiB RAM, 240 GB SSD, DuckDB 22 GiB, `MemoryHigh=26G`,
+  `MemoryMax=28G`, a six-thread machine ceiling, 120 GiB launch floor, and
+  checkpoint-bound safe stop below 25 GiB. The actual frozen thread count
+  remains exactly one. Owner-supplied rates set formal gross ceilings of USD
+  12.816 per 48-hour worker, USD 19.224 per 72-hour lifecycle, and USD 38.448
+  for two lifecycles; the separate USD 25.00 credit leaves estimated exposure
+  of USD 0.00 after one and USD 13.448 after two. This is operational only:
+  the frozen scientific configuration and hash, scientific pipeline stages,
+  protected database, corpus, passage, staging, checkpoint, generated-data and
+  final-output transfer entries, promotion and recovery semantics, strict
+  validation, and acceptance criteria remain unchanged. Only scoped
+  tracked-file manifest metadata is refreshed.
+
 ### Added
+
+- Safe single-node cloud execution preparation for the interrupted Milestone 7
+  recovery. ADR 0017 and `docs/cloud-execution.md` preserve the local-first
+  architecture while authorizing an owner-provisioned Ubuntu 24.04 Hetzner
+  CCX43 as the initial, now-superseded narrow execution exception. The
+  contract records explicit
+  machine, memory, thread, disk, wall-clock, cost, checkpoint, status, abort,
+  output, and retention field for every heavy milestone, treating unresolved
+  future fields as launch blockers; fills every previously blank master-plan
+  `time_budget`; and prohibits another real M7 run on the under-provisioned
+  Windows laptop. Manifest-driven WinSCP transfer, systemd execution, one-shot
+  status and validation, result packaging, and fail-closed Linux/DuckDB
+  portability checks live under `cloud/`. The source-specific private
+  processing determination excludes raw acquisitions and preserves the public
+  release boundary. Explicit Windows/POSIX resource implementations fix Ubuntu
+  typing; a transactional six-view passage rebind has pre/post database
+  receipts; signal-aware atomic writes, pre-promotion strict validation, and
+  retained recovery checkpoints prevent invalid or interrupted work from
+  becoming canonical. A durable promotion journal closes the filesystem/DuckDB
+  commit gap with a unique transaction marker and exact manifest/catalog
+  identities: bounded restart recovery retains a wholly exposed canonical run,
+  restores an unexposed tree to its exact staging path, and rejects ambiguous
+  state without deletion. Active-or-archived recovery is retry-safe, while a
+  failed, timed-out, signaled, OOM-killed, or otherwise non-successful systemd
+  result remains gate-blocking. Restricted data, local databases, staging, and
+  checkpoints remain untracked and are never automatically deleted.
+
+- One-shot Milestone 7 operations tooling and a bounded candidate-ranking
+  storage correction after sole-worker attempt 5n. The failed resume
+  authenticated the existing recovery inventory and produced 2,535 aligned
+  parts for each candidate artifact through the sorted 975,000-candidate
+  prefix before DuckDB exhausted memory while repeatedly expanding a lazy
+  global-rank view. The unchanged baseline and eight ablation window
+  expressions are now materialized once in the existing spill-controlled
+  temporary DuckDB database, after which bounded ID lookups read the table.
+  Resumed leaves are still regenerated and compared logically. One-shot
+  status, detached-start, and structural-validation PowerShell commands make
+  long-run ownership explicit without polling. No frozen scientific
+  configuration, candidate identity, score, rank, threshold, or
+  preregistration value changed.
+
+- Bounded Windows reader-lock tolerance for the ignored Milestone 7 resume
+  progress marker. Sole-worker attempt 5l authenticated the preserved staging
+  inventory and primary checkpoint, then failed closed when one live
+  diagnostic rewrite received `PermissionError`; its stderr, failed execution
+  sidecar, and complete 10.91-GB staging tree remain preserved. Marker writes
+  now retry only transient permission failures for at most ten attempts and
+  2.25 seconds, while other operating-system errors fail immediately and a
+  persistent denial retains the original fail-closed behavior. Frozen
+  scientific configuration, preregistration, scores, ranks, and artifacts are
+  unchanged.
+
+- Execution-attempt provenance and exact interrupted-build preservation for
+  Milestone 7. A sidecar is created before pipeline work and binds the governed
+  source tree, dependency lock, configuration and preregistration, pinned
+  datasets and upstream table hashes, all three actual seeds, authenticated
+  resume parts and checkpoints, promoted table/file inventories, runtime,
+  hardware, warnings, errors, and a bounded `echoes reproduce <run_id>`
+  command. Separate failed, recovered-composite, and fresh attempts are
+  retained. Archived deterministic-build roots can be authenticated against
+  the exact successful execution that produced them, and report acceptance
+  requires distinct successful executions rather than copied directories.
+  Private recovery checkpoints are quarantined transactionally across
+  promotion, DuckDB loading, and manifest finalization, while fresh full builds
+  preserve governed staging on error.
+
+- Fail-closed adjacent-bin reconciliation for deterministic float64 detector
+  evidence. Sole-worker attempt 5k completed all 26 Tier 3 checkpoint batches,
+  all 600 frozen null replicates, calibration, global candidate ranking, and
+  four aligned candidate/evidence parts before BM25 recomputation differed
+  from the persisted score by one unit at the frozen 12-decimal precision.
+  Exact matches remain byte-compatible; an adjacent one-bin result records
+  both fixed decimals and the signed delta without changing either score or
+  rank; larger or non-finite differences still fail. The failed attempt,
+  stderr, posthoc inventory, checkpoints, null results, and partial candidate
+  leaves remain preserved.
+
+- Fail-closed Milestone 7 interrupted-build recovery after the fourth atomic
+  attempt completed all ranking and sensitivity artifacts but hit a
+  708,873,488-byte Rust allocator failure during Tier 3 strata discovery.
+  Governed staging adoption now validates and hashes every preserved leaf,
+  strata discovery projects one bounded Parquet leaf at a time, and a private
+  content-hashed primary-candidate checkpoint prevents repeated recovery work.
+  The one lost in-memory aggregate set is reconstructed exactly from persisted
+  primary indexes while every regenerated ranking leaf is compared with the
+  preserved logical rows; completed critical, Qere/Ketiv, and sensitivity
+  stages are skipped. Ranking-derived split provenance is completed for the
+  eight zero-ranking passages by an exact, spill-capped anchored mapping lookup
+  whose canonical payload matches the original full expansion. After all 968
+  regenerated primary batches matched and checkpointed, the repeated allocator
+  failure isolated the next global candidate-universe grouping; directory
+  inputs now build that identical sorted unique-target mapping one bounded leaf
+  at a time. A subsequent 1,827,928,004-byte allocator failure isolated the
+  next global per-detector ranking collection; evaluation now streams those
+  filtered rows per leaf and produces the same canonically validated target
+  and score maps. A later 1,632-byte allocation failure at the final
+  critical-core composite exposed cumulative retention of all Tier 3 Python
+  result rows. Each unchanged baseline/detector batch now receives a typed,
+  identity- and SHA-256-validated private Parquet completion checkpoint and is
+  released immediately; validated resumes skip completed detector passes, and
+  the assembled governed frame is written and released before null
+  calibration. Direct, checkpointed, and resumed outputs are fixture-equal.
+  Windows background-launch diagnostics also exposed transient wrapper
+  processes whose child workers could persist; two mistakenly overlapping
+  resumes failed under combined memory pressure and remain preserved as failed
+  attempts. A subsequent sole-worker resume validates every reusable
+  checkpoint part by frozen run/configuration/preregistration identity, schema,
+  lineage, row count, evaluation IDs, and physical SHA-256 before reuse.
+  No frozen scope, method, seed, threshold, null, or acceptance parameter
+  changed.
+
+- Bounded Milestone 7 sensitivity materialization after the third unpromoted
+  atomic attempt exposed a 13.4-GB global-join spill. The unchanged
+  reference-keyed comparison now runs in deterministic
+  corpus-pair/detector/query-reference-hash partitions with a 2-GiB
+  per-partition spill cap and a pre-query reserve for the governed disk floor
+  plus a 256-MiB safety margin. A full-scale operational diagnostic streamed
+  all 28.3 million critical-sensitivity rows while retaining more than
+  21.3 GB free. The failed attempt, exact staging/spill footprint, absence of
+  held-out inspection, and physical-only correction are recorded in ADR 0015
+  and the experiment log.
+
+- Build Week demonstration export governance and implementation: ADR 0016
+  defines a tracked `demo/data/echoes-demo-v1/` bundle of authenticated run
+  metadata, real Tier 3 recoveries, a frozen unreviewed queue sample, and
+  Qere/Ketiv and disputed-profile sensitivity examples. The deterministic
+  exporter exposes stable lexical feature IDs, positions, frequencies, scores,
+  ranks, flags, null comparisons, hashes, and attribution while prohibiting
+  source lexical values, reconstructed text, glosses, morphology strings, raw
+  records, and local paths. A recursive fail-closed schema validator and tests
+  prevent restricted or unresolved redistribution fields from entering the
+  public JSON. The export records no candidate review, interpretation, or
+  novelty decision and does not begin Milestone 8.
+
+- Milestone 7 pre-heldout implementation closure on 2026-07-13: ADR 0015 and
+  the authenticated experiment preregistration now explicitly freeze the
+  edition-complete primary verse experiment, full critical-core Greek
+  sensitivity, and OSHB-locus-bounded Qere/Ketiv sensitivity. Typed lexical
+  artifacts cover directional rankings, candidates, decomposed detector
+  evidence, both repeated null families, threshold selection, full Tier 3
+  evaluation strata, all eight recomputed ablations, sensitivity comparisons,
+  an unreviewed queue, issues, and metadata. The audit-driven closure occurred
+  before any held-out result or candidate identity was generated; it adds real
+  presumed-negative discrimination, raw and penalty-adjusted RRF provenance,
+  analytical-overlap and Benjamini-Hochberg scope, evidence/ablation digests,
+  actual split and leakage provenance, and enforced process-memory/thread
+  controls. No Milestone 8 review, semantic retrieval, embedding, or novelty
+  decision has begun.
+
+- Directional remove-English counterfactuals are now stored once on each
+  content-hashed bridge ranking and exposed through the derived
+  `lexical_directional_english_ablation` DuckDB view. The eight governed
+  candidate-pair ablations remain typed rows in `ablation_results`; strict
+  validation rejects any reintroduced directional duplicates. Frozen ranking
+  and candidate hashes are unchanged. This lossless physical normalization
+  removes a projected 6.589 GiB of redundant production output after two
+  incomplete atomic attempts established that the duplication could violate
+  the mandatory 10 GiB free-disk floor.
 
 - Milestone 6 known-link benchmark implementation completed on 2026-07-13:
   ADR 0014
