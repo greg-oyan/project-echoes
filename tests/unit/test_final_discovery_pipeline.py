@@ -337,6 +337,7 @@ def test_production_guard_requires_linux_and_exact_authorization(
         assert_production_authorized(config)
 
     monkeypatch.setenv("ECHOES_AUTHORIZE_PRODUCTION", "final-discovery-v1")
+    monkeypatch.delenv("INVOCATION_ID", raising=False)
     with pytest.raises(FinalDiscoveryCampaignError, match="systemd invocation"):
         assert_production_authorized(config)
 
