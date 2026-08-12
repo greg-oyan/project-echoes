@@ -9,6 +9,7 @@ import os
 import platform
 import sys
 from collections.abc import Callable, Mapping, Sequence
+from importlib import import_module
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -204,15 +205,14 @@ def load_offline_sentence_encoder(root: Path, pin: ModelPin) -> OfflineSentenceT
     os.environ["HF_HUB_OFFLINE"] = "1"
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
     try:
-        from sentence_transformers import (
-            SentenceTransformer,  # type: ignore[import-not-found,unused-ignore]
-        )
+        sentence_transformers = import_module("sentence_transformers")
     except ImportError as exc:  # pragma: no cover - exercised only with the optional group
         raise SemanticError(
             "the pinned models dependency group is required for production embeddings"
         ) from exc
+    sentence_transformer = sentence_transformers.SentenceTransformer
     try:
-        model = SentenceTransformer(
+        model = sentence_transformer(
             str(root.resolve()),
             device="cpu",
             local_files_only=True,
