@@ -51,25 +51,25 @@ is no timer, daemon, sleep loop, or continuously running disk monitor.
 
 ### Measured preproduction resource gate
 
-The latest bounded, text-free medium benchmark completed in 32.097 seconds on
-the development laptop. Its 1,000-pair disk sample covered all nine detectors,
-9,000 evidence rows, 32 strata, four external-sort chunks, both final-null
+The canonical clean-commit, text-free medium benchmark completed in 33.521
+seconds on the development laptop. Its 1,000-pair disk sample covered all nine
+detectors, 9,000 evidence rows, 32 strata, four external-sort chunks, both final-null
 scopes, and review-index lookup. Direct 100,000-score measurements ran each
 registered null kernel for the full 1,000 iterations. Detector calibration
-took 9.159 seconds; permutation-like and bootstrap kernels took 4.112 and
-0.995 seconds. No source text, model, network, or cloud resource was used.
+took 9.133 seconds; permutation-like and bootstrap kernels took 4.263 and
+1.014 seconds. No source text, model, network, or cloud resource was used.
 
 The projection is tied to the campaign scale contract rather than nine rows
 for every pair: at most 2,592,480 retained pairs, 11,718,699 evidence rows,
 6,633 pair strata, 59,697 detector-strata, 10.123211 billion permutation-like
 cells, and 1.595488 billion bootstrap cells. Each production stage is counted
-once. A 1.25-safety-factor projection of measured work is 20.77 hours. A
+once. A 1.25-safety-factor projection of measured work is 25.254 hours. A
 separate 32-hour reserve covers unbenchmarked representation and detector
 feature extraction (16 hours), B2 materialization/upload/verification (8
 hours), and strict validation/packaging/review artifacts (8 hours). The
-planning range is 20.77--52.77 hours, leaving 43.23 hours below the frozen
-96-hour stop. At the documented USD 0.529/hour assumption, the 52.77-hour
-worker portion is approximately USD 27.91 before setup time and the separately
+planning range is 25.254--57.254 hours, leaving 38.746 hours below the frozen
+96-hour stop. At the documented USD 0.529/hour assumption, the 57.254-hour
+worker portion is approximately USD 30.29 before setup time and the separately
 reserved B2 amount; the launcher still budgets the full 96-hour worst case.
 
 Projected persistent benchmark artifacts are 121,424,656,152 bytes (113.086
@@ -81,10 +81,10 @@ text and model downloads by design and is not permission to reduce the launch
 or checkpoint disk gates.
 
 Schema 2 records the measured process peak RSS against the registered
-`MemoryMax=56G` ceiling and fails closed if the measurement is unavailable or
-exceeds that limit. The benchmark report is preserved for diagnosis, but its
-command exits nonzero unless runtime, memory, disk, and exact cardinality all
-pass.
+`MemoryMax=56G` ceiling; the canonical measurement observed 258,920,448 bytes.
+It fails closed if the measurement is unavailable or exceeds that limit. The
+benchmark report is preserved for diagnosis, but its command exits nonzero
+unless runtime, memory, disk, and exact cardinality all pass.
 
 The authoritative benchmark must be generated outside the repository from
 the exact clean launch commit and then added at
@@ -92,6 +92,9 @@ the exact clean launch commit and then added at
 `report_status` must be `commit_bound_clean`; its commit, code/config hashes,
 resource gates, and file SHA-256 must be recorded together. A dirty-tree
 development report is provisional evidence only and cannot authorize launch.
+The canonical report is bound to commit
+`bc0e0dcbc038e55ba7f409df7dca0b4c9258a4e3` and has SHA-256
+`3f03d2c21a1585fbf9c91f9f48d2eb693ad985c58d6d07d74465128ff0e50725`.
 
 ## Price and budget gate
 
