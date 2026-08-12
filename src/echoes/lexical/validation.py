@@ -61,6 +61,7 @@ from echoes.lexical.resources import (
     ProcessResourceGuard,
     configure_duckdb_connection,
 )
+from echoes.lexical.sparse import SparseIndexError, SparseLexicalIndex, load_sparse_index
 from echoes.lexical.statistics import calibrate_null_counts, hypergeometric_upper_tail
 from echoes.lexical.storage import (
     DUCKDB_ARTIFACT_NAMES,
@@ -91,6 +92,17 @@ _NULL_FAMILIES = {
 }
 _PRIMARY_CORPUS_PAIRS = {"hb_hb", "gnt_gnt"}
 _CROSS_CORPUS_PAIR = "hb_gnt_english_bridge"
+_VALIDATION_DUCKDB_MEMORY_BYTES = 2 * 1024**3
+_QUANTIZATION_BATCH_SIZE = 25_000
+_TRACE_EVIDENCE_FAMILIES = {
+    "longest_common_subsequence_trace",
+    "weighted_sequence_alignment_trace",
+}
+_DERIVED_ENGLISH_EVIDENCE_FAMILIES = {
+    "english_gloss_ngram",
+    "english_gloss_skipgram",
+}
+_SPECIAL_EVIDENCE_FAMILIES = _TRACE_EVIDENCE_FAMILIES | _DERIVED_ENGLISH_EVIDENCE_FAMILIES
 _ABLATION_NAMES = (
     "remove_tfidf",
     "remove_bm25",
@@ -464,6 +476,76 @@ def sparse_index_physical_hash(index_directory: Path) -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
+def _update_portable_array_hash(
+    digest: hashlib._Hash,
+    name: str,
+    values: np.ndarray,
+    *,
+    dtype: str,
+) -> None:
+    """Hash decoded array values in a platform-independent byte representation."""
+
+    canonical = np.ascontiguousarray(np.asarray(values, dtype=np.dtype(dtype)))
+    digest.update(name.encode("utf-8"))
+    digest.update(b"\0")
+    digest.update(json.dumps(list(canonical.shape), separators=(",", ":")).encode("ascii"))
+    digest.update(b"\0")
+    digest.update(dtype.encode("ascii"))
+    digest.update(b"\0")
+    digest.update(canonical.tobytes(order="C"))
+    digest.update(b"\0")
+
+
+def sparse_index_portable_hash(index_directory: Path) -> str:
+    """Hash decoded sparse-index content independently of ``.npy`` file headers.
+
+    ``sparse_index_physical_hash`` remains the legacy receipt for exact stored bytes. This
+    additional identity normalizes decoded metadata and arrays, so equivalent indexes written
+    by different supported platforms or NumPy header versions have the same portable hash.
+    """
+
+    index = load_sparse_index(index_directory)
+    metadata = {
+        "family": index.family,
+        "l2_normalize": index.l2_normalize,
+        "logical_hash": index.logical_hash,
+        "namespace": index.namespace,
+        "passage_books": list(index.passage_books),
+        "passage_corpora": list(index.passage_corpora),
+        "passage_ids": list(index.passage_ids),
+        "representation_id": index.representation_id,
+        "smooth_idf": index.smooth_idf,
+        "sublinear_tf": index.sublinear_tf,
+        "vocabulary": list(index.vocabulary),
+    }
+    digest = hashlib.sha256()
+    digest.update(b"project-echoes-sparse-index-portable-v1\0")
+    digest.update(
+        json.dumps(
+            metadata,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    )
+    digest.update(b"\0")
+    arrays = (
+        ("shape", np.asarray(index.counts.shape), "<i8"),
+        ("counts-indptr", index.counts.indptr, "<i8"),
+        ("counts-indices", index.counts.indices, "<i8"),
+        ("counts-data", index.counts.data, "<f8"),
+        ("tfidf-indptr", index.tfidf.indptr, "<i8"),
+        ("tfidf-indices", index.tfidf.indices, "<i8"),
+        ("tfidf-data", index.tfidf.data, "<f8"),
+        ("corpus-frequency", index.corpus_frequency, "<i8"),
+        ("document-frequency", index.document_frequency, "<i8"),
+        ("idf", index.inverse_document_frequency, "<f8"),
+    )
+    for name, values, dtype in arrays:
+        _update_portable_array_hash(digest, name, values, dtype=dtype)
+    return digest.hexdigest()
+
+
 def shared_evidence_digest(rows: Sequence[Mapping[str, object]]) -> str:
     """Return the governed digest for all detailed evidence supporting one pair.
 
@@ -800,7 +882,7 @@ def _artifact_connection(output_dir: Path) -> Iterator[duckdb.DuckDBPyConnection
     ):
         configure_duckdb_connection(
             connection,
-            memory_limit_bytes=2 * 1024**3,
+            memory_limit_bytes=_VALIDATION_DUCKDB_MEMORY_BYTES,
             temp_directory=Path(temporary) / "spill",
             thread_count=1,
         )
@@ -854,6 +936,230 @@ def _count_check(
     return count
 
 
+def _python_quantization_mismatches(
+    connection: duckdb.DuckDBPyConnection,
+    *,
+    table: str,
+    raw_column: str,
+    quantized_column: str,
+    decimals: int,
+) -> int:
+    """Count persisted values that differ from Python's half-even ``round`` contract.
+
+    DuckDB's decimal tie handling is not the writer's contract. Rows are therefore streamed in
+    bounded batches and reproduced with Python rather than materialized or validated with SQL
+    ``round``.
+    """
+
+    cursor = connection.execute(f'SELECT "{raw_column}","{quantized_column}" FROM "{table}"')
+    mismatches = 0
+    for raw_value, quantized_value in _fetchmany(cursor, _QUANTIZATION_BATCH_SIZE):
+        try:
+            raw_float = float(str(raw_value))
+            quantized_float = float(str(quantized_value))
+        except (TypeError, ValueError):
+            mismatches += 1
+            continue
+        if (
+            not math.isfinite(raw_float)
+            or not math.isfinite(quantized_float)
+            or quantized_float != round(raw_float, decimals)
+        ):
+            mismatches += 1
+    return mismatches
+
+
+def _ranking_order_mismatches(connection: duckdb.DuckDBPyConnection) -> int:
+    """Count rank-order violations using raw RRF and quantized detector scores."""
+
+    return _scalar(
+        connection,
+        "WITH ordered AS (SELECT *,CASE WHEN detector='rrf_composite' "
+        "THEN raw_score ELSE quantized_score END AS order_score,"
+        "lag(CASE WHEN detector='rrf_composite' THEN raw_score ELSE quantized_score END) "
+        "OVER w AS previous_score,lag(target_passage_id) OVER w AS previous_target "
+        "FROM directional_rankings WINDOW w AS (PARTITION BY experiment_scope,"
+        "analysis_profile,query_reading,target_reading,granularity,query_passage_id,"
+        "representation_id,detector ORDER BY rank)) SELECT count(*) FROM ordered WHERE "
+        "tie_break_key<>target_passage_id OR (previous_score IS NOT NULL AND "
+        "(order_score>previous_score OR (order_score=previous_score AND "
+        "target_passage_id<previous_target)))",
+    )
+
+
+def _canonical_hash_id(prefix: str, payload: object) -> str:
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"{prefix}_{hashlib.sha256(encoded).hexdigest()}"
+
+
+def _special_evidence_identity_mismatches(
+    connection: duckdb.DuckDBPyConnection,
+) -> int:
+    """Validate vocabulary-backed and exact derived/trace evidence identities."""
+
+    family_list = ",".join(f"'{value}'" for value in sorted(_SPECIAL_EVIDENCE_FAMILIES))
+    mismatches = _scalar(
+        connection,
+        "SELECT count(*) FROM shared_evidence e LEFT JOIN candidate_pairs p "
+        "USING(candidate_pair_id) LEFT JOIN feature_vocabulary f USING(feature_id) "
+        "WHERE p.candidate_pair_id IS NULL OR (e.evidence_family NOT IN ("
+        + family_list
+        + ") AND (f.feature_id IS NULL OR e.feature_value<>f.feature_value))",
+    )
+    cursor = connection.execute(
+        "SELECT evidence_id,candidate_pair_id,evidence_family,feature_id,feature_value,"
+        "passage_a_positions_json,passage_b_positions_json FROM shared_evidence "
+        f"WHERE evidence_family IN ({family_list})"
+    )
+    for (
+        evidence_id,
+        candidate_pair_id,
+        evidence_family,
+        feature_id,
+        feature_value,
+        positions_a_json,
+        positions_b_json,
+    ) in _fetchmany(cursor, _QUANTIZATION_BATCH_SIZE):
+        try:
+            positions_a = json.loads(str(positions_a_json))
+            positions_b = json.loads(str(positions_b_json))
+        except json.JSONDecodeError:
+            mismatches += 1
+            continue
+        if not isinstance(positions_a, list) or not isinstance(positions_b, list):
+            mismatches += 1
+            continue
+        family = str(evidence_family)
+        if family in _DERIVED_ENGLISH_EVIDENCE_FAMILIES:
+            expected_feature_id = _canonical_hash_id(
+                "LF",
+                {"namespace": "en", "family": family, "value": str(feature_value)},
+            )
+            evidence_payload = {
+                "candidate_pair_id": str(candidate_pair_id),
+                "evidence_family": family,
+                "feature_id": expected_feature_id,
+                "positions_a": positions_a,
+                "positions_b": positions_b,
+            }
+        else:
+            value = str(feature_value)
+            evidence_payload = {
+                "candidate_pair_id": str(candidate_pair_id),
+                "evidence_family": family,
+                "features": value.split("\u241f") if value else [],
+                "positions_a": positions_a,
+                "positions_b": positions_b,
+            }
+            expected_feature_id = _canonical_hash_id("LF", evidence_payload)
+        expected_evidence_id = _canonical_hash_id("LE", evidence_payload)
+        if str(feature_id) != expected_feature_id or str(evidence_id) != expected_evidence_id:
+            mismatches += 1
+    return mismatches
+
+
+def _trace_position_mismatches(connection: duckdb.DuckDBPyConnection) -> int:
+    """Validate trace positions against the sequence axes used by retrieval."""
+
+    family_list = ",".join(f"'{value}'" for value in sorted(_TRACE_EVIDENCE_FAMILIES))
+    cursor = connection.execute(
+        "SELECT e.passage_a_positions_json,e.passage_b_positions_json,"
+        "e.passage_a_local_frequency,e.passage_b_local_frequency,p.corpus_pair,s.direction,"
+        "a.lemma_sequence_length,a.english_gloss_sequence_length,"
+        "b.lemma_sequence_length,b.english_gloss_sequence_length FROM shared_evidence e "
+        "JOIN candidate_pairs p USING(candidate_pair_id) LEFT JOIN candidate_detector_scores s "
+        "ON s.candidate_pair_id=e.candidate_pair_id AND s.detector='rrf_composite' "
+        "JOIN passage_feature_statistics a ON a.passage_id=p.passage_a_id "
+        "JOIN passage_feature_statistics b ON b.passage_id=p.passage_b_id "
+        f"WHERE e.evidence_family IN ({family_list})"
+    )
+    invalid = 0
+    for (
+        positions_a_json,
+        positions_b_json,
+        local_a,
+        local_b,
+        corpus_pair,
+        direction,
+        a_lemma,
+        a_gloss,
+        b_lemma,
+        b_gloss,
+    ) in _fetchmany(cursor, _QUANTIZATION_BATCH_SIZE):
+        try:
+            positions_a = json.loads(str(positions_a_json))
+            positions_b = json.loads(str(positions_b_json))
+            if str(corpus_pair) == _CROSS_CORPUS_PAIR:
+                canonical_a_length = int(str(a_gloss))
+                canonical_b_length = int(str(b_gloss))
+            else:
+                canonical_a_length = int(str(a_lemma))
+                canonical_b_length = int(str(b_lemma))
+            if str(direction) == "a_to_b":
+                position_a_limit = canonical_a_length
+                position_b_limit = canonical_b_length
+            elif str(direction) == "b_to_a":
+                position_a_limit = canonical_b_length
+                position_b_limit = canonical_a_length
+            else:
+                invalid += 1
+                continue
+
+            def valid(values: object, local: object, limit: int) -> bool:
+                return (
+                    isinstance(values, list)
+                    and bool(values)
+                    and len(values) == int(str(local))
+                    and all(
+                        not isinstance(value, bool)
+                        and isinstance(value, int)
+                        and 0 <= value < limit
+                        for value in values
+                    )
+                )
+
+            if not valid(positions_a, local_a, position_a_limit) or not valid(
+                positions_b, local_b, position_b_limit
+            ):
+                invalid += 1
+        except (TypeError, ValueError, json.JSONDecodeError):
+            invalid += 1
+    return invalid
+
+
+def _candidate_calibration_provenance_mismatches(
+    connection: duckdb.DuckDBPyConnection,
+    config: LexicalConfig,
+) -> int:
+    """Reconcile selected thresholds and the exact no-qualified-threshold sentinel."""
+
+    sample_size = config.null_models.calibration_pair_sample_size
+    return _scalar(
+        connection,
+        "WITH composite AS (SELECT candidate_pair_id,representation_id FROM "
+        "candidate_detector_scores WHERE detector='rrf_composite'), selected AS "
+        "(SELECT * FROM threshold_calibration WHERE detector='rrf_composite' AND selected) "
+        "SELECT count(*) FROM candidate_evidence e JOIN candidate_pairs p "
+        "USING(candidate_pair_id) JOIN composite s USING(candidate_pair_id) LEFT JOIN selected t "
+        "ON t.corpus_pair=p.corpus_pair AND t.representation_id=s.representation_id WHERE "
+        "e.calibration_selection_scope<>'frozen_corpus_pair_rrf_threshold' OR "
+        "(t.threshold_id IS NOT NULL AND (NOT e.both_null_families_present OR "
+        "e.selected_score_threshold IS DISTINCT FROM t.score_threshold OR "
+        "e.estimated_empirical_fdr IS DISTINCT FROM t.estimated_empirical_fdr OR abs("
+        f"e.null_model_empirical_rate-t.mean_null_candidate_count/{sample_size})>1e-15)) OR "
+        "(t.threshold_id IS NULL AND (e.both_null_families_present OR "
+        "e.selected_score_threshold IS DISTINCT FROM 1.0 OR NOT ("
+        "NOT isfinite(e.estimated_empirical_fdr) AND e.estimated_empirical_fdr>0) OR NOT ("
+        "NOT isfinite(e.null_model_empirical_rate) AND e.null_model_empirical_rate>0) OR "
+        "p.review_eligible))",
+    )
+
+
 def _validate_generic_tables(state: _State, connection: duckdb.DuckDBPyConnection) -> None:
     nullable_columns: dict[str, set[str]] = {
         "directional_rankings": {"rank_after_removing_all_english_features"},
@@ -866,6 +1172,7 @@ def _validate_generic_tables(state: _State, connection: duckdb.DuckDBPyConnectio
             "rank_after_removing_all_english_features",
         },
         "candidate_detector_scores": {"query_rank", "reverse_rank"},
+        "shared_evidence": {"pmi", "log_likelihood", "frequency_control"},
         "threshold_calibration": {
             "observed_to_null_enrichment",
             "estimated_empirical_fdr",
@@ -890,6 +1197,13 @@ def _validate_generic_tables(state: _State, connection: duckdb.DuckDBPyConnectio
             "top_k_overlap",
             "excluded_reason",
         },
+    }
+    nonfinite_sentinel_columns: dict[str, set[str]] = {
+        "candidate_evidence": {
+            "null_model_empirical_rate",
+            "estimated_empirical_fdr",
+            "selected_score_threshold",
+        }
     }
     unique_keys: dict[str, tuple[str, ...]] = {
         "feature_vocabulary": ("feature_id",),
@@ -952,7 +1266,10 @@ def _validate_generic_tables(state: _State, connection: duckdb.DuckDBPyConnectio
             sql=f'SELECT count(*) FROM "{name}" WHERE {null_predicate}',
         )
         float_columns = [
-            column for column, dtype in schema.items() if dtype in {pl.Float32, pl.Float64}
+            column
+            for column, dtype in schema.items()
+            if dtype in {pl.Float32, pl.Float64}
+            and column not in nonfinite_sentinel_columns.get(name, set())
         ]
         if float_columns:
             predicate = " OR ".join(f'NOT isfinite("{column}")' for column in float_columns)
@@ -1272,195 +1589,185 @@ def _validate_feature_integrity(
     )
 
 
+def _load_authoritative_passage_registry(
+    database_path: Path,
+) -> dict[str, tuple[str, str, str, str]]:
+    """Load the governed passage scope with a fixed DuckDB memory ceiling."""
+
+    if not database_path.is_file():
+        raise LexicalValidationError(f"authoritative passage database is absent: {database_path}")
+    registry: dict[str, tuple[str, str, str, str]] = {}
+    row_count = 0
+    with (
+        TemporaryDirectory(prefix="echoes-lexical-index-axis-") as temporary,
+        duckdb.connect(str(database_path), read_only=True) as source,
+    ):
+        configure_duckdb_connection(
+            source,
+            memory_limit_bytes=_VALIDATION_DUCKDB_MEMORY_BYTES,
+            temp_directory=Path(temporary) / "spill",
+            thread_count=1,
+        )
+        cursor = source.execute(
+            "SELECT passage_id,corpus,analysis_profile,analysis_reading,granularity FROM passages"
+        )
+        for passage_id, corpus, profile, reading, granularity in _fetchmany(cursor):
+            row_count += 1
+            key = str(passage_id)
+            if key in registry:
+                raise LexicalValidationError(
+                    f"authoritative passages contain duplicate passage ID {key}"
+                )
+            registry[key] = (
+                str(corpus),
+                str(profile),
+                str(reading),
+                str(granularity),
+            )
+    if len(registry) != row_count:
+        raise LexicalValidationError("authoritative passage registry cardinality changed")
+    return registry
+
+
+def _sparse_index_axis_mismatches(
+    index: SparseLexicalIndex,
+    metadata: Mapping[str, object],
+    source_registry: Mapping[str, tuple[str, str, str, str]],
+) -> int:
+    """Count row-axis facts outside the index's authoritative registered scope."""
+
+    allowed_corpora = set(str(metadata["corpus_scope"]).split("+"))
+    allowed_readings = set(str(metadata["reading"]).split("+"))
+    expected_profile = str(metadata["profile"])
+    expected_granularity = str(metadata["granularity"])
+    invalid = 0
+    for offset, passage_id in enumerate(index.passage_ids):
+        facts = source_registry.get(passage_id)
+        if facts is None:
+            invalid += 1
+            continue
+        corpus, profile, reading, granularity = facts
+        if (
+            corpus not in allowed_corpora
+            or profile != expected_profile
+            or reading not in allowed_readings
+            or granularity != expected_granularity
+            or index.passage_corpora[offset] != corpus
+        ):
+            invalid += 1
+    return invalid
+
+
 def _validate_sparse_indexes(
     state: _State,
     connection: duckdb.DuckDBPyConnection,
+    database_path: Path | None,
 ) -> None:
     rows = connection.execute("SELECT * FROM lexical_index_metadata ORDER BY index_id").fetchall()
     columns = [description[0] for description in connection.description]
-    for values in rows:
-        row = dict(zip(columns, values, strict=True))
-        index_id = str(row["index_id"])
-        try:
-            shape_values = _json_array(row["matrix_shape_json"])
-            if len(shape_values) != 2:
-                raise ValueError("matrix shape must have two dimensions")
-            shape = (int(str(shape_values[0])), int(str(shape_values[1])))
-        except (TypeError, ValueError) as exc:
-            state.add(
-                "index_shape_json",
-                f"Index matrix shape is invalid: {exc}.",
-                artifact="lexical_index_metadata",
-                record_id=index_id,
-            )
-            continue
-        if shape != (int(row["document_count"]), int(row["vocabulary_size"])):
-            state.add(
-                "index_shape_metadata",
-                "Index shape does not match document and vocabulary counts.",
-                artifact="lexical_index_metadata",
-                record_id=index_id,
-            )
-        if str(row["dtype"]) != "float64":
-            state.add(
-                "index_dtype",
-                "Governed sparse indexes must use float64.",
-                artifact="lexical_index_metadata",
-                record_id=index_id,
-            )
-        index_directory = state.output_dir / "indexes" / str(row["representation_id"])
-        required = {
-            "counts-data.npy",
-            "counts-indices.npy",
-            "counts-indptr.npy",
-            "shape.npy",
-            "corpus-frequency.npy",
-            "document-frequency.npy",
-            "idf.npy",
-            "metadata.json",
-        }
-        observed_index_files = (
-            {path.name for path in index_directory.iterdir() if path.is_file()}
-            if index_directory.is_dir()
-            else set()
+    metadata_rows = [dict(zip(columns, values, strict=True)) for values in rows]
+    expected_representations = {str(row["representation_id"]) for row in metadata_rows}
+    if len(expected_representations) != len(metadata_rows):
+        state.add(
+            "index_representation_duplicate",
+            "Sparse index metadata representation IDs must be unique.",
+            artifact="lexical_index_metadata",
         )
-        if observed_index_files != required:
+    index_root = state.output_dir / "indexes"
+    observed_entries = (
+        {path.name for path in index_root.iterdir()} if index_root.is_dir() else set()
+    )
+    unsafe_expected_entries = {
+        representation
+        for representation in expected_representations
+        if not (index_root / representation).is_dir() or (index_root / representation).is_symlink()
+    }
+    if observed_entries != expected_representations or unsafe_expected_entries:
+        state.add(
+            "index_inventory",
+            "Installed sparse-index directory set differs from governed metadata.",
+            artifact="lexical_index_metadata",
+            missing=sorted(expected_representations.difference(observed_entries)),
+            unexpected=sorted(observed_entries.difference(expected_representations)),
+            unsafe=sorted(unsafe_expected_entries),
+        )
+
+    source_registry: dict[str, tuple[str, str, str, str]] | None = None
+    if database_path is None:
+        state.add(
+            "index_passage_axis_unavailable",
+            "Authoritative passage database is required for sparse row-axis validation.",
+            artifact="lexical_index_metadata",
+        )
+    else:
+        try:
+            source_registry = _load_authoritative_passage_registry(database_path)
+        except (duckdb.Error, LexicalResourceError, LexicalValidationError, OSError) as exc:
             state.add(
-                "index_files_missing",
-                "Sparse index directory does not contain exactly the canonical CSR files.",
+                "index_passage_axis_unavailable",
+                f"Could not load authoritative passage scope: {exc}.",
+                artifact="lexical_index_metadata",
+            )
+
+    for row in metadata_rows:
+        index_id = str(row["index_id"])
+        representation_id = str(row["representation_id"])
+        index_directory = index_root / representation_id
+        try:
+            index = load_sparse_index(index_directory)
+        except (SparseIndexError, OSError, ValueError) as exc:
+            state.add(
+                "index_metadata_reconciliation",
+                f"Sparse index cannot be loaded under the canonical schema: {exc}.",
                 artifact="lexical_index_metadata",
                 record_id=index_id,
             )
             continue
         try:
-            disk_shape = tuple(
-                int(value) for value in np.load(index_directory / "shape.npy", allow_pickle=False)
+            declared_shape = tuple(
+                int(str(value)) for value in _json_array(row["matrix_shape_json"])
             )
-            data = np.load(index_directory / "counts-data.npy", mmap_mode="r", allow_pickle=False)
-            indices = np.load(
-                index_directory / "counts-indices.npy", mmap_mode="r", allow_pickle=False
-            )
-            indptr = np.load(
-                index_directory / "counts-indptr.npy", mmap_mode="r", allow_pickle=False
-            )
-            corpus_frequency = np.load(
-                index_directory / "corpus-frequency.npy", mmap_mode="r", allow_pickle=False
-            )
-            document_frequency = np.load(
-                index_directory / "document-frequency.npy", mmap_mode="r", allow_pickle=False
-            )
-            idf = np.load(index_directory / "idf.npy", mmap_mode="r", allow_pickle=False)
-            metadata = json.loads((index_directory / "metadata.json").read_text("utf-8"))
-        except (OSError, ValueError, json.JSONDecodeError) as exc:
+        except (TypeError, ValueError):
+            declared_shape = ()
+        identity_family = "normalized_surface" if index.family == "surface" else index.family
+        checks = {
+            "representation_id": index.representation_id == representation_id,
+            "feature_family": identity_family == str(row["feature_family"]),
+            "matrix_shape": tuple(index.counts.shape) == declared_shape,
+            "nonzero_count": int(index.counts.nnz) == int(row["nonzero_count"]),
+            "vocabulary_size": len(index.vocabulary) == int(row["vocabulary_size"]),
+            "document_count": len(index.passage_ids) == int(row["document_count"]),
+            "logical_matrix_hash": index.logical_hash == str(row["logical_matrix_hash"]),
+            "physical_file_hash": (
+                sparse_index_physical_hash(index_directory) == str(row["physical_file_hash"])
+            ),
+            "dtype": str(row["dtype"]) == "float64",
+            "storage_format": str(row["storage_format"]) == "canonical-npy-csr-v1",
+        }
+        failed = sorted(name for name, passed in checks.items() if not passed)
+        if failed:
             state.add(
-                "index_files_invalid",
-                f"Sparse index files are invalid: {exc}.",
+                "index_metadata_reconciliation",
+                "Loaded sparse index differs from governed metadata.",
                 artifact="lexical_index_metadata",
                 record_id=index_id,
+                failed_checks=failed,
             )
-            continue
-        if disk_shape != shape or len(data) != int(row["nonzero_count"]):
-            state.add(
-                "index_shape_nonzero",
-                "Sparse array shape or nonzero count differs from metadata.",
-                artifact="lexical_index_metadata",
-                record_id=index_id,
-            )
-        if (
-            len(indices) != len(data)
-            or len(indptr) != shape[0] + 1
-            or len(corpus_frequency) != shape[1]
-            or len(document_frequency) != shape[1]
-            or len(idf) != shape[1]
-        ):
-            state.add(
-                "index_array_dimensions",
-                "Canonical CSR side-array dimensions do not reconcile.",
-                artifact="lexical_index_metadata",
-                record_id=index_id,
-            )
-        elif (
-            data.dtype != np.dtype("<f8")
-            or indices.dtype != np.dtype("<i8")
-            or indptr.dtype != np.dtype("<i8")
-            or corpus_frequency.dtype != np.dtype("<i8")
-            or document_frequency.dtype != np.dtype("<i8")
-            or idf.dtype != np.dtype("<f8")
-        ):
-            state.add(
-                "index_array_dtype",
-                "Canonical sparse arrays do not use governed little-endian dtypes.",
-                artifact="lexical_index_metadata",
-                record_id=index_id,
-            )
-        elif (
-            (len(indptr) and (int(indptr[0]) != 0 or int(indptr[-1]) != len(data)))
-            or np.any(np.diff(indptr) < 0)
-            or np.any(indices < 0)
-            or (len(indices) and np.any(indices >= shape[1]))
-            or np.any(~np.isfinite(data))
-            or np.any(~np.isfinite(idf))
-        ):
-            state.add(
-                "index_csr_integrity",
-                "CSR offsets, columns, or values are invalid.",
-                artifact="lexical_index_metadata",
-                record_id=index_id,
-            )
-        if not isinstance(metadata, dict):
-            state.add(
-                "index_metadata_json",
-                "Sparse index metadata.json is not an object.",
-                artifact="lexical_index_metadata",
-                record_id=index_id,
-            )
-            continue
-        passage_ids = metadata.get("passage_ids")
-        vocabulary = metadata.get("vocabulary")
-        if not isinstance(passage_ids, list) or not isinstance(vocabulary, list):
-            state.add(
-                "index_axis_metadata",
-                "Sparse index passage and vocabulary axes are absent.",
-                artifact="lexical_index_metadata",
-                record_id=index_id,
-            )
-            continue
-        if len(passage_ids) != shape[0] or len(vocabulary) != shape[1]:
-            state.add(
-                "index_axis_count",
-                "Sparse index axis labels differ from the matrix shape.",
-                artifact="lexical_index_metadata",
-                record_id=index_id,
-            )
-        namespace = str(metadata.get("namespace", ""))
-        storage_family = str(metadata.get("family", ""))
-        identity_family = "normalized_surface" if storage_family == "surface" else storage_family
-        if (
-            identity_family != str(row["feature_family"])
-            or str(metadata.get("representation_id", "")) != str(row["representation_id"])
-            or any(
-                not isinstance(value, str) or not value.startswith(f"{namespace}:{storage_family}:")
-                for value in vocabulary
-            )
-        ):
-            state.add(
-                "index_vocabulary_namespace",
-                "Sparse vocabulary values do not match index family and namespace.",
-                artifact="lexical_index_metadata",
-                record_id=index_id,
-            )
+
         escaped_metadata = (index_directory / "metadata.json").as_posix().replace("'", "''")
+        namespace = index.namespace.replace("'", "''")
+        escaped_identity_family = identity_family.replace("'", "''")
         missing_vocabulary = _scalar(
             connection,
             "SELECT count(*) FROM read_text('"
             + escaped_metadata
-            + "') r,json_each(r.content,'$.vocabulary') j "
-            "LEFT JOIN feature_vocabulary f ON f.language_namespace='"
-            + namespace.replace("'", "''")
+            + "') r,json_each(r.content,'$.vocabulary') j LEFT JOIN feature_vocabulary f "
+            "ON f.language_namespace='"
+            + namespace
             + "' AND f.feature_family='"
-            + identity_family.replace("'", "''")
+            + escaped_identity_family
             + "' AND f.feature_value=substr(json_extract_string(j.value,'$'),"
-            + str(len(namespace) + len(storage_family) + 3)
+            + str(len(index.namespace) + len(index.family) + 3)
             + ") WHERE f.feature_id IS NULL",
         )
         if missing_vocabulary:
@@ -1474,9 +1781,9 @@ def _validate_sparse_indexes(
             connection,
             "SELECT count(*) FROM read_text('"
             + escaped_metadata
-            + "') r,json_each(r.content,'$.passage_ids') j "
-            "LEFT JOIN passage_feature_statistics p ON "
-            "p.passage_id=json_extract_string(j.value,'$') WHERE p.passage_id IS NULL",
+            + "') r,json_each(r.content,'$.passage_ids') j LEFT JOIN "
+            "passage_feature_statistics p ON p.passage_id=json_extract_string(j.value,'$') "
+            "WHERE p.passage_id IS NULL",
         )
         if missing_passages:
             state.add(
@@ -1486,38 +1793,16 @@ def _validate_sparse_indexes(
                 artifact="lexical_index_metadata",
                 record_id=index_id,
             )
-        if passage_ids != sorted(passage_ids) or vocabulary != sorted(vocabulary):
-            state.add(
-                "index_axis_order",
-                "Sparse index axes are not deterministically sorted.",
-                artifact="lexical_index_metadata",
-                record_id=index_id,
-            )
-        digest = hashlib.sha256()
-        digest.update(json.dumps(passage_ids, ensure_ascii=False, separators=(",", ":")).encode())
-        digest.update(json.dumps(vocabulary, ensure_ascii=False, separators=(",", ":")).encode())
-        digest.update(np.asarray(shape, dtype="<i8").tobytes())
-        digest.update(np.asarray(indptr, dtype="<i8").tobytes())
-        digest.update(np.asarray(indices, dtype="<i8").tobytes())
-        digest.update(np.asarray(data, dtype="<f8").tobytes())
-        logical_hash = digest.hexdigest()
-        if (
-            logical_hash != row["logical_matrix_hash"]
-            or metadata.get("logical_hash") != row["logical_matrix_hash"]
-        ):
-            state.add(
-                "index_logical_hash",
-                "Sparse index logical hash does not reproduce.",
-                artifact="lexical_index_metadata",
-                record_id=index_id,
-            )
-        if sparse_index_physical_hash(index_directory) != row["physical_file_hash"]:
-            state.add(
-                "index_physical_hash",
-                "Sparse index physical aggregate hash does not reproduce.",
-                artifact="lexical_index_metadata",
-                record_id=index_id,
-            )
+        if source_registry is not None:
+            axis_mismatches = _sparse_index_axis_mismatches(index, row, source_registry)
+            if axis_mismatches:
+                state.add(
+                    "index_passage_axis",
+                    "Sparse row-axis passage IDs disagree with authoritative passage scope. "
+                    f"Count={axis_mismatches}.",
+                    artifact="lexical_index_metadata",
+                    record_id=index_id,
+                )
 
 
 def _validate_directional_english_ablation(
@@ -1580,17 +1865,20 @@ def _validate_rankings(
             "OR is_self"
         ),
     )
-    _count_check(
-        state,
+    quantization_mismatches = _python_quantization_mismatches(
         connection,
-        artifact="directional_rankings",
-        code="ranking_quantization",
-        message="Quantized scores do not reproduce from raw scores.",
-        sql=(
-            "SELECT count(*) FROM directional_rankings WHERE "
-            f"quantized_score IS DISTINCT FROM round(raw_score, {decimals})"
-        ),
+        table="directional_rankings",
+        raw_column="raw_score",
+        quantized_column="quantized_score",
+        decimals=decimals,
     )
+    if quantization_mismatches:
+        state.add(
+            "ranking_quantization",
+            "Quantized scores do not reproduce with Python half-even semantics. "
+            f"Count={quantization_mismatches}.",
+            artifact="directional_rankings",
+        )
     _count_check(
         state,
         connection,
@@ -1614,21 +1902,14 @@ def _validate_rankings(
             "FROM directional_rankings GROUP BY ALL HAVING lo<>1 OR hi<>n OR distinct_n<>n)"
         ),
     )
-    _count_check(
-        state,
-        connection,
-        artifact="directional_rankings",
-        code="ranking_tie_break",
-        message="Ranking order or tie breaking differs from score-descending/passage-ID order.",
-        sql=(
-            "WITH ordered AS (SELECT *,lag(quantized_score) OVER w AS previous_score, "
-            "lag(target_passage_id) OVER w AS previous_target FROM directional_rankings "
-            "WINDOW w AS (PARTITION BY query_passage_id,representation_id,detector ORDER BY rank)) "
-            "SELECT count(*) FROM ordered WHERE tie_break_key<>target_passage_id "
-            "OR (previous_score < quantized_score) "
-            "OR (previous_score=quantized_score AND previous_target>target_passage_id)"
-        ),
-    )
+    ranking_order_mismatches = _ranking_order_mismatches(connection)
+    if ranking_order_mismatches:
+        state.add(
+            "ranking_tie_break",
+            "Ranking order or tie breaking differs from governed score/passage-ID order. "
+            f"Count={ranking_order_mismatches}.",
+            artifact="directional_rankings",
+        )
     _count_check(
         state,
         connection,
@@ -1787,7 +2068,7 @@ def _validate_ranking_split_provenance(
             expected = _load_split_provenance(
                 database_path,
                 stubs,  # type: ignore[arg-type]
-                duckdb_memory_limit_bytes=512 * 1024**2,
+                duckdb_memory_limit_bytes=_VALIDATION_DUCKDB_MEMORY_BYTES,
                 duckdb_temp_directory=Path(temporary) / "spill",
             )
     except (ImportError, OSError, ValueError, RuntimeError, duckdb.Error) as exc:
@@ -1894,17 +2175,20 @@ def _validate_candidates(
             "USING(candidate_pair_id) WHERE p.candidate_pair_id IS NULL"
         ),
     )
-    _count_check(
-        state,
+    quantization_mismatches = _python_quantization_mismatches(
         connection,
-        artifact="candidate_detector_scores",
-        code="candidate_score_quantization",
-        message="Candidate detector score quantization does not reproduce.",
-        sql=(
-            "SELECT count(*) FROM candidate_detector_scores WHERE "
-            f"quantized_score IS DISTINCT FROM round(score, {decimals})"
-        ),
+        table="candidate_detector_scores",
+        raw_column="score",
+        quantized_column="quantized_score",
+        decimals=decimals,
     )
+    if quantization_mismatches:
+        state.add(
+            "candidate_score_quantization",
+            "Candidate detector scores do not reproduce with Python half-even semantics. "
+            f"Count={quantization_mismatches}.",
+            artifact="candidate_detector_scores",
+        )
     config_hash = lexical_config_sha256(config).replace("'", "''")
     _count_check(
         state,
@@ -1926,25 +2210,21 @@ def _validate_candidates(
             "GROUP BY p.candidate_pair_id HAVING n<>1)"
         ),
     )
-    _count_check(
-        state,
-        connection,
-        artifact="shared_evidence",
-        code="shared_evidence_orphan",
-        message="Detailed evidence has no candidate or vocabulary feature.",
-        sql=(
-            "SELECT count(*) FROM shared_evidence e LEFT JOIN candidate_pairs p "
-            "USING(candidate_pair_id) LEFT JOIN feature_vocabulary f USING(feature_id) "
-            "WHERE p.candidate_pair_id IS NULL OR ((f.feature_id IS NULL "
-            "OR e.feature_value<>f.feature_value) AND e.evidence_family NOT IN "
-            "('longest_common_subsequence_trace','weighted_sequence_alignment_trace'))"
-        ),
-    )
+    identity_mismatches = _special_evidence_identity_mismatches(connection)
+    if identity_mismatches:
+        state.add(
+            "shared_evidence_orphan",
+            "Detailed evidence lacks its candidate/vocabulary identity or an exact derived "
+            f"identity. Count={identity_mismatches}.",
+            artifact="shared_evidence",
+        )
     shared_columns = LEXICAL_ARTIFACT_COLUMNS["shared_evidence"]
     rendered_shared = ",".join(f's."{column}" AS "shared_{column}"' for column in shared_columns)
     cursor = connection.execute(
         "SELECT e.candidate_pair_id,p.passage_a_id,p.passage_b_id,"
         "a.eligible_token_count AS passage_a_length,b.eligible_token_count AS passage_b_length,"
+        "a.english_gloss_sequence_length AS passage_a_gloss_length,"
+        "b.english_gloss_sequence_length AS passage_b_gloss_length,"
         f"{rendered_shared} FROM candidate_evidence e JOIN candidate_pairs p "
         "USING(candidate_pair_id) LEFT JOIN passage_feature_statistics a "
         "ON a.passage_id=p.passage_a_id LEFT JOIN passage_feature_statistics b "
@@ -1973,6 +2253,8 @@ def _validate_candidates(
             continue
         row = {column: result[f"shared_{column}"] for column in shared_columns}
         current_rows.append(row)
+        if str(row["evidence_family"]) in _TRACE_EVIDENCE_FAMILIES:
+            continue
         for offset, field_name in enumerate(
             ("passage_a_positions_json", "passage_b_positions_json")
         ):
@@ -1992,16 +2274,19 @@ def _validate_candidates(
             ):
                 invalid_positions += 1
                 continue
-            length_raw = result["passage_a_length" if offset == 0 else "passage_b_length"]
+            length_kind = "gloss_length" if bool(row["english_derived"]) else "length"
+            length_raw = result[f"passage_{'a' if offset == 0 else 'b'}_{length_kind}"]
             if length_raw is None or any(
                 int(str(value)) >= int(str(length_raw)) for value in values
             ):
                 invalid_positions += 1
     finish_candidate()
+    invalid_positions += _trace_position_mismatches(connection)
     if invalid_positions:
         state.add(
             "evidence_positions",
-            f"Evidence positions must be nonempty arrays of nonnegative integers. "
+            "Evidence positions must match local frequency and the applicable canonical or "
+            f"retrieval-direction sequence bounds. "
             f"Count={invalid_positions}.",
             artifact="shared_evidence",
         )
@@ -2246,25 +2531,14 @@ def _validate_candidates(
             "s.penalty_contribution<>0.0))"
         ),
     )
-    _count_check(
-        state,
-        connection,
-        artifact="candidate_evidence",
-        code="candidate_calibration_provenance",
-        message="Candidate calibration provenance is incomplete or disagrees with selection.",
-        sql=(
-            "SELECT count(*) FROM candidate_evidence e JOIN candidate_pairs p "
-            "USING(candidate_pair_id) LEFT JOIN candidate_detector_scores s ON "
-            "s.candidate_pair_id=e.candidate_pair_id AND s.detector='rrf_composite' "
-            "LEFT JOIN threshold_calibration t ON t.corpus_pair=p.corpus_pair AND "
-            "t.representation_id=s.representation_id AND t.detector='rrf_composite' AND t.selected "
-            "WHERE NOT e.both_null_families_present OR "
-            "e.calibration_selection_scope<>'frozen_corpus_pair_rrf_threshold' OR "
-            "t.threshold_id IS NULL OR "
-            "e.selected_score_threshold IS DISTINCT FROM t.score_threshold OR "
-            "e.estimated_empirical_fdr IS DISTINCT FROM t.estimated_empirical_fdr"
-        ),
-    )
+    calibration_mismatches = _candidate_calibration_provenance_mismatches(connection, config)
+    if calibration_mismatches:
+        state.add(
+            "candidate_calibration_provenance",
+            "Candidate calibration provenance disagrees with a selected threshold or the exact "
+            f"no-qualified-threshold sentinel. Count={calibration_mismatches}.",
+            artifact="candidate_evidence",
+        )
     _count_check(
         state,
         connection,
@@ -3289,13 +3563,22 @@ def _validate_no_source_text(state: _State, connection: duckdb.DuckDBPyConnectio
         ("lexical_issues", "details_json"),
     )
     for table, column in text_fields:
+        if table == "shared_evidence" and column == "notes":
+            sql = (
+                "SELECT count(*) FROM shared_evidence WHERE length(notes)>4096 AND NOT ("
+                "evidence_family='weighted_sequence_alignment_trace' AND "
+                "starts_with(notes,'traceback=') AND json_valid(substr(notes,11)) AND "
+                "length(notes)<=65536)"
+            )
+        else:
+            sql = f'SELECT count(*) FROM "{table}" WHERE length("{column}")>4096'
         _count_check(
             state,
             connection,
             artifact=table,
             code="bulk_text_payload",
             message="Free-text metadata is too large and may contain bulk source text.",
-            sql=f'SELECT count(*) FROM "{table}" WHERE length("{column}")>4096',
+            sql=sql,
         )
 
 
@@ -3310,7 +3593,7 @@ def _validate_duckdb_exposure(state: _State, database_path: Path, config: Lexica
         ):
             configure_duckdb_connection(
                 connection,
-                memory_limit_bytes=2 * 1024**3,
+                memory_limit_bytes=_VALIDATION_DUCKDB_MEMORY_BYTES,
                 temp_directory=Path(temporary) / "spill",
                 thread_count=1,
             )
@@ -3574,7 +3857,7 @@ def validate_lexical_artifacts(
             _validate_metadata(state, connection, manifest, config, preregistration)
             _validate_feature_integrity(state, connection, config)
             if verify_sparse_indexes:
-                _validate_sparse_indexes(state, connection)
+                _validate_sparse_indexes(state, connection, database_path)
             _validate_rankings(state, connection, config, database_path)
             _validate_candidates(state, connection, config)
             _validate_nulls_and_calibration(state, connection, config)

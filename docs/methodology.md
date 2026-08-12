@@ -323,8 +323,9 @@ passage, or benchmark artifact. Its exact analytical method is documented in
 [lexical-methodology.md](lexical-methodology.md), its typed outputs in
 [lexical-schema.md](lexical-schema.md), its frozen inputs and parameters in
 `config/experiments/m7-lexical-baseline.yaml`, and its decision boundary in ADR 0015.
-Scientific completion remains pending the two-build, strict-validation, recovery,
-calibration, and CI gates; this documentation does not predeclare their result.
+The canonical experiment is technically complete. Its original positive
+scientific acceptance gate was not met; the outcome below is retained without
+post-result threshold changes.
 
 The full calibrated experiment is verse-level v1: Hebrew/Aramaic Qere within language,
 Greek source reading within language, and a separately labeled exploratory cross-testament
@@ -358,6 +359,43 @@ bootstrap intervals. Tier 1 remains empty, so no high-confidence quotation-recov
 has been tested.
 
 Generated tracked reports contain safe aggregates, hashes, identifiers, references, flags,
-and bounded positional evidence, never bulk biblical text. The handoff queue is unreviewed;
-no candidate receives a decision, interpretive class, or novelty status in Milestone 7, and
-Milestone 8 has not begun.
+and bounded positional evidence, never bulk biblical text. No candidate receives a
+decision, interpretive class, or novelty status in Milestone 7.
+
+### Canonical outcome and interpretation
+
+The final result contains 1,248,779 candidates and a typed zero-row strict
+review queue. Strict validation reported zero errors and zero warnings. The
+applicable sufficiently powered Tier 3 strata passed the frozen recovery
+comparison; `gnt_gnt` did not contain enough eligible benchmark evidence for a
+claim. No applicable preregistered RRF threshold satisfied the maximum
+empirical-FDR policy under both required null families. Thresholds were not
+weakened. The result therefore supports technical completion and a negative
+lexical finding under the registered controls, not a claim that no
+underdocumented relationship exists.
+
+The canonical data has composite production provenance: frozen scientific
+identity plus authenticated checkpoints, recovery scripts, validator-contract
+reconciliation, portable index regeneration, transactional promotion, and B2
+inventory verification. The closure report records those layers rather than
+attributing the artifact to one pristine launch commit.
+
+## Post-M7 `final-discovery-v1`
+
+ADR 0018 authorizes a new experiment rather than an M7 rerun. It consumes the
+authenticated M7 result as one lexical family and evaluates semantic,
+grammatical/syntactic, structural/narrative, and anomaly evidence as separately
+registered families. Correlated methods within a family do not increase the
+independent-family count.
+
+Tier A is statistically eligible only after frozen empirical-null,
+multiple-testing, family-independence, bidirectional knownness, data-quality,
+and English-ablation controls. Tier B is a distinct exploratory top 100 after
+basic exclusions and exists even when Tier A is empty. Tier B cannot be
+reported as accepted or novel. A separate positive-control benchmark evaluates
+later engines without modifying M7. The final campaign is restartable by stage
+and ends engine development after production and top-100 review.
+
+The complete frozen detector, ensemble, calibration, tier, checkpoint, and
+review contract is specified in `docs/final-discovery-v1.md`. Implementation
+details do not relax the preregistered semantic hash or the M7 reuse boundary.

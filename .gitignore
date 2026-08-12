@@ -14,6 +14,10 @@ htmlcov/
 .env
 .env.*
 !.env.example
+# Protected final-discovery launch environments are local secrets.  Only the
+# reviewed placeholder template may be committed.
+cloud/final-discovery.env
+cloud/final-discovery.env.local
 *.pem
 *.key
 *credentials*.json
@@ -55,6 +59,8 @@ outputs/tables/**
 !outputs/tables/.gitkeep
 outputs/publications/**
 !outputs/publications/.gitkeep
+# Tracked preproduction publication scaffold; generated reviewed results remain ignored.
+!outputs/publications/output-j-final-discovery-v1-preproduction.md
 
 # Local analytical databases and indexes
 *.duckdb

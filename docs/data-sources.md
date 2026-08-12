@@ -1,9 +1,28 @@
 # Data sources and provenance
 
-Status: **Milestone 7 reuses validated sources; no new dataset is activated**
-Review date: 2026-07-13
+Status: **validated corpora retained; `final-discovery-v1` activates one
+bounded reference-only benchmark, defers LXX, and pins one optional
+supplemental model**
+Review date: 2026-08-08
 
-The authoritative machine-readable register is [`data/manifests/sources.yaml`](../data/manifests/sources.yaml). MACULA Hebrew and MACULA Greek are the validated primary sources: their pinned snapshots have been acquired, ingested, and checked locally, and the unified DuckDB tables expose both corpora with distinct corpus and provenance values. OSHB is the validated Ketiv/Qere supplementary source. Milestone 6 added the validated, content-addressed OpenBible.info cross-reference snapshot for Tier 3 weak supervision and broad knownness filtering only. Milestone 7 activates no new source: it derives transparent lexical features from the existing governed passages and evaluates only against the immutable Tier 3 artifacts. Other records document intent and review state rather than activation. Raw source archives, full processed token tables, passage, benchmark, and lexical Parquet, sparse indexes, acquisition receipts, and the local database remain Git-ignored.
+The authoritative machine-readable register is
+[`data/manifests/sources.yaml`](../data/manifests/sources.yaml). MACULA Hebrew
+and MACULA Greek are the validated primary sources: their pinned snapshots
+have been acquired, ingested, and checked locally, and the unified DuckDB
+tables expose both corpora with distinct corpus and provenance values. OSHB is
+the validated Ketiv/Qere supplementary source. Milestone 6 added the
+validated, content-addressed OpenBible.info cross-reference snapshot for Tier
+3 weak supervision and broad knownness filtering only. Milestone 7 activated
+no new source: it derived transparent lexical features from the existing
+governed passages and evaluated only against the immutable Tier 3 artifacts.
+`final-discovery-v1` activates no new textual corpus. It reuses authenticated
+governed corpus inputs, activates only the bounded UBS reference-only
+positive-control adaptation described below, records a non-blocking LXX
+deferral, and preregisters an optional pinned embedding model. Other source
+records document intent and review state rather than activation. Raw source
+archives, full processed token tables, passage, benchmark, and lexical
+Parquet, sparse indexes, acquisition receipts, model assets, and the local
+database remain Git-ignored.
 
 ## Milestone 7 derived-feature provenance
 
@@ -33,6 +52,105 @@ direction, provisional passage mappings, and descriptive votes do not become sou
 evidence or scholarly ground truth merely because a lexical detector recovers them. Tier 1
 remains empty.
 
+## `final-discovery-v1` UBS positive controls
+
+The campaign activates a bounded reference-only adaptation of the **UBS
+Parallel Passage Database, copyright 2023 United Bible Societies**, pinned at
+commit `3a6edd8212df2e1189037ad39687726990c80d56` and licensed CC BY-SA 4.0.
+The governed adaptation contains 24 unordered reference pairs assigned by
+leakage group: 15 training rows across six groups, three development rows in
+one group, and six test rows in one group. Its CSV SHA-256 is
+`58cad772a69e496046b45d24925c764d6b04798fb57cb767b6e633e2aa1eff9d`;
+the governing benchmark manifest SHA-256 is
+`e9b1721b2618d950e9449d218d8107fdb127ac9bcd0ade5f6c11b0b25b37160e`.
+
+This is a descriptive positive-control set for checking later detector-family
+behavior, not a statistically independent gold benchmark. All six test rows
+belong to the single `PCL_LAST_SUPPER` leakage group, so they are correlated
+examples and cannot support a claim of held-out relationship-family
+generalization. The reference pairs were manually checked against the pinned
+source record, but no independent scholar adjudicated the underlying Hebrew
+or Greek wording, relationship class, direction, or strength. The split must
+therefore be reported descriptively, including negative or incomplete
+recovery, and must not be used to tune the frozen final campaign after
+candidate identities are inspected.
+
+Only reference pairs and Project Echoes metadata are active. Biblical text and
+UBS word-match strings from the upstream XML were intentionally omitted and
+are inactive as passages, features, match evidence, or publication excerpts.
+The tracked adaptation retains CC BY-SA 4.0 attribution, modification, and
+ShareAlike notices; the complete boundary is recorded in
+[`data-licensing.md`](data-licensing.md).
+
+## `final-discovery-v1` source and model boundary
+
+[ADR 0019](decisions/0019-defer-lxx-and-govern-multilingual-e5.md) records the
+campaign-specific source review. The final campaign is valid without an LXX
+bridge. It acquires no new LXX corpus and does not merge data from different
+Greek editions by reference or ordinal position.
+
+The preferred future raw-text candidate is the Swete TEI corpus in
+[OpenGreekAndLatin/First1KGreek at commit
+`bfea9acd07ee1b7cea70cdd927c8f092d5637695`](https://github.com/OpenGreekAndLatin/First1KGreek/tree/bfea9acd07ee1b7cea70cdd927c8f092d5637695).
+Its relevant path pattern is
+`data/tlg0527/**/tlg0527.*.1st1K-grc1.xml`, subject to an explicit reviewed
+39-book project-canon allowlist. The TEI preserves Swete edition metadata and
+carries an electronic-transcription CC BY-SA 4.0 notice. It does not provide the validated
+full-canon morphology, lemmas, Hebrew alignment, token mapping, or
+versification crosswalk required for activation. OCR/encoding and markup QA
+also remain outstanding.
+
+[Open Scriptures GreekResources at commit
+`dd5a2fd530ab3c6b748c174cec38966c356d8111`](https://github.com/openscriptures/GreekResources/tree/dd5a2fd530ab3c6b748c174cec38966c356d8111)
+is a possible future CC BY 4.0 lemma source, but its records follow CATSS
+`lxxmorph` ordering and a Rahlfs lineage rather than Swete. It cannot be joined
+to the Swete files until an evidence-backed cross-edition mapping validates
+tokens and references. CATSS/CCAT and Rahlfs-derived paths are deferred for
+this campaign because their agreement, component provenance, edition match,
+alignment, and redistribution boundaries are unsuitable or unresolved.
+
+[UD Ancient Greek PTNK at commit
+`818fb315ff1f6cd95b6e7fa90f3707488d2b010d`](https://github.com/UniversalDependencies/UD_Ancient_Greek-PTNK/tree/818fb315ff1f6cd95b6e7fa90f3707488d2b010d)
+contains a CC BY-SA 4.0 Codex Alexandrinus sample of Genesis and Ruth. It may be
+used in a later bounded adapter/alignment QA exercise, but its coverage and
+edition identity do not make it a production bridge.
+
+The optional semantic model is
+[`intfloat/multilingual-e5-small` at immutable revision
+`614241f622f53c4eeff9890bdc4f31cfecc418b3`](https://huggingface.co/intfloat/multilingual-e5-small/tree/614241f622f53c4eeff9890bdc4f31cfecc418b3),
+MIT licensed under its [pinned model card](https://huggingface.co/intfloat/multilingual-e5-small/blob/614241f622f53c4eeff9890bdc4f31cfecc418b3/README.md).
+The preregistered configuration lineage is SentenceTransformers
+modules and mean/L2 pooling, an XLM-R SentencePiece tokenizer, 384 dimensions,
+a 512-token maximum, and symmetric `query: ` prefixes. The closed artifact
+inventory is:
+
+| Artifact | Bytes when recorded | SHA-256 |
+|---|---:|---|
+| `1_Pooling/config.json` | 200 | `987f7a67a38fa564c849bb5d277c52ab9088a84368fc0be31a354125aebb12a0` |
+| `config.json` | 655 | `69137736cab8b8903a07fe8afaafdda25aac55415a12a55d1bffa9f581abf959` |
+| `model.safetensors` | 470,641,600 | `1a55775f53449dac10a2bcbc312469fac40b96d53198c407081a831f81c98477` |
+| `modules.json` | 387 | `c6e29747481e8b5dd2b58401966aeac910de39092f90cda9a704b1545f902b04` |
+| `sentence_bert_config.json` | 57 | `948201d8329907aae938fa62f9ceeed53f5694dacc2b87b9f3b78b37ee986529` |
+| `sentencepiece.bpe.model` | 5,069,051 | `cfc8146abe2a0488e9e2a0c56de7952f7c11ab059eca145a0a727afce0db2865` |
+| `special_tokens_map.json` | 167 | `d05497f1da52c5e09554c0cd874037a083e1dc1b9cfd48034d1c717f1afc07a7` |
+| `tokenizer.json` | 17,082,730 | `0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39` |
+| `tokenizer_config.json` | 443 | `a1d6bc8734a6f635dc158508bef000f8e2e5a759c7d92f984b2c86e5ff53425b` |
+
+The frozen dependency lineage is `sentence-transformers==5.7.0`,
+`transformers==5.14.1`, `torch==2.13.0`, `tokenizers==0.22.2`,
+`huggingface-hub==1.27.0`, `safetensors==0.8.0`, and
+`scikit-learn==1.9.0`. No model weights or tokenizer assets were downloaded in
+this review. A future authorized acquisition must authenticate every file and
+may not silently select alternate backend exports.
+
+The model is supplemental retrieval evidence, never philological proof of a
+relationship. Its validity for Ancient Greek and Biblical Hebrew is
+unestablished, and possible exposure to biblical text, translations,
+commentary, or benchmarks during broad multilingual web pretraining is
+unquantified. Embedding-only similarity cannot establish Tier A, tokenizer and
+truncation diagnostics remain required, and English-derived runs are labeled
+and ablated separately.
+
 ## Layered corpus strategy
 
 Project Echoes treats datasets as governed layers with distinct research functions:
@@ -53,9 +171,12 @@ The detailed boundary is fixed in [corpus-scope.md](corpus-scope.md).
 | MACULA Hebrew | Primary Hebrew/Aramaic tokens and linguistic annotations | Validated `WLC/nodes` snapshot from release `25.08.11`, commit `7ab368fcb14e4ad2e0f784138241a098fb516ec4`; 475,911 records across 39 books and 929 chapters | Full processed-table publication remains unapproved; preferred-Qere representation has no complete parallel Ketiv layer; any source upgrade requires renewed review |
 | MACULA Greek | Primary Greek NT tokens and linguistic annotations | Validated `Nestle1904/nodes` snapshot from release `24.06.17`, commit `b5b7ecec0882a3e9a609ecac99e157391e5d9b46`; 137,779 records across 27 books and 260 chapters, matching the upstream test expectation | Full processed-table publication remains unapproved; MARBLE-derived LN/LexDomain fields need a field-level derived-output review; any source upgrade requires renewed review |
 | STEPBible Data | Eligible future supplementary glosses, lexical/semantic mappings, names, morphology, or versification | Repository-level CC BY 4.0 statement and UTF-8 tabular-resource availability are recorded; activation is deferred under [ADR 0012](decisions/0012-defer-stepbible-activation.md) | No file is selected, approved, blocked, acquired, or validated; all seven file-level provenance and licensing questions remain unresolved |
-| CATSS Septuagint | Later bridge morphology and Hebrew–Greek alignment | Official CATSS materials describe Rahlfs-based Greek morphology, Stuttgart Hebrew parallel data, and a source-specific user agreement | Confirm current acquisition agreement, exact modules and revisions, redistribution limits, Beta Code handling, variants, and versification |
+| Swete TEI in First1KGreek | Preferred future raw LXX text candidate | Candidate pinned for review at commit `bfea9acd07ee1b7cea70cdd927c8f092d5637695`; printed Swete volumes treated as public domain in the US; electronic TEI is CC BY-SA 4.0 | Deferred by ADR 0019; no acquisition or adapter; validate allowlist, OCR/markup, morphology, alignment, tokenization, versification, attribution, and derived-output obligations |
+| Open Scriptures GreekResources | Possible future LXX lemma candidate | Candidate pinned for review at commit `dd5a2fd530ab3c6b748c174cec38966c356d8111`; repository resources are CC BY 4.0 | Lemmas follow CATSS/Rahlfs `lxxmorph` ordering and cannot be joined to Swete without a validated cross-edition mapping |
+| CATSS Septuagint | Potential later bridge morphology and Hebrew–Greek alignment | Official CATSS materials describe Rahlfs-based Greek morphology, Stuttgart Hebrew parallel data, and a source-specific user agreement | Rejected/deferred for `final-discovery-v1`; future work must resolve agreement, exact modules/revisions, redistribution, Beta Code, variants, edition mismatch, and versification |
+| UD Ancient Greek PTNK | Bounded future LXX adapter/alignment QA | Candidate pinned for review at commit `818fb315ff1f6cd95b6e7fa90f3707488d2b010d`; CC BY-SA 4.0; Codex Alexandrinus Genesis and Ruth | QA sample only; coverage and edition differ from the preferred Swete production candidate |
 | OpenBible cross-references | Tier 3 weak supervision and broad knownness filtering | Validated snapshot `snapshot-2026-07-12-sha256-18e63e370308`; archive SHA-256 `18e63e370308868391a8458cfa7454e3b29bb8f94c0ca11dcac2d267d449c492`; two deterministic full benchmark builds; one reference-and-vote file, no biblical quotation or ESV text; CC BY 4.0 determination and attribution recorded | Same-label passage mappings remain provisional without a verified crosswalk; heterogeneous links and votes are not scholarly truth or calibrated confidence; raw and normalized data remain local only by project policy |
-| UBS Parallel Passages | Curated parallels and OT-in-NT benchmark/reference | UBS publishes structured data with a dedicated CC BY-SA 4.0 license | Pin commit; map labels/token numbering; separate training, evaluation, and knownness uses; propagate ShareAlike obligations |
+| UBS Parallel Passages | Bounded later-family positive controls | Commit `3a6edd8212df2e1189037ad39687726990c80d56`; dedicated CC BY-SA 4.0 license; 24 reference-only rows in eight leakage groups | Active only for the governed reference-only adaptation; test is one correlated group, no independent original-language adjudication, and upstream biblical text/match strings remain inactive; preserve attribution, modification notice, and ShareAlike |
 | ETCBC DSS | Deferred early-witness validation | Official repository supplies Text-Fabric transcriptions/annotations, archived releases, an MIT repository license, and acknowledges Abegg data | Confirm upstream transcription rights; select biblical subset; represent fragments/reconstruction; align with confidence |
 | Hebrew critical apparatus | Deferred Hebrew variant validation | German Bible Society describes BHQ/BHS scholarly apparatuses and their edition scope | Select edition/fascicles; obtain machine-processing rights; define local access, citation, extraction, and derived-output limits |
 | Greek critical apparatus | Deferred Greek NT variant validation | German Bible Society publishes NA/UBS/ECM critical editions | Select source and coverage; obtain written machine-processing and publication terms; pin edition |
@@ -308,7 +429,7 @@ Book names, order, chapter and verse boundaries, Psalm numbering, subverses, deu
 
 ## Septuagint-specific concerns
 
-A Septuagint source requires separate review of Greek edition and recension, morphology, tokenization, variants, books within the initial boundary, Hebrew parallel source, alignment method, Psalm numbering, alternate forms, provider agreement, and redistribution. CATSS is a candidate, not an approved selection. Its activation remains blocked by primary corpus and known-link gates even if its own source review later passes.
+A Septuagint source requires separate review of Greek edition and recension, morphology, tokenization, variants, books within the initial boundary, Hebrew parallel source, alignment method, Psalm numbering, alternate forms, provider agreement, and redistribution. ADR 0019 prefers the pinned Swete TEI as the starting raw-text candidate for later work but does not approve or acquire it. CATSS/Rahlfs paths are rejected for `final-discovery-v1`; GreekResources cannot be positionally mapped to Swete; and UD PTNK remains a bounded QA sample only. A later activation must supersede this deferral with a complete source manifest, file hashes, adapter, cross-edition and versification validation, component notices, and derived-output determination.
 
 ## Why deferred corpora remain excluded
 

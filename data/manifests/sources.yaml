@@ -441,29 +441,47 @@ sources:
     language: [hebrew, greek]
     edition: UBS Parallel Passage Database, 2023
     provider: United Bible Societies
-    repository_or_location: https://github.com/ubsicap/ubs-open-license/tree/main/parallel%20passages
-    version_or_commit: null
+    repository_or_location: https://github.com/ubsicap/ubs-open-license/tree/3a6edd8212df2e1189037ad39687726990c80d56/parallel%20passages
+    version_or_commit: 3a6edd8212df2e1189037ad39687726990c80d56
     download_date: null
     license: CC BY-SA 4.0
-    license_url: https://github.com/ubsicap/ubs-open-license/blob/main/parallel%20passages/LICENSE.md
+    license_url: https://github.com/ubsicap/ubs-open-license/blob/3a6edd8212df2e1189037ad39687726990c80d56/parallel%20passages/LICENSE.md
     license_review_status: complete
-    required_attribution: UBS Parallel Passage Database, © 2023 United Bible Societies; link the source and license, identify modifications, and preserve ShareAlike terms
+    required_attribution: UBS Parallel Passage Database, copyright 2023 United Bible Societies; link the pinned source and CC BY-SA 4.0 license, identify modifications, and preserve ShareAlike terms on adaptations
     redistribution_status: permitted
     machine_processing_status: permitted
     raw_data_git_policy: metadata_only
-    expected_files: []
-    file_hashes: {}
-    ingest_adapter: null
+    expected_files:
+      - parallel passages/LICENSE.md
+      - parallel passages/ParallelPassages.xml
+      - parallel passages/README.md
+    file_hashes:
+      parallel passages/LICENSE.md: fcc8a87920214067b4f9f81aceec79d4593e70184c25fe81f0e880ab30347856
+      parallel passages/ParallelPassages.xml: 24c13c46bc3167ab2a91bcd3c5ead7eff9ce8a7ab0faac59a6064161eae6888f
+      parallel passages/README.md: 146702bfa1ecbeaf720ba75273089bdf14112bc9192a3326af93e64c760ffd72
+    ingest_adapter: echoes.benchmarks.positive_controls
+    acquisition:
+      method: git_sparse
+      version_label: commit-3a6edd8212df
+      upstream_commit: 3a6edd8212df2e1189037ad39687726990c80d56
+      repository_url: https://github.com/ubsicap/ubs-open-license.git
+      include_paths:
+        - parallel passages
+      expected_file_count: 3
     research_purpose: Curated intertextual and parallel-passage reference layer for benchmark tiering and knownness checks.
     known_limitations:
       - Reference categories and canonical coverage must be mapped to Project Echoes passage identifiers.
+      - The 24-row positive-control adaptation is descriptive and has no independently adjudicated original-language gold labels.
+      - Its six-row test partition is one correlated leakage group and cannot support an independent held-out generalization claim.
     notes:
-      - Source approval still requires a pinned commit and an acquisition design even though licensing review is complete.
+      - Only the final-discovery reference-only positive-control adaptation is active; upstream biblical text and UBS word-match strings are omitted and inactive as corpus, feature, detector, and publication inputs.
+      - The bounded tracked adaptation is authenticated and governed separately by data/benchmarks/positive_controls.yaml and remains CC BY-SA 4.0 with attribution, license link, modification notice, and ShareAlike for redistributed adaptations.
     confirmed_information:
       - The official project repository publishes the parallel-passage data under CC BY-SA 4.0.
+      - Commit 3a6edd8212df2e1189037ad39687726990c80d56 contains three files under parallel passages; the XML SHA-256 is 24c13c46bc3167ab2a91bcd3c5ead7eff9ce8a7ab0faac59a6064161eae6888f.
     unresolved_questions:
-      - Which fields and relationship categories are suitable for training, evaluation, or knownness exclusion?
-    status: planned
+      - Which additional fields and relationship categories, if any, are suitable beyond the separately governed bounded reference-only positive controls?
+    status: approved
 
   - source_id: etcbc-dead-sea-scrolls
     source_name: ETCBC Dead Sea Scrolls Text-Fabric Dataset

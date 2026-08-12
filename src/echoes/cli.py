@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Annotated, cast
 
@@ -28,6 +28,10 @@ from echoes.acquire import (
     verify_acquisition,
 )
 from echoes.benchmarks.pipeline import BenchmarkBuildError, build_benchmark
+from echoes.benchmarks.positive_controls import (
+    PositiveControlError,
+    validate_positive_controls,
+)
 from echoes.benchmarks.storage import BenchmarkStorageError, table_row_counts
 from echoes.benchmarks.tier1 import Tier1ValidationError, validate_tier1_quotations
 from echoes.benchmarks.validation import (
@@ -138,9 +142,10 @@ app = typer.Typer(
 DEFAULT_EXECUTION_MANIFEST_ROOT = Path("data/processed/lexical/execution-manifests")
 
 
-def _echo_json(value: BaseModel) -> None:
+def _echo_json(value: BaseModel | Mapping[str, object]) -> None:
     """Emit portable JSON even when the Windows console uses a legacy code page."""
-    typer.echo(json.dumps(value.model_dump(mode="json"), indent=2, ensure_ascii=True))
+    payload = value.model_dump(mode="json") if isinstance(value, BaseModel) else dict(value)
+    typer.echo(json.dumps(payload, indent=2, ensure_ascii=True))
 
 
 ConfigDir = Annotated[
@@ -1593,6 +1598,404 @@ def validate_tier1_quotations_command(
         typer.echo(
             f"Validated Tier 1 quotation placeholder: rows={result.row_count}, "
             f"sha256={result.sha256}."
+        )
+
+
+@app.command("validate-positive-controls")
+def validate_positive_controls_command(
+    config_path: Annotated[
+        Path, typer.Option("--config", help="Standalone positive-control config path.")
+    ] = Path("data/benchmarks/positive_controls.yaml"),
+    data_path: Annotated[
+        Path | None,
+        typer.Option("--data", help="Optional CSV override; its governed hash must still match."),
+    ] = None,
+    json_output: Annotated[
+        bool, typer.Option("--json", help="Emit the positive-control receipt as JSON.")
+    ] = False,
+) -> None:
+    """Validate the separate reference-only final-discovery positive controls."""
+
+    try:
+        dataset = validate_positive_controls(config_path, data_path=data_path)
+    except (PositiveControlError, OSError) as exc:
+        typer.echo(f"Positive-control validation failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if json_output:
+        _echo_json(dataset.validation)
+    else:
+        counts = dataset.validation.partition_counts
+        typer.echo(
+            f"Validated {dataset.validation.benchmark_id}: rows={dataset.validation.row_count}, "
+            f"families={dataset.validation.relationship_family_count}, "
+            f"splits=train:{counts['train']}/development:{counts['development']}/"
+            f"test:{counts['test']}."
+        )
+
+
+@app.command("run-final-discovery")
+def run_final_discovery_command(
+    fixture: Annotated[
+        bool,
+        typer.Option("--fixture", help="Run the bounded local no-network campaign fixture."),
+    ] = False,
+    production: Annotated[
+        bool,
+        typer.Option("--production", help="Run the authorized exact production campaign."),
+    ] = False,
+    work_directory: Annotated[
+        Path,
+        typer.Option(
+            "--work-dir",
+            help="Persistent work/checkpoint directory outside the source tree for production.",
+        ),
+    ] = Path("outputs/experiments/final-discovery-v1-fixture"),
+    prepared_passages: Annotated[
+        Path | None,
+        typer.Option("--prepared-passages", help="Authenticated prepared-passage JSONL."),
+    ] = None,
+    knownness_path: Annotated[
+        Path | None,
+        typer.Option(
+            "--knownness-path",
+            help="Authenticated knownness JSONL; its .receipt.json sidecar is required.",
+        ),
+    ] = None,
+    offline_model_root: Annotated[
+        Path | None,
+        typer.Option("--offline-model-root", help="Exact pinned offline E5 model directory."),
+    ] = None,
+    m7_bucket: Annotated[
+        str | None, typer.Option("--m7-bucket", help="Frozen canonical M7 B2 bucket.")
+    ] = None,
+    m7_prefix: Annotated[
+        str | None, typer.Option("--m7-prefix", help="Frozen canonical M7 B2 prefix.")
+    ] = None,
+    output_bucket: Annotated[
+        str | None, typer.Option("--output-bucket", help="Owner-selected B2 output bucket.")
+    ] = None,
+    output_prefix: Annotated[
+        str | None,
+        typer.Option("--output-prefix", help="New empty immutable B2 campaign prefix."),
+    ] = None,
+    config_path: Annotated[
+        Path,
+        typer.Option("--config", help="Frozen final-discovery preregistration YAML."),
+    ] = Path("config/experiments/final-discovery-v1.yaml"),
+    json_output: Annotated[
+        bool, typer.Option("--json", help="Emit the authenticated run boundary as JSON.")
+    ] = False,
+) -> None:
+    """Run the one-command bounded fixture or owner-authorized campaign."""
+
+    from echoes.final_discovery.command import (
+        FinalDiscoveryCommandError,
+        build_production_campaign_request,
+        current_source_identity,
+    )
+    from echoes.final_discovery.config import (
+        FinalDiscoveryConfigError,
+        load_final_discovery_config,
+    )
+    from echoes.final_discovery.pipeline import (
+        FinalDiscoveryCampaignError,
+        build_bounded_fixture_campaign_request,
+        run_final_discovery_campaign,
+    )
+
+    if fixture == production:
+        typer.echo(
+            "Final-discovery run failed: select exactly one of --fixture or --production.", err=True
+        )
+        raise typer.Exit(code=2)
+    project_root = Path.cwd().resolve()
+    try:
+        if fixture:
+            forbidden = {
+                "--prepared-passages": prepared_passages,
+                "--knownness-path": knownness_path,
+                "--offline-model-root": offline_model_root,
+                "--m7-bucket": m7_bucket,
+                "--m7-prefix": m7_prefix,
+                "--output-bucket": output_bucket,
+                "--output-prefix": output_prefix,
+            }
+            supplied = sorted(name for name, value in forbidden.items() if value is not None)
+            if supplied:
+                raise FinalDiscoveryCommandError(
+                    f"fixture mode rejects production options: {', '.join(supplied)}"
+                )
+            config_file = config_path if config_path.is_absolute() else project_root / config_path
+            config = load_final_discovery_config(config_file)
+            code_commit, code_sha256 = current_source_identity(project_root)
+            request = build_bounded_fixture_campaign_request(
+                work_directory,
+                config=config,
+                code_sha256=code_sha256,
+                code_commit=code_commit,
+            )
+        else:
+            required = {
+                "--prepared-passages": prepared_passages,
+                "--knownness-path": knownness_path,
+                "--offline-model-root": offline_model_root,
+                "--m7-bucket": m7_bucket,
+                "--m7-prefix": m7_prefix,
+                "--output-bucket": output_bucket,
+                "--output-prefix": output_prefix,
+            }
+            missing = sorted(name for name, value in required.items() if value is None)
+            if missing:
+                raise FinalDiscoveryCommandError(f"production mode requires: {', '.join(missing)}")
+            assert prepared_passages is not None
+            assert knownness_path is not None
+            assert offline_model_root is not None
+            assert m7_bucket is not None
+            assert m7_prefix is not None
+            assert output_bucket is not None
+            assert output_prefix is not None
+            request = build_production_campaign_request(
+                project_root=project_root,
+                work_directory=work_directory,
+                prepared_passages_path=prepared_passages,
+                knownness_path=knownness_path,
+                offline_model_root=offline_model_root,
+                m7_bucket=m7_bucket,
+                m7_prefix=m7_prefix,
+                output_bucket=output_bucket,
+                output_prefix=output_prefix,
+                config_path=config_path,
+            )
+        result = run_final_discovery_campaign(request)
+    except (
+        FinalDiscoveryCommandError,
+        FinalDiscoveryConfigError,
+        FinalDiscoveryCampaignError,
+        OSError,
+        ValueError,
+        RuntimeError,
+    ) as exc:
+        typer.echo(f"Final-discovery run failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    payload = {
+        "experiment_id": result.experiment_id,
+        "execution_mode": result.execution_mode,
+        "authenticated_stage_count": len(result.stage_results),
+        "durable_checkpoint_count": len(result.durable_checkpoint_receipts),
+        "evidence_count": result.evidence_count,
+        "candidate_count": result.candidate_count,
+        "tier_a_count": result.tier_a_count,
+        "tier_b_count": result.tier_b_count,
+        "package_sha256": result.package_sha256,
+        "package_path": str(result.package_path),
+        "validation_report_path": str(result.validation_report_path),
+        "transfer_verification_path": str(result.transfer_verification_path),
+        "campaign_seal_path": str(result.campaign_seal_path),
+        "finalization_receipt_path": str(result.finalization_receipt_path),
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=True))
+    else:
+        typer.echo(
+            "Completed final-discovery boundary: "
+            f"mode={result.execution_mode}, stages={len(result.stage_results)}, "
+            f"candidates={result.candidate_count}, tier_a={result.tier_a_count}, "
+            f"tier_b={result.tier_b_count}, package_sha256={result.package_sha256}."
+        )
+
+
+@app.command("validate-final-discovery")
+def validate_final_discovery_command(
+    all_stages: Annotated[
+        bool,
+        typer.Option("--all", help="Require and authenticate all eleven campaign stages."),
+    ] = False,
+    work_directory: Annotated[
+        Path,
+        typer.Option("--work-dir", help="Persistent final-discovery work directory."),
+    ] = Path("outputs/experiments/final-discovery-v1-fixture"),
+    config_path: Annotated[
+        Path,
+        typer.Option("--config", help="Frozen final-discovery preregistration YAML."),
+    ] = Path("config/experiments/final-discovery-v1.yaml"),
+    json_output: Annotated[
+        bool, typer.Option("--json", help="Emit the complete validation report as JSON.")
+    ] = False,
+) -> None:
+    """Independently recompute the completed campaign's scientific contract."""
+
+    from echoes.final_discovery.command import (
+        FinalDiscoveryCommandError,
+        validate_completed_campaign,
+    )
+
+    if not all_stages:
+        typer.echo("Final-discovery validation failed: --all is required.", err=True)
+        raise typer.Exit(code=2)
+    project_root = Path.cwd().resolve()
+    config_file = config_path if config_path.is_absolute() else project_root / config_path
+    try:
+        report = validate_completed_campaign(
+            work_directory=work_directory,
+            config_path=config_file,
+        )
+    except (FinalDiscoveryCommandError, OSError, ValueError, RuntimeError) as exc:
+        typer.echo(f"Final-discovery validation failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if json_output:
+        _echo_json(report)
+    else:
+        typer.echo(
+            "Validated final-discovery campaign: "
+            f"passed={report.passed}, stages={report.authenticated_stage_count}, "
+            f"evidence={report.evidence_count}, candidates={report.candidate_count}, "
+            f"findings={report.error_count}."
+        )
+    if not report.passed:
+        raise typer.Exit(code=1)
+
+
+@app.command("verify-final-discovery-finalization")
+def verify_final_discovery_finalization_command(
+    work_directory: Annotated[
+        Path,
+        typer.Option("--work-dir", help="Persistent production campaign work directory."),
+    ] = Path("/srv/project-echoes/final-discovery/work"),
+    output_bucket: Annotated[
+        str,
+        typer.Option("--output-bucket", help="Backblaze bucket containing final output."),
+    ] = "",
+    output_prefix: Annotated[
+        str,
+        typer.Option("--output-prefix", help="Registered base prefix for this campaign."),
+    ] = "",
+    json_output: Annotated[
+        bool, typer.Option("--json", help="Emit the complete cleanup receipt as JSON.")
+    ] = False,
+) -> None:
+    """Boundedly reauthenticate the remote Stage 11 deletion gate once."""
+
+    from echoes.final_discovery.command import (
+        FinalDiscoveryCommandError,
+        verify_production_finalization_for_cleanup,
+    )
+
+    if not output_bucket or not output_prefix:
+        typer.echo(
+            "Finalization verification failed: --output-bucket and --output-prefix are required.",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+    try:
+        receipt = verify_production_finalization_for_cleanup(
+            work_directory=work_directory,
+            output_bucket=output_bucket,
+            output_prefix=output_prefix,
+        )
+    except (FinalDiscoveryCommandError, OSError, ValueError, RuntimeError) as exc:
+        typer.echo(f"Finalization verification failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if json_output:
+        _echo_json(receipt)
+    else:
+        remote = receipt["remote_verification"]
+        typer.echo(
+            "Reauthenticated final-discovery finalization: "
+            f"completion={receipt['completion_manifest_sha256']}, "
+            f"objects={remote['object_count']}, "
+            f"checkpoint_attempts={receipt['successful_checkpoint_attempt_count']}."
+        )
+
+
+@app.command("validate-final-discovery-model-runtime")
+def validate_final_discovery_model_runtime_command(
+    config_path: Annotated[
+        Path,
+        typer.Option("--config", help="Frozen final-discovery preregistration YAML."),
+    ] = Path("config/experiments/final-discovery-v1.yaml"),
+    json_output: Annotated[
+        bool, typer.Option("--json", help="Emit exact installed versions as JSON.")
+    ] = False,
+) -> None:
+    """Fail if the offline embedding runtime differs from its registered pins."""
+
+    from echoes.final_discovery.config import FinalDiscoveryConfigError, load_final_discovery_config
+    from echoes.final_discovery.semantic import SemanticError, verify_model_runtime_dependencies
+
+    try:
+        config = load_final_discovery_config(config_path)
+        report = verify_model_runtime_dependencies(config.embedding_model)
+    except (FinalDiscoveryConfigError, SemanticError, OSError, ValueError) as exc:
+        typer.echo(f"Final-discovery model runtime validation failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    payload = report.model_dump(mode="json")
+    if json_output:
+        _echo_json(payload)
+    else:
+        typer.echo(
+            "Validated final-discovery model runtime: "
+            f"python={report.python_version}, dependencies={len(report.dependency_versions)}."
+        )
+
+
+@app.command("inspect-final-discovery-output")
+def inspect_final_discovery_output_command(
+    work_directory: Annotated[
+        Path,
+        typer.Option("--work-dir", help="Persistent production campaign work directory."),
+    ] = Path("/srv/project-echoes/final-discovery/work"),
+    output_bucket: Annotated[
+        str,
+        typer.Option("--output-bucket", help="Backblaze bucket containing final output."),
+    ] = "",
+    output_prefix: Annotated[
+        str,
+        typer.Option("--output-prefix", help="Registered base prefix for this campaign."),
+    ] = "",
+    config_path: Annotated[
+        Path,
+        typer.Option("--config", help="Frozen final-discovery preregistration YAML."),
+    ] = Path("config/experiments/final-discovery-v1.yaml"),
+    json_output: Annotated[
+        bool, typer.Option("--json", help="Emit the namespace receipt as JSON.")
+    ] = False,
+) -> None:
+    """Inspect output state once before the managed production worker starts."""
+
+    from echoes.final_discovery.command import (
+        FinalDiscoveryCommandError,
+        inspect_production_output_namespace,
+    )
+    from echoes.final_discovery.config import FinalDiscoveryConfigError
+
+    if not output_bucket or not output_prefix:
+        typer.echo(
+            "Output inspection failed: --output-bucket and --output-prefix are required.",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+    try:
+        receipt = inspect_production_output_namespace(
+            work_directory=work_directory,
+            output_bucket=output_bucket,
+            output_prefix=output_prefix,
+            config_path=config_path,
+        )
+    except (
+        FinalDiscoveryCommandError,
+        FinalDiscoveryConfigError,
+        OSError,
+        ValueError,
+        RuntimeError,
+    ) as exc:
+        typer.echo(f"Output inspection failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if json_output:
+        _echo_json(receipt)
+    else:
+        typer.echo(
+            "Inspected final-discovery output namespace: "
+            f"state={receipt['state']}, objects={receipt['object_count']}."
         )
 
 

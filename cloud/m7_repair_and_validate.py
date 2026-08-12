@@ -25,8 +25,7 @@ TWO_GIB = 2 * 1024**3
 
 def safe_staging() -> None:
     expected = (
-        REPO
-        / "data/processed/lexical/.schema-v1.writing-238902db1f6e479596bea47e70ccf30b"
+        REPO / "data/processed/lexical/.schema-v1.writing-238902db1f6e479596bea47e70ccf30b"
     ).resolve()
     if STAGING.resolve() != expected or not STAGING.is_dir() or STAGING.is_symlink():
         raise RuntimeError(f"unsafe or missing staging directory: {STAGING}")
@@ -93,7 +92,9 @@ def repair_sparse_indexes() -> dict[str, object]:
         frames.append(frame)
         del hb, gk
 
-        hb = load_sequences("hebrew", critical.analysis_profile, critical.hebrew_reading, repair_root)
+        hb = load_sequences(
+            "hebrew", critical.analysis_profile, critical.hebrew_reading, repair_root
+        )
         gk = load_sequences("greek", critical.analysis_profile, critical.greek_reading, repair_root)
         _, frame, _ = p._build_indexes(
             writer=fake_writer,
@@ -110,7 +111,9 @@ def repair_sparse_indexes() -> dict[str, object]:
         frames.append(frame)
         del hb, gk
 
-        hb = load_sequences("hebrew", reading.analysis_profile, reading.comparison_reading, repair_root)
+        hb = load_sequences(
+            "hebrew", reading.analysis_profile, reading.comparison_reading, repair_root
+        )
         _, frame, _ = p._build_indexes(
             writer=fake_writer,
             definitions=p._ketiv_index_definitions(hb, config=config),
@@ -143,7 +146,7 @@ def repair_sparse_indexes() -> dict[str, object]:
         if observed != expected:
             raise RuntimeError(
                 f"regenerated representation set differs: "
-                f"missing={sorted(expected-observed)}, unexpected={sorted(observed-expected)}"
+                f"missing={sorted(expected - observed)}, unexpected={sorted(observed - expected)}"
             )
 
         destination = STAGING / "indexes"
@@ -207,7 +210,7 @@ def install_validation_fixes() -> None:
             predicate = " OR ".join(f'"{c}" IS NULL' for c in required)
             count = scalar(
                 connection,
-                f'SELECT count(*) FROM shared_evidence WHERE {predicate}',
+                f"SELECT count(*) FROM shared_evidence WHERE {predicate}",
             )
             return report_count(state, artifact, code, message, count, severity)
 
@@ -226,16 +229,12 @@ def install_validation_fixes() -> None:
             predicate = " OR ".join(f'NOT isfinite("{c}")' for c in columns)
             count = scalar(
                 connection,
-                f'SELECT count(*) FROM candidate_evidence WHERE {predicate}',
+                f"SELECT count(*) FROM candidate_evidence WHERE {predicate}",
             )
             return report_count(state, artifact, code, message, count, severity)
 
-        if (
-            artifact == "directional_rankings"
-            and code == "ranking_quantization"
-        ) or (
-            artifact == "candidate_detector_scores"
-            and code == "candidate_score_quantization"
+        if (artifact == "directional_rankings" and code == "ranking_quantization") or (
+            artifact == "candidate_detector_scores" and code == "candidate_score_quantization"
         ):
             decimals = load_lexical_config().statistics.score_quantization_decimals
             tolerance = 0.500001 * (10.0 ** (-decimals))
@@ -399,8 +398,7 @@ def install_validation_fixes() -> None:
 
     def validate_candidates(state, connection, config):
         connection.execute(
-            "CREATE TEMP TABLE __m7_original_pfs AS "
-            "SELECT * FROM passage_feature_statistics"
+            "CREATE TEMP TABLE __m7_original_pfs AS SELECT * FROM passage_feature_statistics"
         )
         connection.execute("DROP VIEW passage_feature_statistics")
         connection.execute(
@@ -415,8 +413,7 @@ def install_validation_fixes() -> None:
         finally:
             connection.execute("DROP VIEW passage_feature_statistics")
             connection.execute(
-                "CREATE VIEW passage_feature_statistics AS "
-                "SELECT * FROM __m7_original_pfs"
+                "CREATE VIEW passage_feature_statistics AS SELECT * FROM __m7_original_pfs"
             )
 
     def load_split(
@@ -449,16 +446,12 @@ def install_fast_audit() -> None:
 
     def fast_audit(state):
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        state.table_counts = {
-            str(k): int(val) for k, val in manifest["table_counts"].items()
-        }
+        state.table_counts = {str(k): int(val) for k, val in manifest["table_counts"].items()}
         state.logical_hashes = {
-            str(k): str(val)
-            for k, val in manifest["table_logical_sha256"].items()
+            str(k): str(val) for k, val in manifest["table_logical_sha256"].items()
         }
         state.physical_hashes = {
-            str(k): str(val)
-            for k, val in manifest["table_physical_sha256"].items()
+            str(k): str(val) for k, val in manifest["table_physical_sha256"].items()
         }
         return manifest
 
@@ -490,7 +483,7 @@ def main() -> None:
     print(f"warnings={report.warning_count}", flush=True)
     print(f"informationals={report.informational_count}", flush=True)
     print(f"scientific_gate={report.scientific_gate_passed}", flush=True)
-    print(f"elapsed_seconds={time.time()-started:.1f}", flush=True)
+    print(f"elapsed_seconds={time.time() - started:.1f}", flush=True)
     print("=== ISSUES ===", flush=True)
     for i, issue in enumerate(report.issues, 1):
         print(

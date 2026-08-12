@@ -208,12 +208,22 @@ def test_production_catalog_contains_the_governed_source_set() -> None:
             "7d687548139586fe97479429e121e89c2a3f4494806e7e0aaa7ee3e72ea5136b"
         )
     }
+    positive_controls = catalog.find("ubs-parallel-passages")
+    assert positive_controls is not None
+    assert positive_controls.status is SourceStatus.APPROVED
+    assert positive_controls.version_or_commit == ("3a6edd8212df2e1189037ad39687726990c80d56")
+    assert positive_controls.acquisition is not None
+    assert positive_controls.acquisition.method == "git_sparse"
+    assert positive_controls.file_hashes["parallel passages/ParallelPassages.xml"] == (
+        "24c13c46bc3167ab2a91bcd3c5ead7eff9ce8a7ab0faac59a6064161eae6888f"
+    )
     hashed_sources = {
         "macula-hebrew",
         "macula-greek",
         "openbible-cross-references",
         "oshb-morphhb",
         "project-echoes-tier1-quotations",
+        "ubs-parallel-passages",
     }
     assert all(
         not source.file_hashes

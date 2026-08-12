@@ -32,6 +32,15 @@ dev = [
   "scipy-stubs==1.18.0.1",
   "types-pyyaml==6.0.12.20260518",
 ]
+models = [
+  "huggingface-hub==1.27.0",
+  "safetensors==0.8.0",
+  "scikit-learn==1.9.0",
+  "sentence-transformers==5.7.0",
+  "tokenizers==0.22.2",
+  "torch==2.13.0",
+  "transformers==5.14.1",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/echoes"]
@@ -66,3 +75,11 @@ markers = [
 [tool.uv]
 required-version = "==0.11.28"
 default-groups = ["dev"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
