@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -358,6 +359,19 @@ def test_production_guard_requires_linux_and_exact_authorization(
         encoding="utf-8",
     )
     intent_path.chmod(0o440)
+    resolved_intent_path = intent_path.resolve()
+    original_path_stat = Path.stat
+    intent_owner_uid = 1000
+
+    def controlled_intent_stat(path: Path, *, follow_symlinks: bool = True) -> os.stat_result:
+        result = original_path_stat(path, follow_symlinks=follow_symlinks)
+        if path == resolved_intent_path:
+            values = list(result)
+            values[4] = intent_owner_uid
+            return os.stat_result(values)
+        return result
+
+    monkeypatch.setattr(Path, "stat", controlled_intent_stat)
     monkeypatch.setattr(campaign_pipeline, "_MANAGED_LAUNCH_ROOT", launch_root)
     monkeypatch.setattr(
         campaign_pipeline,
@@ -371,6 +385,10 @@ def test_production_guard_requires_linux_and_exact_authorization(
         "ECHOES_MANAGED_LAUNCH_INTENT_SHA256",
         hashlib.sha256(intent_path.read_bytes()).hexdigest(),
     )
+    with pytest.raises(FinalDiscoveryCampaignError, match="ownership or mode"):
+        assert_production_authorized(config)
+
+    intent_owner_uid = 0
     assert_production_authorized(config)
     monkeypatch.setattr(
         campaign_pipeline,
