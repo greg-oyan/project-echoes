@@ -12,6 +12,7 @@ from typing import ClassVar, Literal, Self, cast
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from echoes.final_discovery.config import FinalDiscoveryConfig
 from echoes.lexical.config import (
     LexicalConfig,
     LexicalConfigError,
@@ -1357,6 +1358,7 @@ CONFIG_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "review.yaml": ReviewConfig,
 }
 EXPERIMENT_CONFIG_SCHEMAS: Mapping[str, type[BaseModel]] = {
+    "final-discovery-v1.yaml": FinalDiscoveryConfig,
     "m7-lexical-baseline.yaml": LexicalExperimentPreregistration,
 }
 REQUIRED_CONFIG_FILES: frozenset[str] = frozenset(CONFIG_SCHEMAS)

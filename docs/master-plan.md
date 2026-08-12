@@ -2894,10 +2894,32 @@ time_budget: 14 working days; each production run is capped at 48 hours, with
   one recovery run and one fresh determinism run. The estimate remains
   provisional until the first CCX33 measurement.
 
-Status: **In progress as of 2026-07-30**. The interrupted recovery staging is
-preserved, but canonical output, strict cloud validation, the fresh
-determinism run, and the acceptance evidence below are absent. Milestone 8 is
-not authorized.
+Status: **Technically complete and canonically sealed as of 2026-08-08;
+original scientific acceptance gate not met.** The frozen experiment produced
+1,248,779 candidates and a zero-row strict review queue. Strict validation
+reported zero errors and zero warnings. The applicable sufficiently powered
+Tier 3 strata passed the registered recovery comparison; `gnt_gnt` lacked
+enough eligible evidence for a recovery claim. No preregistered RRF threshold
+satisfied the maximum empirical-FDR policy under both required null families
+for the applicable primary strata. Thresholds were not weakened.
+
+The frozen lexical configuration SHA-256 is
+`9625a71c7768b25afa1f2d87eca044155c16b81401b91546a780d608655da83d`;
+the frozen preregistration SHA-256 is
+`5e5e29e281acacff88d0b954078d2cf995b7e4e37647430e5a08be74750a481c`;
+and the canonical table-hash manifest SHA-256 is
+`e56a1d3ee4f9707c17e7a25dc6b3d82ad5ec9a9bb28234762d58179142ebf6b6`.
+The 18,606-file, 17.149-GiB canonical tree is independently archived and
+verified in Backblaze B2 bucket `project-echoes-archive` at
+`m7/canonical-schema-v1`, with 18,606 matching files and zero `rclone`
+differences. The temporary server was deleted.
+
+Historically, this valid negative/incomplete result did not pass the original
+positive lexical acceptance gate and did not authorize the original form of
+Milestone 8. The zero-row strict queue makes that milestone's original top-100
+acceptance impossible. ADR 0018 preserves this history and authorizes a new,
+separately preregistered `final-discovery-v1` experiment; it does not amend,
+rerun, or reinterpret M7.
 
 Execution boundary:
 
@@ -2977,7 +2999,67 @@ Acceptance:
   only through the explicit governed `--force` path; an active interrupted
   journal remains blocking.
 
+Closure interpretation:
+
+* Technical promotion, strict validation, sensitivity materialization, and
+  durable archival succeeded.
+* The known-link recovery comparison was scientifically evaluable only in the
+  sufficiently powered strata; `gnt_gnt` remains explicitly insufficient.
+* The empirical-FDR threshold criterion failed for every applicable frozen RRF
+  threshold under the two required null families, so no M7 candidate was
+  review-eligible.
+* The original scientific acceptance gate therefore remains unmet. This is a
+  retained result, not an implementation failure and not permission to alter
+  thresholds post hoc.
+* Lexical similarity alone was insufficient under the frozen controls. M7 does
+  not establish that no underdocumented relationship exists.
+
+### Post-M7 consolidation of Milestones 8–16
+
+ADR 0018 operationally consolidates the remaining implementation and one final
+production campaign while retaining the numbered milestones and their
+scientific components. The new experiment identity is `final-discovery-v1`.
+It consumes the authenticated M7 artifact as one lexical family and adds
+separately registered semantic, grammatical/syntactic,
+structural/narrative, and anomaly families. Correlated lexical subdetectors or
+multiple semantic representations never count as multiple independent
+families.
+
+The consolidated campaign has these binding additions:
+
+* A separate lawful, manually verified positive-control benchmark evaluates
+  later detector families without modifying the historical M7 benchmark.
+* Every accepted candidate requires at least two genuinely independent
+  families, original-language support, bidirectional OpenBible knownness,
+  data-quality eligibility, applicable all-English-feature ablation, both
+  registered empirical-null controls, and frozen multiple-testing control.
+* Tier A contains statistically eligible candidates only. Tier B contains the
+  top 100 exploratory unknown candidates after basic exclusions whether or not
+  Tier A is empty. Tier B is for diagnosis and human review and is never
+  labeled accepted, novel, or a discovery.
+* The Septuagint remains optional. A source-specific licensing and technical
+  review either activates a bounded passage/verse bridge or records a
+  non-blocking deferral. Token-level Hebrew–Septuagint alignment remains out of
+  scope.
+* One restartable production command executes independently checkpointed,
+  hash-authenticated stages for B2 input materialization, representations,
+  detector evidence, nulls, ensemble, tiers, validation, packaging, direct B2
+  upload, and verification. Failure of a late stage cannot require repeating a
+  completed expensive stage.
+* No paid resource or full-corpus run is authorized by local implementation.
+  A second full run is optional and separately authorized only for a genuine
+  infrastructure invalidation, worthwhile reproduction, or publication-level
+  determinism requirement.
+* After the final run and top-100 review, engine development stops. An empty
+  Tier A is a valid final result.
+
 ## Milestone 8: First unknown-candidate review
+
+Status: **Original form closed without execution; review component
+consolidated into `final-discovery-v1` under ADR 0018.** The M7 strict queue is
+empty, so no historical M7 top-100 set may be manufactured. The final campaign
+instead produces the explicitly exploratory Tier B top 100, distinct from
+statistically eligible Tier A.
 
 time_budget: 10 working days; candidate preparation is capped at 8 compute
   hours and human review at 40 working hours.
@@ -3002,6 +3084,10 @@ Acceptance:
 
 ## Milestone 9: Septuagint bridge
 
+Status: **Consolidated optional component of `final-discovery-v1` under ADR
+0018.** A documented licensing/integration deferral does not block the final
+campaign.
+
 time_budget: 15 working days; each full bridge build is capped at 24 hours,
   with two deterministic acceptance runs.
 
@@ -3023,6 +3109,8 @@ Acceptance:
 * Token-level Hebrew-Septuagint alignment remains explicitly out of scope for version 1.
 
 ## Milestone 10: Semantic retrieval
+
+Status: **Consolidated component of `final-discovery-v1` under ADR 0018.**
 
 time_budget: 15 working days; each registered representation benchmark is
   capped at 24 hours and the milestone at 72 cumulative compute hours.
@@ -3046,6 +3134,8 @@ Acceptance:
 
 ## Milestone 11: Syntactic and narrative engines
 
+Status: **Consolidated component of `final-discovery-v1` under ADR 0018.**
+
 time_budget: 15 working days; each full syntactic/narrative run is capped at 24
   hours and the milestone at 72 cumulative compute hours.
 
@@ -3063,6 +3153,8 @@ Acceptance:
 
 ## Milestone 12: Anomaly and structural engines
 
+Status: **Consolidated component of `final-discovery-v1` under ADR 0018.**
+
 time_budget: 15 working days; each full anomaly/structural run is capped at 24
   hours and the milestone at 72 cumulative compute hours.
 
@@ -3079,6 +3171,10 @@ Acceptance:
 * Results are not dominated by passage length or genre.
 
 ## Milestone 13: Candidate ensemble
+
+Status: **Consolidated component of `final-discovery-v1` under ADR 0018.**
+Tier A additionally requires two genuinely independent families; Tier B is a
+separately labeled exploratory top-100 set and cannot satisfy Tier A by rank.
 
 time_budget: 10 working days; each full ensemble build is capped at 24 hours,
   with two deterministic acceptance runs.
@@ -3099,6 +3195,10 @@ Acceptance:
 
 ## Milestone 14: Review console
 
+Status: **Consolidated research-instrument component of `final-discovery-v1`
+under ADR 0018.** A persistent CSV/Parquet workflow and reproducible dossier
+export satisfy the local need; a polished public product remains prohibited.
+
 time_budget: 10 working days; each console data rebuild is capped at 4 hours
   and interactive review sessions are user-bounded.
 
@@ -3118,6 +3218,11 @@ Acceptance:
 * Dossiers reproduce from stored data.
 
 ## Milestone 15: Pauline case study
+
+Status: **Retained as a traceable post-production analysis component of the
+consolidated campaign under ADR 0018.** It does not block the local
+pre-production boundary and the existing chronology/mediation guardrail
+remains binding.
 
 time_budget: 20 working days; each registered case-study run is capped at 24
   hours and the milestone at 96 cumulative compute hours.
@@ -3140,6 +3245,9 @@ Acceptance:
 * Direct dependence on a written canonical Gospel is claimed only with separate historical evidence.
 
 ## Milestone 16: Whole-canon run
+
+Status: **Replaced operationally by the one-command `final-discovery-v1`
+production campaign under ADR 0018; not launched during local development.**
 
 time_budget: 20 working days; each whole-canon production run is capped at 48
   hours, with two deterministic acceptance runs.

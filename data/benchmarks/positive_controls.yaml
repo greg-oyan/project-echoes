@@ -1,0 +1,48 @@
+schema_version: 1
+benchmark_id: final-discovery-positive-controls-v1
+
+source:
+  source_id: ubs-parallel-passages
+  repository_url: https://github.com/ubsicap/ubs-open-license
+  source_version: 3a6edd8212df2e1189037ad39687726990c80d56
+  source_file: parallel passages/ParallelPassages.xml
+  source_file_sha256: 24c13c46bc3167ab2a91bcd3c5ead7eff9ce8a7ab0faac59a6064161eae6888f
+  source_reference_scheme: ubs-paratext-canonical-v1
+  license: CC BY-SA 4.0
+  license_url: https://creativecommons.org/licenses/by-sa/4.0/
+  attribution: >-
+    UBS Parallel Passage Database, copyright 2023 United Bible Societies;
+    reference-only subset modified by Project Echoes.
+
+dataset:
+  path: data/benchmarks/positive_controls.csv
+  sha256: 58cad772a69e496046b45d24925c764d6b04798fb57cb767b6e633e2aa1eff9d
+  expected_row_count: 24
+  expected_relationship_family_count: 8
+  expected_leakage_group_count: 8
+  reference_only: true
+  modification_statement: >-
+    Selected 24 unordered reference pairs from twelve pinned XML passage groups;
+    omitted biblical text and UBS word-match strings; added Project Echoes IDs,
+    conservative class labels, verification metadata, leakage families, and splits.
+
+selection:
+  required_corpus_pairs: [hebrew_hebrew, greek_greek, hebrew_greek]
+  required_relationship_classes:
+    - hebrew_parallel
+    - greek_parallel
+    - cross_corpus_parallel
+  quotation_formula_policy: record_not_assessed_without_independent_evidence
+
+verification:
+  required_status: verified_against_pinned_source
+  required_method: manual_reference_and_source_record_check
+  allowed_verifiers: [codex-preproduction-source-review]
+  independent_human_review_required: false
+
+splits:
+  algorithm: sha256_ordered_weighted_cycle_v1
+  seed: 8171
+  partition_unit: leakage_group
+  random_row_splitting_allowed: false
+  weights: {train: 3, development: 1, test: 1}

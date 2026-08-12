@@ -1,6 +1,65 @@
 # Limitations and unresolved issues
 
-## State during Milestone 7 implementation
+## State after canonical Milestone 7 closure
+
+- Milestone 7 is technically complete and canonically sealed with 1,248,779
+  candidates, a zero-row strict review queue, zero strict-validation errors or
+  warnings, complete critical-core and Qere/Ketiv sensitivities, and a verified
+  18,606-file Backblaze B2 archive. The applicable sufficiently powered Tier 3
+  strata passed the registered recovery comparison, but `gnt_gnt` was
+  insufficient for a recovery claim and no applicable frozen RRF threshold
+  satisfied the maximum empirical-FDR policy under both required null
+  families. The original scientific acceptance gate therefore remains unmet.
+  This is a valid negative/incomplete result, not permission to retune M7 and
+  not evidence that no underdocumented relationships exist.
+- The canonical artifact has composite production provenance. Frozen
+  scientific configuration and logical content were preserved across
+  authenticated checkpoints and recovery, but final repair, portable index
+  regeneration, validator-contract reconciliation, promotion receipts, and B2
+  verification cannot be simplistically attributed to one pristine launch
+  commit. Retained scripts are provenance records; supported source and tests
+  own the permanent contracts.
+- ADR 0018 authorizes the separate `final-discovery-v1` experiment. It reuses
+  M7 as one lexical family, requires independent later families, and separates
+  statistically eligible Tier A from exploratory Tier B. Tier B rank never
+  confers statistical acceptance or novelty.
+
+### `final-discovery-v1` preproduction limitations
+
+- No production campaign has run. There are no final candidate counts, Tier A
+  or Tier B identities, expected-noise estimates, review decisions, dossiers,
+  or discovery claims. Local fixture and validation runs demonstrate software
+  contracts only and must not be described as corpus results. No paid compute
+  or production cloud resource was launched during this implementation.
+- The registered primary scope is verse-only across the 66-book corpus.
+  Critical-core Greek and Ketiv are sensitivity profiles. Existing clause,
+  sentence, two-verse, and five-verse interfaces or smoke tests do not support
+  final-discovery performance claims at those granularities, and verse
+  boundaries can hide or divide relationships that operate at another scale.
+- Calibration and multiple-testing claims are conditional on the complete
+  retained candidate universe produced by the frozen top-k union of sparse,
+  embedding, structural, and bounded M7 retrieval. They do not cover every
+  mathematically possible passage pair. A pair not retrieved into that union
+  receives no final-ensemble test, so absence from the ledger is not evidence
+  of absence from the corpus.
+- The pinned `multilingual-e5-small` model transfers from modern multilingual
+  web pretraining; independent validity for Biblical Hebrew, Biblical Aramaic,
+  and Ancient Greek is unestablished. Its tokenizer, truncation, and semantic
+  geometry may erase morphology or import modern-language assumptions.
+  Possible pretraining exposure to biblical text, translations, commentary,
+  and benchmark relationships is unquantified.
+- Literal-English-gloss features add translation and annotation choices to
+  cross-language retrieval. They cannot count as original-language support
+  and must be removed by the registered English ablation. That ablation tests
+  explicit campaign features only: it cannot remove latent English or biblical
+  exposure from pretrained model weights and cannot validate ancient-language
+  transfer by itself.
+- The UBS positive-control adaptation has only 24 reference pairs in eight
+  leakage groups. Its 15/3/6 split is descriptive; all six test rows are one
+  correlated `PCL_LAST_SUPPER` leakage group. References were checked against
+  the pinned source, but no independent scholar adjudicated original-language
+  wording, relationship class, strength, or direction. Its recovery cannot be
+  generalized as an independent ancient-language benchmark result.
 
 - MACULA Hebrew release `25.08.11` (commit `7ab368fcb14e4ad2e0f784138241a098fb516ec4`) and MACULA Greek release `24.06.17` (commit `b5b7ecec0882a3e9a609ecac99e157391e5d9b46`) are the acquired and validated primary corpus sources. OSHB morphhb at commit `3d15126fb1ef74867fc1434be1942e837932691f` is the active Ketiv/Qere supplementary source. The exact OpenBible.info reference archive is acquired and validated for Tier 3 benchmark processing only. STEPBible, bridge corpora, textual witnesses, apparatuses, and reception sources remain inactive.
 - Milestone 5 passage generation is complete on run ID `passages-v1-00e261abea9ed44ef087`. Two full generations each produced 914,497 passages, 21,530,271 membership rows, 913,445 adjacency rows, 148,948 explicit exclusions, zero issues, and one metadata row. Both strict validations passed with zero findings, and all deterministic logical and physical content hashes agreed.
@@ -54,10 +113,15 @@
 - ETCBC DSS upstream transcription rights remain unresolved, and no machine-processing permission has been established for proprietary Hebrew/Greek apparatuses or a Targum corpus.
 - The literature matrix has five verified seed projects, not comprehensive coverage of every field named in the master plan. The closest-project conclusion remains provisional.
 - Repository software and original documentation licensing remains pending owner selection.
-- Milestone 7 is confined to transparent lexical retrieval, Tier 3 recovery evaluation, repeated empirical null calibration, evidence generation, and an unreviewed queue. It does not add embeddings, semantic analysis, predicate-argument features, a review console, or human candidate decisions. Scientific completion cannot be asserted until two complete builds agree logically, both null families and all registered thresholds are present, strict validation and CI pass, and the preregistered original-language recovery gate is satisfied. Passage proximity, lexical similarity, or reference-graph membership is never proof of a scholarly relationship.
+- Milestone 7 is confined to transparent lexical retrieval, Tier 3 recovery evaluation, repeated empirical null calibration, evidence generation, and its zero-row unreviewed queue. It does not evaluate embeddings, semantic analysis, predicate-argument features, later structural/anomaly engines, or human candidate decisions. Its original positive scientific gate was not satisfied even though the canonical technical validation succeeded. Passage proximity, lexical similarity, or reference-graph membership is never proof of a scholarly relationship.
 - The production corpora contain no governed root annotation. Root feature and detector interfaces are fixture-tested, but full-run root vocabulary, matrix nonzeros, and candidate evidence must remain zero; fabricating roots would be a data-provenance failure.
 - Full null-calibrated v1 results are verse-level only. Clause, sentence, two-verse, and five-verse interfaces and smoke tests do not establish whole-corpus performance at those scales.
 - The HB-GNT bridge uses only explicitly English-derived MACULA glosses. Removing all English-derived features removes the bridge representation, so these results cannot satisfy an original-language gate or a future unqualified `strong candidate` label. They remain English-mediated retrieval leads for possible later Septuagint analysis.
-- The tracked Milestone 8 handoff is an unreviewed queue. `not_represented_in_openbible_snapshot` means only absence from that exact reference snapshot; it is not `unknown`, `novel`, `undiscovered`, accepted, or rejected. No Milestone 8 review has begun.
+- The historical M7/Milestone 8 handoff is a valid zero-row queue. No M7 top
+  100 may be manufactured. In `final-discovery-v1`,
+  `not_represented_in_openbible_snapshot` still means only absence from that
+  exact reference snapshot; it is not `novel` or `undiscovered`. Exploratory
+  Tier B is separately generated and must remain visibly distinct from
+  statistically eligible Tier A.
 
 These limitations are acceptance boundaries. They must not be rewritten as evidence that a source, method, or scholarly relationship is absent.

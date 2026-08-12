@@ -162,6 +162,37 @@ Work stops at the active milestone gate if quality checks or acceptance criteria
 6. Licensing determinations may change only through the documented review procedure; prior determinations remain in history.
 7. The charter itself may be superseded only through a decision record and owner-approved commit explaining the change.
 
+## Post-M7 experiment boundary
+
+ADR 0018 records that the frozen Milestone 7 lexical baseline completed
+technically with 1,248,779 candidates, a zero-row strict queue, and no
+pre-registered RRF threshold satisfying the maximum empirical-FDR policy under
+both required null families for the applicable primary strata. The result is a
+valid negative/incomplete baseline. It may not be retuned, relabeled as
+accepted, or treated as evidence that no underdocumented relationships exist.
+
+The next governed experiment is `final-discovery-v1`. It reuses authenticated
+M7 outputs as one lexical detector family and adds separately registered
+semantic, grammatical/syntactic, structural/narrative, and anomaly evidence.
+Statistical eligibility requires at least two genuinely independent families;
+correlated lexical subdetectors and multiple representations from one family
+cannot inflate that count. English-derived evidence cannot be the only
+independent support, and the existing remove-all-English ablation remains
+binding.
+
+The experiment has two non-interchangeable outputs:
+
+- **Tier A** contains candidates satisfying every frozen empirical-null,
+  multiple-testing, independence, knownness, data-quality, and ablation rule.
+- **Tier B** contains the top 100 exploratory unknown candidates after basic
+  exclusions even if Tier A is empty. Tier B exists for false-positive
+  analysis, scoring diagnosis, methodological learning, and human review. Its
+  rows are not statistically accepted and cannot be called novel or
+  discoveries merely because of rank.
+
+After the final production run and Tier B review, detector development stops.
+An empty Tier A is an acceptable final scientific result.
+
 ## Provisional novelty statement
 
 > Project Echoes integrates multiple computational methods to conduct an undirected, whole-corpus search for candidate biblical relationships that are not represented in the reference collections checked by the project.

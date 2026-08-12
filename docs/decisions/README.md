@@ -49,3 +49,6 @@ Decision records preserve durable methodological, data, licensing, architecture,
 - [0015 — Transparent lexical retrieval, calibration, and candidate evidence](0015-transparent-lexical-retrieval-calibration-and-candidate-evidence.md)
 - [0016 — Sanitized Build Week demonstration export](0016-sanitized-build-week-demonstration-export.md)
 - [0017 — Single-node cloud execution exception](0017-single-node-cloud-execution-exception.md)
+- [0018 — Close the lexical baseline and authorize final-discovery-v1](0018-close-m7-and-authorize-final-discovery-v1.md)
+- [0019 — Defer the LXX bridge and govern the supplemental embedding model](0019-defer-lxx-and-govern-multilingual-e5.md)
+- [0020 — Use direct authenticated object trees for production-scale persistence](0020-use-direct-authenticated-object-trees.md)

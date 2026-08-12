@@ -1,14 +1,34 @@
 # Milestone 7 recovery and task ledger
 
-Status: **In progress**
+Status: **Closed technically; original scientific acceptance gate not met**
 
-Last reconciled: 2026-07-19
+Last reconciled: 2026-08-08
 
 This ledger records the exact recovery state of Milestone 7 after the persistent
 Codex goal was interrupted. It does not replace the master plan, frozen
 preregistration, or ADR 0015. Statuses use the Build Week continuation
 categories exactly: `complete and validated`, `complete but unvalidated`,
 `partially implemented`, `not started`, and `blocked`.
+
+The historical rows below preserve the 2026-07-19 recovery snapshot. They are
+not the final status. The canonical closure recorded on 2026-08-08 is:
+
+- 1,248,779 candidates and zero strict review-queue rows;
+- zero strict-validation errors and warnings;
+- recovery comparison passed for the applicable sufficiently powered Tier 3
+  strata, with `gnt_gnt` insufficient for a recovery claim;
+- no applicable frozen RRF threshold met the maximum empirical-FDR policy
+  under both null families;
+- critical-core and Qere/Ketiv sensitivities materialized;
+- canonical table-hash manifest
+  `e56a1d3ee4f9707c17e7a25dc6b3d82ad5ec9a9bb28234762d58179142ebf6b6`;
+- 18,606 files / 17.149 GiB verified in Backblaze B2 with zero differences;
+- no threshold weakening and no manufactured queue.
+
+The original positive acceptance gate therefore remains unmet even though the
+technical experiment is complete. ADR 0018 authorizes the new
+`final-discovery-v1` identity and leaves every historical recovery entry below
+intact.
 
 ## Recovered repository state
 

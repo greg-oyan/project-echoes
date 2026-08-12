@@ -27,6 +27,11 @@ jobs:
         run: uv run ruff check .
       - name: Check formatting
         run: uv run ruff format --check .
+      - name: Check cloud shell syntax
+        run: |
+          for script in cloud/*.sh; do
+            bash -n "$script"
+          done
       - name: Type-check
         run: uv run mypy src
       - name: Test

@@ -1,9 +1,8 @@
 # Data licensing and publication governance
 
-Status: **Milestone 6 OpenBible snapshot validated for Tier 3; Milestone 7 private
-ephemeral cloud processing narrowly owner-authorized; unactivated sources remain
-preliminary**
-Review date: 2026-07-30
+Status: **validated source boundaries retained; `final-discovery-v1` LXX bridge
+deferred; optional embedding model governed**
+Review date: 2026-08-08
 
 This document records operational governance, not legal advice. Technical accessibility, a public Git repository, or an online reading interface does not by itself grant permission to copy, process in bulk, redistribute, or publish derived data. Uncertainty blocks source approval.
 
@@ -124,6 +123,46 @@ build. This technical validation supports the manifest lifecycle transition but
 does not broaden the license determination, publication permission, source role,
 or evidentiary claims above.
 
+## UBS reference-only positive-control determination
+
+Review date: 2026-08-08. The governed source is the **UBS Parallel Passage
+Database, copyright 2023 United Bible Societies**, at immutable commit
+`3a6edd8212df2e1189037ad39687726990c80d56`. Its pinned
+[`LICENSE.md`](https://github.com/ubsicap/ubs-open-license/blob/3a6edd8212df2e1189037ad39687726990c80d56/parallel%20passages/LICENSE.md)
+applies [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
+The exact XML and license hashes are recorded in
+[`data/manifests/sources.yaml`](../data/manifests/sources.yaml).
+
+The only UBS-derived artifact activated for `final-discovery-v1` is the
+24-row reference-only adaptation governed by
+[`data/benchmarks/positive_controls.yaml`](../data/benchmarks/positive_controls.yaml).
+Project Echoes selected unordered reference pairs and added project IDs,
+conservative relationship labels, verification metadata, leakage groups, and
+deterministic splits. It omitted upstream biblical text and UBS word-match
+strings. Those omitted fields are inactive as corpus text, detector features,
+evidence excerpts, review text, and publication content; the primary
+original-language passages still come exclusively from the separately
+governed MACULA sources.
+
+The tracked adaptation remains CC BY-SA 4.0. A redistributed copy or further
+adaptation must identify the UBS Parallel Passage Database and United Bible
+Societies, link the pinned source and CC BY-SA 4.0 license, retain a notice that
+Project Echoes modified the material, and license shared adaptations under the
+same or a CC-compatible license as the license permits. The required notice is
+in `data/benchmarks/POSITIVE_CONTROLS_NOTICE.md`; the machine-readable
+attribution and modification statement are in the benchmark manifest. This
+ShareAlike boundary attaches to the UBS-derived adaptation and further
+adaptations of it. It does not silently relicense independently governed
+MACULA text, Project Echoes software, or unrelated outputs merely stored
+beside it; any combined public artifact still requires a component-level
+publication review.
+
+The full upstream XML, README, and license remain metadata-only/local source
+material under project policy and are not committed. Activating biblical text,
+word-match strings, additional relationship fields, or a larger systematic
+subset would require a new source-purpose, leakage, evidentiary, and
+publication review even where CC BY-SA permits reuse.
+
 ## Private ephemeral cloud-processing determination
 
 Review date: 2026-07-30. Reviewer: project owner, recorded by Codex under ADR
@@ -234,7 +273,96 @@ Before any Septuagint acquisition, the project must select an exact edition and 
 6. permission to redistribute each proposed derived output; and
 7. required attribution and notice language for every component.
 
-No blanket conclusion may be inferred across layers. Swete's printed edition may be public domain, while a particular electronic transcription can still have separate terms that require review. Rahlfs-Hanhart is a copyrighted modern edition. CATSS text, morphology, parallel data, alignment material, and related modules may carry different agreements and must be evaluated individually. The eventual decision must identify edition-specific references, versions, access dates, component provenance, publication consequences, and an ADR before acquisition. No LXX source is selected or acquired by this amendment.
+No blanket conclusion may be inferred across layers. Swete's printed edition may be public domain, while a particular electronic transcription can still have separate terms that require review. Rahlfs-Hanhart is a copyrighted modern edition. CATSS text, morphology, parallel data, alignment material, and related modules may carry different agreements and must be evaluated individually. The eventual decision must identify edition-specific references, versions, access dates, component provenance, publication consequences, and an ADR before acquisition.
+
+### `final-discovery-v1` LXX deferral determination
+
+[ADR 0019](decisions/0019-defer-lxx-and-govern-multilingual-e5.md) completes
+the campaign-specific review and defers LXX activation without blocking
+`final-discovery-v1`. No LXX source was acquired, registered as active,
+processed, aligned, or copied into the repository.
+
+The preferred future raw-text candidate is the Swete TEI transcription in
+[OpenGreekAndLatin/First1KGreek at immutable commit
+`bfea9acd07ee1b7cea70cdd927c8f092d5637695`](https://github.com/OpenGreekAndLatin/First1KGreek/tree/bfea9acd07ee1b7cea70cdd927c8f092d5637695).
+The relevant files follow
+`data/tlg0527/**/tlg0527.*.1st1K-grc1.xml`; any acquisition would use an
+explicit reviewed 39-book project-canon allowlist rather than the repository
+as a whole. The
+TEI bibliographic headers identify Swete's 1896, 1901, and 1905 printed
+volumes, treated as public domain in the United States. The independent
+electronic transcription and encoding are
+[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) under the
+[pinned repository license](https://github.com/OpenGreekAndLatin/First1KGreek/blob/bfea9acd07ee1b7cea70cdd927c8f092d5637695/license.md)
+and file-level notices.
+
+That license permits raw copying and adaptation subject to its conditions; it
+does not erase the project's publication review. A redistributed copy must
+identify the creators and source, link the material and license, preserve the
+notice, state modifications, and apply ShareAlike where required. A public
+normalized, tokenized, aligned, indexed, or mixed-source derivative requires a
+new determination of adaptation and database obligations before release. The
+candidate currently lacks a validated full-canon lemma/morphology layer and a
+validated Hebrew alignment; its OCR/encoding, markup, edition identity,
+tokenization, book coverage, and versification also require QA.
+
+[Open Scriptures GreekResources at commit
+`dd5a2fd530ab3c6b748c174cec38966c356d8111`](https://github.com/openscriptures/GreekResources/tree/dd5a2fd530ab3c6b748c174cec38966c356d8111)
+is a possible future CC BY 4.0 lemma resource. Its own
+[lemma documentation](https://github.com/openscriptures/GreekResources/blob/dd5a2fd530ab3c6b748c174cec38966c356d8111/LxxLemmas/readme.md)
+ties record ordering to CCAT `lxxmorph`. Because that is a CATSS/Rahlfs rather
+than Swete lineage, no positional join is permitted without a validated
+cross-edition token and versification mapping.
+
+CATSS/CCAT and Rahlfs-derived activation are rejected for this campaign. The
+[CATSS description](https://ccat.sas.upenn.edu/rak/catss.html) and
+[component user declaration](https://ccat.sas.upenn.edu/gopher/text/religion/biblical/lxxmorph/0-user-declaration.txt)
+do not establish a clean open redistribution boundary for every text,
+morphology, parallel, and alignment component, and they do not match the Swete
+candidate edition. Rahlfs-Hanhart is a modern copyrighted critical edition and
+is not substituted. This is a campaign deferral, not a claim that every lawful
+private use of CATSS is impossible.
+
+[UD Ancient Greek PTNK at commit
+`818fb315ff1f6cd95b6e7fa90f3707488d2b010d`](https://github.com/UniversalDependencies/UD_Ancient_Greek-PTNK/tree/818fb315ff1f6cd95b6e7fa90f3707488d2b010d)
+is CC BY-SA 4.0, but its Codex Alexandrinus material covers only Genesis and
+Ruth. It is eligible only as a bounded future adapter/alignment QA sample, not
+as the campaign's full bridge corpus.
+
+### Optional `multilingual-e5-small` model determination
+
+The optional semantic baseline is
+[`intfloat/multilingual-e5-small` revision
+`614241f622f53c4eeff9890bdc4f31cfecc418b3`](https://huggingface.co/intfloat/multilingual-e5-small/tree/614241f622f53c4eeff9890bdc4f31cfecc418b3),
+whose [pinned model card](https://huggingface.co/intfloat/multilingual-e5-small/blob/614241f622f53c4eeff9890bdc4f31cfecc418b3/README.md)
+declares the MIT license. The closed allowlist and SHA-256 values are recorded
+verbatim in
+[`config/experiments/final-discovery-v1.yaml`](../config/experiments/final-discovery-v1.yaml)
+and ADR 0019. It consists only of the SentenceTransformers module and pooling
+configuration, XLM-R model/tokenizer configuration, SentencePiece/tokenizer
+assets, and `model.safetensors`; alternate ONNX, OpenVINO, mutable-branch, or
+hosted-endpoint representations are not approved substitutes.
+
+The three large binary identities are `model.safetensors`
+`1a55775f53449dac10a2bcbc312469fac40b96d53198c407081a831f81c98477`,
+`sentencepiece.bpe.model`
+`cfc8146abe2a0488e9e2a0c56de7952f7c11ab059eca145a0a727afce0db2865`,
+and `tokenizer.json`
+`0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39`.
+Every configuration hash is likewise mandatory; authentic weights with drifted
+pooling, prefixing, maximum length, or tokenizer configuration do not
+reproduce the preregistered model.
+
+No model weights or tokenizer assets were downloaded during this review. If
+later acquired for the authorized production preparation, they remain
+Git-ignored, must match the complete allowed-file inventory and hashes, and
+must retain the MIT notice. The model is supplemental retrieval evidence only,
+not philological proof. Ancient Greek and Biblical Hebrew validity is not
+established by its multilingual benchmark results, and broad web pretraining
+creates possible, unquantified exposure to biblical text, translations,
+commentary, and benchmark relationships. Reports must disclose that exposure;
+cosine similarity cannot independently establish Tier A eligibility, and
+English-derived embeddings remain separately labeled and ablated.
 
 ## Preliminary status table
 
@@ -244,10 +372,10 @@ No blanket conclusion may be inferred across layers. Swete's printed edition may
 | `macula-greek` | Complete for 24.06.17 | CC BY 4.0 aggregate and pinned component notices reviewed; permission-only derived-output caveat retained | Acquisition instructions only by project policy | Permitted | Ignored local only | Validated |
 | `oshb-morphhb` | Complete for commit `3d15126` | CC BY 4.0 lemma/morphology data; public-domain WLC text; exact attribution recorded | Permitted with attribution, subject to project publication review | Permitted | Ignored local only | Validated |
 | `stepbible-data` | In progress; activation deferred by ADR 0012 | CC BY 4.0 repository statement only; seven selected-file questions remain unresolved | Acquisition instructions only pending subset audit | Permitted at repository-statement level; no file activated | Ignored local only | Under review; not approved, blocked, acquired, or validated |
-| `septuagint-catss` | In progress | Component-specific CCAT/CATSS terms require separate review | Acquisition instructions only | Restricted | Ignored local only | Blocked |
+| `septuagint-catss` | In progress; campaign suitability review concluded | Component-specific CCAT/CATSS user declaration; Rahlfs lineage does not match the preferred Swete candidate | Acquisition instructions only | Restricted | Ignored local only | Blocked and deferred for `final-discovery-v1` |
 | `openbible-cross-references` | Complete for exact 2026-07-12 snapshot | CC BY 4.0 official page and internal notice; archive contains reference/vote data only; ESV quotations excluded | Permitted with attribution; project keeps raw and normalized data local | Permitted | Ignored local only | Validated for Tier 3; same-label mappings remain provisional |
 | `project-echoes-tier1-quotations` | Complete for project-authored metadata | CC BY 4.0; third-party rights remain separate | Permitted with attribution | Permitted | Trackable | Planned, header only |
-| `ubs-parallel-passages` | Complete | CC BY-SA 4.0 dedicated data license | Permitted with attribution/ShareAlike | Permitted | Metadata only by project policy | Planned |
+| `ubs-parallel-passages` | Complete for commit `3a6edd8212df` | CC BY-SA 4.0 dedicated data license; exact attribution and modification notice recorded | Reference-only adaptation permitted with attribution/ShareAlike; omitted fields inactive | Permitted for the bounded reference-only role | Metadata only by project policy | Approved; 24-row adaptation active for `final-discovery-v1` |
 | `etcbc-dead-sea-scrolls` | In progress | MIT repository license; upstream transcription scope unresolved | Unknown | Permitted | Ignored local only | Under review |
 | `hebrew-critical-apparatus` | Not started | Proprietary; publisher rights page recorded | Prohibited absent permission | Unknown | Prohibited | Planned |
 | `greek-critical-apparatus` | Not started | Proprietary; publisher rights page recorded | Prohibited absent permission | Unknown | Prohibited | Planned |
@@ -258,9 +386,11 @@ Hebrew, MACULA Greek, OSHB, and exact OpenBible snapshots are acquired and
 validated for their approved local roles and for the narrow private ephemeral
 Milestone 7 processing boundary above. OpenBible validation authorizes only
 Tier 3 acquisition, processing, weak supervision, and broad knownness
-filtering under the conservative publication boundary above. UBS Parallel
-Passages and the future Project Echoes-authored Tier 1 metadata remain
-inactive; the Tier 1 file is a header-only schema with no curated evidence.
+filtering under the conservative publication boundary above. The bounded UBS
+reference-only adaptation is active for the final campaign under the exact
+CC BY-SA boundary above; upstream biblical text, word-match strings, and
+additional UBS fields remain inactive. The future Project Echoes-authored
+Tier 1 file is still a header-only schema with no curated evidence.
 Source-specific unresolved questions and publication boundaries, including the
 MACULA Greek permission-only derived-output question, are preserved in the
 machine-readable manifest.

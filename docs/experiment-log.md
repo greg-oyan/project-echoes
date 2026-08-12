@@ -485,18 +485,82 @@
   the preserved prefix produced no review-eligible spool rows; no individual
   candidate text, feature identity, score, rank, or held-out comparison was
   inspected. No frozen parameter or science-gate rule changed.
-- Successful full run 1: **pending**. Record run identity, timing, resource
-  use, strict-validation result, table counts, and logical hashes here.
-- Successful full run 2 and determinism comparison: **pending**. Record the
-  independently rebuilt run identity, strict-validation result, and exact
-  comparison with run 1 here.
-- Final preregistered science-gate outcome: **pending**. Record known-link
-  recovery against every required baseline and stratum, both null families,
-  ablations, sensitivities, queue/evidence status, and whether Milestone 7 is
-  scientifically complete. Do not infer completion from implementation or
-  resource feasibility alone.
-- Boundary: Milestone 7 remains in progress. Milestone 8 review, semantic
-  retrieval, embeddings, learned ranking, Septuagint acquisition, and
-  STEPBible activation have not begun.
+- Final canonical result (verified 2026-08-08): the recovered composite
+  completed all governed lexical artifacts, 600 registered null-replicate rows
+  across the governed strata, calibration, critical-core and Qere/Ketiv
+  sensitivities, 1,248,779 candidate rows, and a typed zero-row strict review
+  queue. Strict validation returned zero errors and zero warnings. The
+  applicable sufficiently powered Tier 3 strata satisfied the registered
+  recovery comparison; `gnt_gnt` remained insufficient for a recovery claim.
+  No frozen RRF threshold satisfied the maximum empirical-FDR rule under both
+  required null families for the applicable primary strata.
+- Canonical identity: lexical configuration
+  `9625a71c7768b25afa1f2d87eca044155c16b81401b91546a780d608655da83d`,
+  preregistration
+  `5e5e29e281acacff88d0b954078d2cf995b7e4e37647430e5a08be74750a481c`,
+  and table-hash manifest
+  `e56a1d3ee4f9707c17e7a25dc6b3d82ad5ec9a9bb28234762d58179142ebf6b6`.
+  The canonical 18,606-file, 17.149-GiB tree was copied to Backblaze B2 at
+  `project-echoes-archive/m7/canonical-schema-v1`; independent `rclone`
+  verification reported 18,606 matches and zero differences. The temporary
+  server was deleted.
+- Production provenance: the canonical result is not attributed to one
+  pristine commit. It combines the M7 launch lineage through `c8fc361`,
+  authenticated checkpoints, retained recovery and V5 reconciliation scripts,
+  final validator contracts, transactionally sealed promotion receipts, the
+  canonical hash manifest, and B2 inventory verification. Recovery-only
+  monkeypatches are historical records; permanent source and regressions own
+  their legitimate contracts.
+- Scientific disposition: M7 is technically successful and scientifically
+  negative/incomplete under its frozen positive acceptance gate. Thresholds
+  were not weakened and the queue was not manufactured. Lexical similarity
+  alone was insufficient under the registered controls; the result does not
+  establish that no underdocumented relationships exist.
+- Boundary amendment: ADR 0018 closes the original M7/M8 path and authorizes a
+  new `final-discovery-v1` preregistration. M7 remains immutable. The new
+  experiment reuses it as one lexical family and separates statistically
+  eligible Tier A from an exploratory Tier B top 100.
+
+## 2026-08-08 - `final-discovery-v1` local preproduction freeze
+
+- Experiment state: implementation and preregistration only. The semantic
+  configuration SHA-256 is
+  `7b5c511fed3be041576f9c2ea784d71e028a0f539d7642d84ddcf61eccd22627`;
+  the exact tracked YAML SHA-256 is
+  `a38c2f6d1c3d84264c7b81a8a62c3a84cae8b993894f6634e339958cdc1f76b0`.
+  These identities bind the same frozen scientific configuration and are not
+  post-result tuning handles.
+- Registered detectors: `m7_lexical_rrf`, `semantic_domain_overlap`,
+  `lemma_root_sequence_semantic`, `multilingual_e5_original_language`,
+  `multilingual_e5_english_gloss`, `grammar_sequence_alignment`,
+  `grammar_rare_pattern`, `participant_frame_progression`, and
+  `stratified_representation_anomaly`. Their frozen independence groups are
+  lexical M7, semantic annotations, pretrained semantic, supplemental English
+  bridge, grammar annotations, structural annotations, and diagnostic anomaly;
+  correlated subdetectors do not become independent families.
+- Positive controls: the active UBS-derived adaptation has 24 reference-only
+  rows in eight leakage groups (15 train, 3 development, 6 test). All test rows
+  are the single correlated `PCL_LAST_SUPPER` group, and no independent scholar
+  adjudicated their original-language labels; benchmark reporting is
+  descriptive. Upstream biblical text and UBS match strings remain inactive.
+- Local validation status at this freeze: strict configuration and
+  positive-control validation passed; focused final-discovery command,
+  production-mode dispatch, checkpoint/restart, disk-calibration,
+  disk-ensemble, review, pipeline, and independent-validation tests passed;
+  Ruff checking, Ruff formatting checks, and `mypy src` passed. The complete
+  repository test/fixture acceptance gate and final benchmark provenance are
+  recorded separately by the release audit when complete; they are not
+  scientific campaign results.
+- Output contract: deterministic dossiers and Output J rows are limited to the
+  first 100 score-ranked Tier A rows plus every Tier B row, while CSV/Parquet
+  preserve the complete retained-candidate ledger, including known, excluded,
+  and rejected rows. The standalone Output
+  J preproduction draft freezes its required sections but contains no invented
+  candidate or review result.
+- Execution boundary: the production campaign was not launched, no paid cloud
+  resource was created, no model asset was downloaded, and no full-corpus
+  final-discovery result was computed. Local fixture and validation behavior
+  cannot be interpreted as candidate recovery, Tier membership, expected
+  noise, novelty, or discovery.
 
 Substantive experiments are prohibited until their prerequisite milestones and data-governance gates pass.

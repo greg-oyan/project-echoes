@@ -6,6 +6,56 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 ### Changed
 
+- `final-discovery-v1` documentation now fixes the active UBS role to its
+  24-row reference-only CC BY-SA 4.0 adaptation, with exact attribution,
+  modification, and ShareAlike boundaries while keeping upstream biblical text
+  and word-match strings inactive. The eight-group 15/3/6 split is explicitly
+  descriptive: all six test rows form one correlated leakage group and have no
+  independent original-language adjudication. Campaign documentation also
+  records verse-only primary scope, candidate-universe-conditioned inference,
+  multilingual/English transfer and exposure limits, ancient-language validity
+  limits, the no-production/no-paid-compute boundary, and bounded dossiers for
+  the first 100 score-ranked Tier A rows plus all Tier B rows alongside the
+  complete retained-candidate CSV/Parquet ledger.
+
+- ADR 0020 replaces production-scale stage and final archive materialization
+  with direct authenticated object trees. Immutable stage artifacts are staged
+  by same-filesystem hardlink, inventoried exactly, uploaded to registered
+  prefixes, and accepted only after `check_tree` equality (including
+  download-based B2 content verification). Stage 11 now uploads
+  `package/` beside `package-receipt.json` with format
+  `authenticated_directory_v1`; no per-stage or final tar is created, and
+  `CampaignRunResult.package_path` identifies that receipt. This changes only
+  storage and transfer mechanics: scientific artifact bytes, stage identities,
+  detectors, nulls, tiers, configuration, and preregistration remain
+  unchanged. Exact transport-interrupted partial prefixes can now resume by
+  adding only absent objects with immutable/checksum-aware semantics, after
+  which the complete tree is download-verified. Existing objects are never
+  replaced or deleted, conflicting or unexpected objects remain blocking, and
+  checkpoint receipts record `resumed_partial` separately.
+  Stage 11 now also publishes its post-package campaign seal and production
+  all-stage validation as authenticated checkpoint supplements. A stable
+  `finalization-receipt.json` binds that remote payload while UUID-named
+  per-attempt receipts preserve the actual new/resumed/existing transfer
+  action; cleanup requires reverifying this checkpoint and retaining both
+  receipt forms before the server can be deleted.
+  Production now also rejects a direct foreground CLI by authenticating the
+  exact systemd cgroup and immutable launch intent, verifies Python 3.12 plus
+  every registered model-package version before launch, and binds a one-shot
+  base-B2-namespace inspection into that intent. A separate non-destructive
+  cleanup verifier reauthenticates the terminal checkpoint inventory and its
+  small finalization records before owner-approved server destruction.
+
+- Milestone 7 is formally closed as a technically successful, canonically
+  sealed, scientifically negative/incomplete lexical experiment. The frozen
+  1,248,779-candidate result has a zero-row strict queue, zero strict
+  validation errors or warnings, no applicable RRF threshold satisfying the
+  registered maximum empirical-FDR policy under both null families, and no
+  post-result threshold weakening. The historical positive acceptance gate
+  remains unmet. ADR 0018 amends the existing Milestone 8–16 plan to authorize
+  a separately preregistered `final-discovery-v1` campaign while preserving M7
+  exactly.
+
 - ADR 0017 is amended from its original CCX43 selection because
   CCX43, CCX53, and CCX63 are unavailable to the owner's Hetzner account. The
   active Milestone 7 execution appliance is now an owner-provisioned CCX33 in
@@ -24,6 +74,21 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
   tracked-file manifest metadata is refreshed.
 
 ### Added
+
+- A standalone preproduction Output J draft at
+  `outputs/publications/output-j-final-discovery-v1-preproduction.md` freezes
+  the required candidate-selection, threshold/expected-noise, Tier A, Tier B,
+  rejection, false-positive, artifact, formulaic, genre, common-vocabulary,
+  scoring-lesson, limitation, and publication sections. Production and human
+  review fields remain explicit placeholders; no candidate result is invented.
+
+- ADR 0018 and
+  `outputs/reports/milestone-7-closure-postmortem.md` record the post-M7
+  methodological decision, canonical hashes and B2 archive, benchmark and
+  null scope, zero-row queue, sensitivity outputs, resource/recovery history,
+  composite production provenance, supported and unsupported conclusions, and
+  the strict separation between statistically eligible Tier A and exploratory
+  Tier B review rows.
 
 - Safe single-node cloud execution preparation for the interrupted Milestone 7
   recovery. ADR 0017 and `docs/cloud-execution.md` preserve the local-first
