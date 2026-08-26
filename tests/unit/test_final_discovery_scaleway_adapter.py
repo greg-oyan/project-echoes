@@ -17,10 +17,10 @@ def test_scaleway_adapter_binds_reviewed_provider_and_operational_cap() -> None:
         "require_source_occurrence",
         "require_exact ECHOES_EXPECTED_SERVER_TYPE POP2-16C-64G",
         "require_exact ECHOES_SERVER_NAME project-echoes-final-discovery",
-        "require_exact ECHOES_FINAL_DISCOVERY_RUNTIME_HOURS 80",
-        'worker_hours = Decimal("80")',
-        '"maximum_worker_hours": 80,',
-        "--property=RuntimeMaxSec=80h",
+        "require_exact ECHOES_FINAL_DISCOVERY_RUNTIME_HOURS 68",
+        'worker_hours = Decimal("68")',
+        '"maximum_worker_hours": 68,',
+        "--property=RuntimeMaxSec=68h",
         (
             "Scaleway POP2-16C-64G / Ubuntu 24.04 / 16 dedicated AMD vCPU / "
             "64 GB / 400 GB Block Storage 5K"
