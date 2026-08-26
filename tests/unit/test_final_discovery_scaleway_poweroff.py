@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -100,12 +99,15 @@ def test_preflight_always_requests_provider_poweroff_and_preserves_result() -> N
     assert "systemd-run" not in script
 
 
-def test_scaleway_adapter_binds_poweroff_after_success_and_failure_once() -> None:
+def test_scaleway_adapter_binds_every_poweroff_boundary_once() -> None:
     script = ADAPTER.read_text(encoding="utf-8")
 
     assert "scaleway_poweroff_guard.sh" in script
     assert 'bash "$POWER_OFF_GUARD" --verify-only' in script
     assert script.count("--property=OnSuccess=echoes-final-discovery-poweroff.service") == 1
     assert script.count("--property=OnFailure=echoes-final-discovery-poweroff.service") == 1
-    assert script.count('exec bash "$adapter" "$@"') == 1
-    assert not re.search(r'exec bash "\$adapter"(?: "\$@"){2,}', script)
+    assert script.count('bash "$POWER_OFF_GUARD" --poweroff') == 1
+    assert script.count('bash "$adapter" "$@"') == 1
+    assert "poweroff_if_unsuccessful=true" in script
+    assert "poweroff_if_unsuccessful=false" in script
+    assert 'trap cleanup EXIT' in script
