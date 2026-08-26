@@ -33,9 +33,7 @@ PASSAGES_NAME: Final = "passages.jsonl"
 KNOWNNESS_NAME: Final = "known-relationships.jsonl"
 KNOWNNESS_RECEIPT_NAME: Final = "known-relationships.receipt.json"
 PREPARATION_RECEIPT_NAME: Final = "preparation-receipt.json"
-BENCHMARK_MANIFEST_RELATIVE: Final = Path(
-    "data/processed/benchmarks/schema-v1/table-hashes.json"
-)
+BENCHMARK_MANIFEST_RELATIVE: Final = Path("data/processed/benchmarks/schema-v1/table-hashes.json")
 EXPECTED_BENCHMARK_MANIFEST_SHA256: Final = (
     "1cfaab5de2904e283b466044b2cd38d0acdc6f6fef929bc397e720ce6d3838fd"
 )
