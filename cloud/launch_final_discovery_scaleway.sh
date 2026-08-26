@@ -62,6 +62,21 @@ poweroff_active="$(systemctl show "$POWER_OFF_UNIT" --property=ActiveState --val
 systemctl reset-failed "$POWER_OFF_UNIT" >/dev/null 2>&1 || true
 bash "$POWER_OFF_GUARD" --verify-only >/dev/null
 
+# From this point forward, every refusal, shell error, interrupt, or SSH hangup
+# requests a true provider poweroff. Successful service handoff disarms it;
+# the service itself has OnSuccess and OnFailure poweroff dependencies.
+adapter=""
+poweroff_if_unsuccessful=true
+cleanup() {
+    local status=$?
+    [[ -z "$adapter" ]] || rm -f -- "$adapter"
+    if [[ "$poweroff_if_unsuccessful" == true && $status -ne 0 ]]; then
+        bash "$POWER_OFF_GUARD" --poweroff >/dev/null 2>&1 || true
+    fi
+}
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
+
 require_source_occurrence() {
     local literal="$1"
     local expected_count="$2"
@@ -87,16 +102,6 @@ require_source_occurrence '    --property=Restart=no \' 1
 require_source_occurrence 'CCX43 / Ubuntu 24.04 / 16 dedicated AMD vCPU / 64 GB / 360 GB SSD' 1
 
 adapter="$(mktemp /run/project-echoes-final-discovery-scaleway.XXXXXX)"
-poweroff_if_unsuccessful=true
-cleanup() {
-    local status=$?
-    rm -f -- "$adapter"
-    if [[ "$poweroff_if_unsuccessful" == true && $status -ne 0 ]]; then
-        bash "$POWER_OFF_GUARD" --poweroff >/dev/null 2>&1 || true
-    fi
-}
-trap cleanup EXIT
-trap 'exit 1' HUP INT TERM
 
 sed \
     -e 's/require_exact ECHOES_EXPECTED_SERVER_TYPE CCX43/require_exact ECHOES_EXPECTED_SERVER_TYPE POP2-16C-64G/' \
