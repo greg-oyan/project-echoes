@@ -8,8 +8,8 @@ set -Eeuo pipefail
 # machinery remain owned by cloud/launch_final_discovery.sh. This wrapper
 # changes only the reviewed Scaleway provider identity, the separately
 # authorized 68-hour operational stop required to preserve the USD 75 cap, and
-# a provider-side auto-poweroff dependency that runs after success or failure.
-# It does not change any scientific configuration.
+# provider-side auto-poweroff around every production boundary. It does not
+# change any scientific configuration.
 
 readonly REPO_ROOT="/srv/project-echoes/repo"
 readonly SOURCE_LAUNCHER="$REPO_ROOT/cloud/launch_final_discovery.sh"
@@ -87,10 +87,16 @@ require_source_occurrence '    --property=Restart=no \' 1
 require_source_occurrence 'CCX43 / Ubuntu 24.04 / 16 dedicated AMD vCPU / 64 GB / 360 GB SSD' 1
 
 adapter="$(mktemp /run/project-echoes-final-discovery-scaleway.XXXXXX)"
+poweroff_if_unsuccessful=true
 cleanup() {
+    local status=$?
     rm -f -- "$adapter"
+    if [[ "$poweroff_if_unsuccessful" == true && $status -ne 0 ]]; then
+        bash "$POWER_OFF_GUARD" --poweroff >/dev/null 2>&1 || true
+    fi
 }
 trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
 
 sed \
     -e 's/require_exact ECHOES_EXPECTED_SERVER_TYPE CCX43/require_exact ECHOES_EXPECTED_SERVER_TYPE POP2-16C-64G/' \
@@ -141,4 +147,5 @@ for expected in \
     }
 done
 
-exec bash "$adapter" "$@"
+bash "$adapter" "$@"
+poweroff_if_unsuccessful=false
