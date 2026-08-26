@@ -241,7 +241,7 @@ install -d -m 0700 -o root -g root "$STATE_ROOT" "$STATE_ROOT/launches" "$LOG_RO
 runuser -u "$ECHOES_SERVICE_USER" -- /usr/bin/test -w "$ECHOES_WORK_DIR" ||
     die "service user cannot write the campaign work directory"
 
-available_bytes="$(df -P -B1 --output=avail "$ECHOES_WORK_DIR" | tail -n 1 | tr -d ' ')"
+available_bytes="$(df -B1 --output=avail "$ECHOES_WORK_DIR" | tail -n 1 | tr -d ' ')"
 [[ "$available_bytes" =~ ^[0-9]+$ ]] || die "could not measure work-filesystem free space"
 (( available_bytes >= 280 * 1024 * 1024 * 1024 )) ||
     die "work filesystem has less than the required 280 GiB free at launch"
