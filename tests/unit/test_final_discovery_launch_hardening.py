@@ -33,7 +33,10 @@ def test_budget_uses_verified_accrued_cost_not_server_wall_clock() -> None:
     script = LAUNCHER.read_text(encoding="utf-8")
     assert "ECHOES_ACCRUED_INFRASTRUCTURE_USD" in script
     assert "ECHOES_ACCRUED_COST_VERIFIED_AT_UTC" in script
-    assert "projected_all_in = accrued + projected_future_infrastructure + reserve" in script
+    assert (
+        "projected_all_in = accrued + projected_future_infrastructure + reserve"
+        in script
+    )
     assert "accrued_hours" not in script
 
 
