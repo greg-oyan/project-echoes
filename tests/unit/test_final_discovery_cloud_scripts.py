@@ -171,6 +171,8 @@ def test_environment_template_requires_exact_identity_resources_and_secrets() ->
         "ECHOES_ACCRUED_COST_VERIFIED_AT_UTC",
         "ECHOES_ACCRUED_INFRASTRUCTURE_USD",
         "ECHOES_ACCRUED_COST_VERIFIED_AT_UTC",
+        "ECHOES_ACCRUED_INFRASTRUCTURE_USD",
+        "ECHOES_ACCRUED_COST_VERIFIED_AT_UTC",
     ):
         assert re.search(rf"^{name}=\S+$", example, flags=re.MULTILINE)
 

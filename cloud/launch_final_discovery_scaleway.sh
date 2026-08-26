@@ -141,4 +141,4 @@ for expected in \
     }
 done
 
-exec bash "$adapter" "$@"
+exec bash "$adapter" "$@" "$@"
