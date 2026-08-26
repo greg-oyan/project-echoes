@@ -333,7 +333,10 @@ def _parse_arguments() -> argparse.Namespace:
 def main() -> int:
     arguments = _parse_arguments()
     expected_commit = str(arguments.expected_commit).lower()
-    if len(expected_commit) != 40 or any(value not in "0123456789abcdef" for value in expected_commit):
+    invalid_commit = len(expected_commit) != 40 or any(
+        value not in "0123456789abcdef" for value in expected_commit
+    )
+    if invalid_commit:
         raise PreparationError("expected commit must be one full lowercase Git SHA")
     root = arguments.repo_root.resolve()
     output_root = arguments.output_root.resolve()
