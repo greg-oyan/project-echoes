@@ -1,0 +1,71 @@
+name: Apply production launcher disk-probe fix
+
+on:
+  push:
+    branches:
+      - fix/stage1-knownness-memory-bound
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-production-launcher-disk-probe-fix
+  cancel-in-progress: false
+
+jobs:
+  apply-reviewed-patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out patch branch
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: fix/stage1-knownness-memory-bound
+          fetch-depth: 0
+
+      - name: Replace invalid GNU df option combination exactly once
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          launcher = Path("cloud/launch_final_discovery.sh")
+          text = launcher.read_text(encoding="utf-8")
+          old = 'df -P -B1 --output=avail "$ECHOES_WORK_DIR"'
+          new = 'df -B1 --output=avail "$ECHOES_WORK_DIR"'
+          old_count = text.count(old)
+          new_count = text.count(new)
+          if old_count == 1 and new_count == 0:
+              launcher.write_text(text.replace(old, new), encoding="utf-8")
+          elif old_count == 0 and new_count == 1:
+              print("Launcher disk probe already patched; no source rewrite required.")
+          else:
+              raise SystemExit(
+                  f"Launcher disk-probe contract drifted: old={old_count}, new={new_count}"
+              )
+
+          test_path = Path("tests/unit/test_final_discovery_launch_disk_probe.py")
+          expected_test = '''"""Regression coverage for the production launcher's GNU df probe."""\n\nfrom __future__ import annotations\n\nfrom pathlib import Path\n\nROOT = Path(__file__).resolve().parents[2]\nLAUNCHER = ROOT / "cloud" / "launch_final_discovery.sh"\nADAPTER = ROOT / "cloud" / "launch_final_discovery_scaleway.sh"\n\n\ndef test_launcher_uses_valid_gnu_df_option_combination() -> None:\n    script = LAUNCHER.read_text(encoding="utf-8")\n    assert 'df -P -B1 --output=avail' not in script\n    assert script.count('df -B1 --output=avail "$ECHOES_WORK_DIR"') == 1\n\n\ndef test_scaleway_adapter_executes_the_validated_base_launcher() -> None:\n    adapter = ADAPTER.read_text(encoding="utf-8")\n    assert 'SOURCE_LAUNCHER="$REPO_ROOT/cloud/launch_final_discovery.sh"' in adapter\n    assert 'exec bash "$adapter"' in adapter\n'''
+          if test_path.exists() and test_path.read_text(encoding="utf-8") != expected_test:
+              raise SystemExit("Existing launcher disk-probe test differs from reviewed patch")
+          test_path.write_text(expected_test, encoding="utf-8")
+          PY
+
+          bash -n cloud/launch_final_discovery.sh
+          bash -n cloud/launch_final_discovery_scaleway.sh
+          test "$(grep -F -c 'df -B1 --output=avail "$ECHOES_WORK_DIR"' cloud/launch_final_discovery.sh)" = 1
+          test "$(grep -F -c 'df -P -B1 --output=avail' cloud/launch_final_discovery.sh || true)" = 0
+
+      - name: Commit exact patch once
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if git diff --quiet -- cloud/launch_final_discovery.sh tests/unit/test_final_discovery_launch_disk_probe.py; then
+            echo "Reviewed patch is already committed."
+            exit 0
+          fi
+          git config user.name "Project Echoes CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add cloud/launch_final_discovery.sh tests/unit/test_final_discovery_launch_disk_probe.py
+          git commit -m "Fix production launcher disk free-space probe"
+          git push origin HEAD:fix/stage1-knownness-memory-bound
