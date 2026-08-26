@@ -1,0 +1,19 @@
+[Unit]
+Description=Power off the Project Echoes Scaleway Instance after final discovery
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=10min
+StartLimitBurst=5
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash /srv/project-echoes/repo/cloud/scaleway_poweroff_guard.sh --poweroff
+TimeoutStartSec=2min
+Restart=on-failure
+RestartSec=30s
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+RestrictAddressFamilies=AF_INET AF_INET6
