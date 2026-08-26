@@ -181,7 +181,11 @@ from echoes.final_discovery.validation import (
 ExecutionMode = Literal["fixture", "production"]
 
 _M7_PROJECTION_MEMORY_LIMIT_BYTES = 1024**3
-_KNOWNNESS_PROJECTION_MEMORY_LIMIT_BYTES = 1024**3
+# The complete 608,533-row M6 projection exceeded 1 GiB on the target
+# production host. Keep this operational bound below both the 40 GiB DuckDB
+# campaign ceiling and the 56 GiB systemd process ceiling. The projection
+# query, ordering, mapping policy, and authenticated output remain unchanged.
+_KNOWNNESS_PROJECTION_MEMORY_LIMIT_BYTES = 4 * 1024**3
 _FINAL_DISCOVERY_DUCKDB_MEMORY_LIMIT_BYTES = 4 * 1024**3
 _FINAL_DISCOVERY_DUCKDB_THREADS = 1
 _DISK_ENSEMBLE_CHUNK_SIZE = 10_000
