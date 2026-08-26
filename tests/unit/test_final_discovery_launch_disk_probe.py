@@ -17,7 +17,5 @@ def test_launcher_uses_valid_gnu_df_option_combination() -> None:
 
 def test_scaleway_adapter_executes_the_validated_base_launcher() -> None:
     adapter = ADAPTER.read_text(encoding="utf-8")
-    assert (
-        'SOURCE_LAUNCHER="$REPO_ROOT/cloud/launch_final_discovery.sh"' in adapter
-    )
+    assert 'SOURCE_LAUNCHER="$REPO_ROOT/cloud/launch_final_discovery.sh"' in adapter
     assert 'exec bash "$adapter"' in adapter
