@@ -7,7 +7,7 @@ set -Eeuo pipefail
 # contracts, memory/CPU/disk ceilings, systemd isolation, and launch-intent
 # machinery remain owned by cloud/launch_final_discovery.sh. This wrapper
 # changes only the reviewed Scaleway provider identity plus the separately
-# authorized 80-hour operational stop required to preserve the USD 75 cap at
+# authorized 68-hour operational stop required to preserve the USD 75 cap at
 # the reviewed Scaleway rate. It does not change any scientific configuration.
 
 readonly REPO_ROOT="/srv/project-echoes/repo"
@@ -54,10 +54,10 @@ trap cleanup EXIT
 sed \
     -e 's/require_exact ECHOES_EXPECTED_SERVER_TYPE CCX43/require_exact ECHOES_EXPECTED_SERVER_TYPE POP2-16C-64G/' \
     -e 's/require_exact ECHOES_SERVER_NAME project-echoes-final-discovery-v1/require_exact ECHOES_SERVER_NAME project-echoes-final-discovery/' \
-    -e 's/require_exact ECHOES_FINAL_DISCOVERY_RUNTIME_HOURS 96/require_exact ECHOES_FINAL_DISCOVERY_RUNTIME_HOURS 80/' \
-    -e 's/worker_hours = Decimal("96")/worker_hours = Decimal("80")/' \
-    -e 's/"maximum_worker_hours": 96,/"maximum_worker_hours": 80,/' \
-    -e 's/--property=RuntimeMaxSec=96h/--property=RuntimeMaxSec=80h/' \
+    -e 's/require_exact ECHOES_FINAL_DISCOVERY_RUNTIME_HOURS 96/require_exact ECHOES_FINAL_DISCOVERY_RUNTIME_HOURS 68/' \
+    -e 's/worker_hours = Decimal("96")/worker_hours = Decimal("68")/' \
+    -e 's/"maximum_worker_hours": 96,/"maximum_worker_hours": 68,/' \
+    -e 's/--property=RuntimeMaxSec=96h/--property=RuntimeMaxSec=68h/' \
     -e 's/CCX43 contract requires exactly 16 visible vCPUs/production contract requires exactly 16 visible vCPUs/' \
     -e 's/CCX43 contract requires AMD CPUs/production contract requires AMD CPUs/' \
     -e 's/CCX43 contract requires a host advertised with 64 GB RAM/production contract requires a host advertised with 64 GB RAM/' \
@@ -69,10 +69,10 @@ chmod 0700 "$adapter"
 for expected in \
     'require_exact ECHOES_EXPECTED_SERVER_TYPE POP2-16C-64G' \
     'require_exact ECHOES_SERVER_NAME project-echoes-final-discovery' \
-    'require_exact ECHOES_FINAL_DISCOVERY_RUNTIME_HOURS 80' \
-    'worker_hours = Decimal("80")' \
-    '"maximum_worker_hours": 80,' \
-    '--property=RuntimeMaxSec=80h' \
+    'require_exact ECHOES_FINAL_DISCOVERY_RUNTIME_HOURS 68' \
+    'worker_hours = Decimal("68")' \
+    '"maximum_worker_hours": 68,' \
+    '--property=RuntimeMaxSec=68h' \
     'Scaleway POP2-16C-64G / Ubuntu 24.04 / 16 dedicated AMD vCPU / 64 GB / 400 GB Block Storage 5K'; do
     grep -F -q -- "$expected" "$adapter" || {
         printf 'Scaleway adapter could not bind required contract: %s\n' "$expected" >&2
@@ -80,4 +80,4 @@ for expected in \
     }
 done
 
-exec bash "$adapter"
+exec bash "$adapter" "$@"

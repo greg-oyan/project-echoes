@@ -12,12 +12,15 @@ readonly M7_MANIFEST_SHA256="e56a1d3ee4f9707c17e7a25dc6b3d82ad5ec9a9bb28234762d5
 
 usage() {
     cat <<'EOF'
-Usage: sudo bash /srv/project-echoes/repo/cloud/launch_final_discovery.sh
+Usage:
+  sudo bash /srv/project-echoes/repo/cloud/launch_final_discovery.sh --preflight-only
+  sudo bash /srv/project-echoes/repo/cloud/launch_final_discovery.sh
 
 Fail-closed owner launcher for the single final-discovery-v1 production
-worker. It never provisions, purchases, stops, deletes, or polls a cloud
-resource. It starts one detached systemd service, takes one startup snapshot,
-and exits.
+worker. Preflight performs every local, budget, model, M7 identity, credential,
+and output-namespace check but never creates a service or launch record. Launch
+starts one detached systemd service, takes one startup snapshot, and exits. The
+script never provisions, purchases, stops, deletes, or polls a cloud resource.
 EOF
 }
 
@@ -49,8 +52,13 @@ require_absolute_path() {
         die "$name must be an absolute path using portable characters"
 }
 
+launch_mode="launch"
 if (($#)); then
     case "$1" in
+        --preflight-only)
+            (($# == 1)) || { usage >&2; exit 2; }
+            launch_mode="preflight"
+            ;;
         -h|--help)
             (($# == 1)) || { usage >&2; exit 2; }
             usage
@@ -129,6 +137,8 @@ required_names=(
     ECHOES_VERIFIED_RATE_USD_PER_HOUR
     ECHOES_RATE_VERIFIED_AT_UTC
     ECHOES_SERVER_CREATED_AT_UTC
+    ECHOES_ACCRUED_INFRASTRUCTURE_USD
+    ECHOES_ACCRUED_COST_VERIFIED_AT_UTC
     ECHOES_B2_COST_RESERVE_USD
 )
 declare -A required_name_set=()
@@ -154,7 +164,8 @@ metadata_environment_names=(
     ECHOES_FINAL_DISCOVERY_DUCKDB_MEMORY_LIMIT_GIB
     ECHOES_FINAL_DISCOVERY_INITIAL_FREE_DISK_GIB
     ECHOES_FINAL_DISCOVERY_DISK_FLOOR_GIB ECHOES_FINAL_DISCOVERY_RUNTIME_HOURS
-    ECHOES_HARD_BUDGET_USD
+    ECHOES_HARD_BUDGET_USD ECHOES_ACCRUED_INFRASTRUCTURE_USD
+    ECHOES_ACCRUED_COST_VERIFIED_AT_UTC
 )
 for name in "${metadata_environment_names[@]}"; do
     export "$name"
@@ -250,6 +261,8 @@ budget_json="$(python3 - \
     "$ECHOES_VERIFIED_RATE_USD_PER_HOUR" \
     "$ECHOES_RATE_VERIFIED_AT_UTC" \
     "$ECHOES_SERVER_CREATED_AT_UTC" \
+    "$ECHOES_ACCRUED_INFRASTRUCTURE_USD" \
+    "$ECHOES_ACCRUED_COST_VERIFIED_AT_UTC" \
     "$ECHOES_B2_COST_RESERVE_USD" \
     "$ECHOES_HARD_BUDGET_USD" <<'PY'
 from __future__ import annotations
@@ -271,35 +284,45 @@ def timestamp(value: str, label: str) -> datetime:
 
 
 try:
-    rate, reserve, cap = (Decimal(sys.argv[index]) for index in (1, 4, 5))
+    rate = Decimal(sys.argv[1])
+    accrued = Decimal(sys.argv[4])
+    reserve = Decimal(sys.argv[6])
+    cap = Decimal(sys.argv[7])
 except InvalidOperation as exc:
-    raise SystemExit("rate, B2 reserve, and budget must be decimals") from exc
-if rate <= 0 or reserve < 0 or cap != Decimal("75.00"):
-    raise SystemExit("invalid rate, B2 reserve, or frozen budget")
+    raise SystemExit("rate, accrued cost, B2 reserve, and budget must be decimals") from exc
+if rate <= 0 or accrued < 0 or reserve < 0 or cap != Decimal("75.00"):
+    raise SystemExit("invalid rate, accrued cost, B2 reserve, or frozen budget")
 
 now = datetime.now(UTC)
-verified_at = timestamp(sys.argv[2], "rate verification")
+rate_verified_at = timestamp(sys.argv[2], "rate verification")
 created_at = timestamp(sys.argv[3], "server creation")
-if verified_at > now + timedelta(minutes=5) or now - verified_at > timedelta(hours=24):
-    raise SystemExit("the owner must reverify the all-in hourly rate within 24 hours of launch")
+accrued_verified_at = timestamp(sys.argv[5], "accrued-cost verification")
+for verified_at, label in (
+    (rate_verified_at, "all-in hourly rate"),
+    (accrued_verified_at, "accrued infrastructure cost"),
+):
+    if verified_at > now + timedelta(minutes=5) or now - verified_at > timedelta(hours=24):
+        raise SystemExit(f"the owner must reverify the {label} within 24 hours of launch")
 if created_at > now + timedelta(minutes=5):
     raise SystemExit("server creation time cannot be in the future")
 
-accrued_hours = Decimal(str(max(0.0, (now - created_at).total_seconds()) / 3600.0))
 worker_hours = Decimal("96")
-projected_compute = (accrued_hours + worker_hours) * rate
-projected_all_in = projected_compute + reserve
+projected_future_infrastructure = worker_hours * rate
+projected_all_in = accrued + projected_future_infrastructure + reserve
 if projected_all_in > cap:
-    raise SystemExit("projected server lifecycle plus B2 reserve exceeds the $75 hard cap")
+    raise SystemExit("verified accrued cost plus worker window and B2 reserve exceeds $75")
 print(
     json.dumps(
         {
             "verified_rate_usd_per_hour": str(rate),
-            "rate_verified_at_utc": verified_at.isoformat(),
+            "rate_verified_at_utc": rate_verified_at.isoformat(),
             "server_created_at_utc": created_at.isoformat(),
-            "accrued_hours_at_launch": str(accrued_hours.quantize(Decimal("0.001"))),
+            "verified_accrued_infrastructure_usd": str(accrued),
+            "accrued_cost_verified_at_utc": accrued_verified_at.isoformat(),
             "maximum_worker_hours": 96,
-            "projected_compute_usd": str(projected_compute.quantize(Decimal("0.001"))),
+            "projected_future_infrastructure_usd": str(
+                projected_future_infrastructure.quantize(Decimal("0.001"))
+            ),
             "b2_cost_reserve_usd": str(reserve),
             "projected_all_in_usd": str(projected_all_in.quantize(Decimal("0.001"))),
             "hard_cap_usd": str(cap),
@@ -385,6 +408,91 @@ output_namespace_json="$(
         sh "$ECHOES_REPO_ROOT" "$ECHOES_UV_BIN" "$ECHOES_WORK_DIR" \
         "$ECHOES_OUTPUT_BUCKET" "$ECHOES_OUTPUT_PREFIX"
 )" || die "B2 output namespace is neither empty nor an authenticated resumable state"
+
+# Authenticate the exact remote M7 identity without downloading its 17 GiB
+# body. Stage 1 still downloads every object and verifies every manifest-listed
+# SHA-256 before analysis. This preflight catches credentials, bucket/prefix,
+# remote inventory, and manifest-identity errors before a worker can start.
+m7_preflight_json="$(
+    while IFS= read -r exported_name; do
+        case "$exported_name" in
+            PATH|LANG|LC_*) ;;
+            *) export -n "$exported_name" ;;
+        esac
+    done < <(compgen -e)
+    export B2_APPLICATION_KEY_ID B2_APPLICATION_KEY
+    runuser -u "$ECHOES_SERVICE_USER" --preserve-environment -- sh -c \
+        'cd -- "$1" && exec "$2" run --frozen --no-sync python - "$3" "$4" "$5"' \
+        sh "$ECHOES_REPO_ROOT" "$ECHOES_UV_BIN" "$ECHOES_M7_BUCKET" \
+        "$ECHOES_M7_PREFIX" "$M7_MANIFEST_SHA256" <<'PY'
+from __future__ import annotations
+
+import hashlib
+import json
+import sys
+
+from echoes.final_discovery.inputs import RcloneB2ObjectStore
+
+bucket, prefix, expected_manifest_sha256 = sys.argv[1:]
+store = RcloneB2ObjectStore(bucket=bucket, prefix=prefix)
+inventory = store.inventory()
+manifest = store.read_bytes("table-hashes.json", maximum_bytes=64 * 1024 * 1024)
+observed_manifest_sha256 = hashlib.sha256(manifest).hexdigest()
+if observed_manifest_sha256 != expected_manifest_sha256:
+    raise SystemExit(
+        "remote M7 table-hashes.json differs: "
+        f"expected={expected_manifest_sha256}, observed={observed_manifest_sha256}"
+    )
+if inventory.object_count != 18_606 or inventory.total_size != 18_413_699_180:
+    raise SystemExit(
+        "remote M7 object inventory differs from the verified archive: "
+        f"objects={inventory.object_count}, bytes={inventory.total_size}"
+    )
+print(
+    json.dumps(
+        {
+            "identity": inventory.identity.canonical_uri,
+            "object_count": inventory.object_count,
+            "total_size": inventory.total_size,
+            "table_hashes_sha256": observed_manifest_sha256,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+)
+PY
+)" || die "canonical M7 remote identity or credentials failed preflight"
+
+if [[ "$launch_mode" == preflight ]]; then
+    python3 - "$observed_commit" "$available_bytes" "$budget_json" \
+        "$m7_preflight_json" "$output_namespace_json" <<'PY'
+from __future__ import annotations
+
+import json
+import sys
+
+commit, available_bytes, budget, m7, output_namespace = sys.argv[1:]
+print(
+    json.dumps(
+        {
+            "schema_version": 1,
+            "experiment_id": "final-discovery-v1",
+            "preflight_passed": True,
+            "service_created": False,
+            "git_commit": commit,
+            "available_bytes": int(available_bytes),
+            "budget": json.loads(budget),
+            "m7": json.loads(m7),
+            "output_namespace": json.loads(output_namespace),
+        },
+        indent=2,
+        sort_keys=True,
+    )
+)
+PY
+    printf 'FINAL_DISCOVERY_PREFLIGHT_COMPLETE\n'
+    exit 0
+fi
 
 launch_id="$(date -u +%Y%m%dT%H%M%SZ)-${observed_commit:0:12}"
 intent_path="$STATE_ROOT/launches/$launch_id.intent.json"
