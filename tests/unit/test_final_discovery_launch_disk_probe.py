@@ -15,7 +15,8 @@ def test_launcher_uses_valid_gnu_df_option_combination() -> None:
     assert script.count('df -B1 --output=avail "$ECHOES_WORK_DIR"') == 1
 
 
-def test_scaleway_adapter_executes_the_validated_base_launcher() -> None:
+def test_scaleway_adapter_runs_the_validated_base_launcher_once() -> None:
     adapter = ADAPTER.read_text(encoding="utf-8")
     assert 'SOURCE_LAUNCHER="$REPO_ROOT/cloud/launch_final_discovery.sh"' in adapter
-    assert 'exec bash "$adapter"' in adapter
+    assert adapter.count('bash "$adapter" "$@"') == 1
+    assert 'exec bash "$adapter"' not in adapter
