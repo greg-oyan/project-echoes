@@ -171,9 +171,15 @@ print(json.loads(sys.argv[1])["state"])
 PY
 )"
 case "$state" in
-    stopped|stopping|locked)
+    stopped|stopping)
         printf 'SCALEWAY_POWEROFF_NOT_NEEDED state=%s\n' "$state"
         exit 0
+        ;;
+    locked|error)
+        # These states do not stop billing by themselves. Return failure so the
+        # bounded systemd unit retries the provider request after the temporary
+        # or administrative state clears.
+        fail "Instance is not yet poweroff-actionable: state=$state"
         ;;
 esac
 
