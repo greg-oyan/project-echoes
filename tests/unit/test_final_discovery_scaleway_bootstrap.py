@@ -39,7 +39,7 @@ def test_bootstrap_uses_valid_df_invocation_and_fail_closed_host_identity() -> N
     assert "df -B1 --output=avail /" in script
     assert "df -P -B1 --output=avail" not in script
     assert "ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub -E sha256" in script
-    assert '[[ "$(nproc --all)" == "16" ]]' in script
+    assert '[[ "$(nproc --all)" == 16 ]]' in script
     assert "less than 60 GiB RAM is visible" in script
     assert "less than 300 GiB disk is available" in script
     assert "origin/main differs" in script
