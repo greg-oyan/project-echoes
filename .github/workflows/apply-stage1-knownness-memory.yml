@@ -1,0 +1,72 @@
+name: Apply Stage 1 knownness memory bound
+
+on:
+  push:
+    branches:
+      - fix/stage1-knownness-memory-bound
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-stage1-knownness-memory-bound
+  cancel-in-progress: false
+
+jobs:
+  apply-reviewed-patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out patch branch
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: fix/stage1-knownness-memory-bound
+          fetch-depth: 0
+
+      - name: Apply exact fail-closed production patch
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          pipeline_path = Path("src/echoes/final_discovery/pipeline.py")
+          text = pipeline_path.read_text(encoding="utf-8")
+          old = "_KNOWNNESS_PROJECTION_MEMORY_LIMIT_BYTES = 1024**3"
+          replacement = """# The complete 608,533-row M6 projection exceeded 1 GiB on the target\n# production host. Keep this operational bound below both the 40 GiB DuckDB\n# campaign ceiling and the 56 GiB systemd process ceiling. The projection\n# query, ordering, mapping policy, and authenticated output remain unchanged.\n_KNOWNNESS_PROJECTION_MEMORY_LIMIT_BYTES = 4 * 1024**3"""
+
+          count = text.count(old)
+          if count == 0:
+              if replacement not in text:
+                  raise SystemExit("Stage 1 knownness memory contract is neither old nor patched")
+              print("Stage 1 memory contract already patched; no source rewrite required.")
+          elif count == 1:
+              pipeline_path.write_text(text.replace(old, replacement), encoding="utf-8")
+          else:
+              raise SystemExit(f"Expected one Stage 1 memory constant; observed {count}")
+
+          test_path = Path("tests/unit/test_final_discovery_production_memory.py")
+          expected_test = '''"""Production resource contracts proven by measured full-scale preparation."""\n\nfrom __future__ import annotations\n\nimport inspect\n\nimport echoes.final_discovery.pipeline as pipeline\n\n\ndef test_stage_one_knownness_uses_measured_four_gib_bound() -> None:\n    assert pipeline._KNOWNNESS_PROJECTION_MEMORY_LIMIT_BYTES == 4 * 1024**3\n    source = inspect.getsource(pipeline._produce_stage_one)\n    assert "memory_limit_bytes=_KNOWNNESS_PROJECTION_MEMORY_LIMIT_BYTES" in source\n\n\ndef test_knownness_change_does_not_relax_other_production_bounds() -> None:\n    assert pipeline._M7_PROJECTION_MEMORY_LIMIT_BYTES == 1024**3\n    assert pipeline._FINAL_DISCOVERY_DUCKDB_MEMORY_LIMIT_BYTES == 4 * 1024**3\n    assert pipeline._MINIMUM_PRODUCTION_DISK_FLOOR_BYTES == 80 * 1024**3\n'''
+          if test_path.exists() and test_path.read_text(encoding="utf-8") != expected_test:
+              raise SystemExit("Existing production-memory test differs from the reviewed patch")
+          test_path.write_text(expected_test, encoding="utf-8")
+          PY
+
+          python3 -m py_compile src/echoes/final_discovery/pipeline.py
+          grep -F -x -q '_KNOWNNESS_PROJECTION_MEMORY_LIMIT_BYTES = 4 * 1024**3' \
+            src/echoes/final_discovery/pipeline.py
+          test "$(grep -F -c '_KNOWNNESS_PROJECTION_MEMORY_LIMIT_BYTES = 4 * 1024**3' src/echoes/final_discovery/pipeline.py)" = 1
+          test "$(grep -F -c '_KNOWNNESS_PROJECTION_MEMORY_LIMIT_BYTES = 1024**3' src/echoes/final_discovery/pipeline.py || true)" = 0
+
+      - name: Commit exact patch once
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if git diff --quiet -- src/echoes/final_discovery/pipeline.py tests/unit/test_final_discovery_production_memory.py; then
+            echo "Reviewed patch is already committed."
+            exit 0
+          fi
+          git config user.name "Project Echoes CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/echoes/final_discovery/pipeline.py tests/unit/test_final_discovery_production_memory.py
+          git commit -m "Raise Stage 1 knownness projection to measured 4 GiB bound"
+          git push origin HEAD:fix/stage1-knownness-memory-bound
