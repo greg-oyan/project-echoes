@@ -104,8 +104,14 @@ def test_scaleway_adapter_binds_every_poweroff_boundary_once() -> None:
 
     assert "scaleway_poweroff_guard.sh" in script
     assert 'bash "$POWER_OFF_GUARD" --verify-only' in script
-    assert script.count("--property=OnSuccess=echoes-final-discovery-poweroff.service") == 1
-    assert script.count("--property=OnFailure=echoes-final-discovery-poweroff.service") == 1
+    assert (
+        script.count("--property=OnSuccess=echoes-final-discovery-poweroff.service")
+        == 1
+    )
+    assert (
+        script.count("--property=OnFailure=echoes-final-discovery-poweroff.service")
+        == 1
+    )
     assert script.count('bash "$POWER_OFF_GUARD" --poweroff') == 1
     assert script.count('bash "$adapter" "$@"') == 1
     assert "poweroff_if_unsuccessful=true" in script
