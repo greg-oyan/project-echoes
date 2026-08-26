@@ -8,6 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 GUARD = ROOT / "cloud" / "scaleway_poweroff_guard.sh"
 INSTALLER = ROOT / "cloud" / "install_scaleway_poweroff_guard.sh"
+PREFLIGHT = ROOT / "cloud" / "preflight_final_discovery_scaleway.sh"
 UNIT = ROOT / "cloud" / "echoes-final-discovery-poweroff.service"
 ENV_EXAMPLE = ROOT / "cloud" / "scaleway-poweroff.env.example"
 ADAPTER = ROOT / "cloud" / "launch_final_discovery_scaleway.sh"
@@ -77,6 +78,16 @@ def test_installer_only_installs_and_verifies_guard() -> None:
     assert "SCALEWAY_POWEROFF_GUARD_INSTALLED" in script
     assert "systemctl start" not in operational
     assert "--poweroff" not in operational
+
+
+def test_preflight_always_requests_provider_poweroff_and_preserves_result() -> None:
+    script = PREFLIGHT.read_text(encoding="utf-8")
+
+    assert 'bash "$ADAPTER" --preflight-only || preflight_status=$?' in script
+    assert 'bash "$POWER_OFF_GUARD" --poweroff || poweroff_status=$?' in script
+    assert "SCALEWAY_PREFLIGHT_POWERDOWN_REQUESTED" in script
+    assert 'exit "$preflight_status"' in script
+    assert "systemd-run" not in script
 
 
 def test_scaleway_adapter_binds_poweroff_after_success_and_failure_once() -> None:
