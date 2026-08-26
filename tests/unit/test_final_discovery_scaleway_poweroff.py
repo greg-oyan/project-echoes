@@ -54,13 +54,23 @@ def test_guard_binds_exact_instance_identity_and_least_privilege_template() -> N
     assert "only once" in example
 
 
-def test_poweroff_unit_is_bounded_and_retries_only_the_api_request() -> None:
+def test_guard_retries_locked_or_error_states_instead_of_treating_them_as_stopped() -> None:
+    script = GUARD.read_text(encoding="utf-8")
+
+    assert "stopped|stopping)" in script
+    assert "locked|error)" in script
+    assert "Instance is not yet poweroff-actionable" in script
+    assert "stopped|stopping|locked)" not in script
+
+
+def test_poweroff_unit_retries_until_provider_accepts_the_request() -> None:
     unit = UNIT.read_text(encoding="utf-8")
 
     assert "Type=oneshot" in unit
     assert "Restart=on-failure" in unit
-    assert "RestartSec=30s" in unit
-    assert "StartLimitBurst=5" in unit
+    assert "RestartSec=2min" in unit
+    assert "StartLimitIntervalSec=0" in unit
+    assert "StartLimitBurst=" not in unit
     assert "TimeoutStartSec=2min" in unit
     assert "NoNewPrivileges=yes" in unit
     assert "ProtectSystem=strict" in unit
