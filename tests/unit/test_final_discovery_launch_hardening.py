@@ -33,10 +33,7 @@ def test_budget_uses_verified_accrued_cost_not_server_wall_clock() -> None:
     script = LAUNCHER.read_text(encoding="utf-8")
     assert "ECHOES_ACCRUED_INFRASTRUCTURE_USD" in script
     assert "ECHOES_ACCRUED_COST_VERIFIED_AT_UTC" in script
-    assert (
-        "projected_all_in = accrued + projected_future_infrastructure + reserve"
-        in script
-    )
+    assert "projected_all_in = accrued + projected_future_infrastructure + reserve" in script
     assert "accrued_hours" not in script
 
 
@@ -46,7 +43,7 @@ def test_scaleway_adapter_caps_worker_and_protects_pre_worker_failures() -> None
     assert 'worker_hours = Decimal("68")' in adapter
     assert '"maximum_worker_hours": 68,' in adapter
     assert "--property=RuntimeMaxSec=68h" in adapter
-    assert 'trap cleanup EXIT' in adapter
+    assert "trap cleanup EXIT" in adapter
     assert "trap 'exit 1' HUP INT TERM" in adapter
     assert 'bash "$POWER_OFF_GUARD" --poweroff' in adapter
     assert 'bash "$adapter" "$@"' in adapter
