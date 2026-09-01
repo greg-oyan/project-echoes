@@ -7,7 +7,7 @@ set -Eeuo pipefail
 # contracts, memory/CPU/disk ceilings, systemd isolation, and launch-intent
 # machinery remain owned by cloud/launch_final_discovery.sh. This wrapper
 # changes only the reviewed Scaleway provider identity, the owner-authorized
-# USD 125 all-in budget ceiling, and provider-side auto-poweroff around every
+# USD 150 all-in budget ceiling, and provider-side auto-poweroff around every
 # production boundary. It deliberately retains the frozen 96-hour worker
 # window to maximize the probability that the campaign completes. It does not
 # change any scientific configuration.
@@ -111,10 +111,10 @@ adapter="$(mktemp /run/project-echoes-final-discovery-scaleway.XXXXXX)"
 sed \
     -e 's/require_exact ECHOES_EXPECTED_SERVER_TYPE CCX43/require_exact ECHOES_EXPECTED_SERVER_TYPE POP2-16C-64G/' \
     -e 's/require_exact ECHOES_SERVER_NAME project-echoes-final-discovery-v1/require_exact ECHOES_SERVER_NAME project-echoes-final-discovery/' \
-    -e 's/require_exact ECHOES_HARD_BUDGET_USD 75.00/require_exact ECHOES_HARD_BUDGET_USD 125.00/' \
-    -e 's/cap != Decimal("75.00")/cap != Decimal("125.00")/' \
-    -e 's/verified accrued cost plus worker window and B2 reserve exceeds [$]75/verified accrued cost plus worker window and B2 reserve exceeds $125/' \
-    -e 's/current owner-verified pricing does not fit the frozen [$]75 all-in cap/current owner-verified pricing does not fit the owner-authorized $125 all-in cap/' \
+    -e 's/require_exact ECHOES_HARD_BUDGET_USD 75.00/require_exact ECHOES_HARD_BUDGET_USD 150.00/' \
+    -e 's/cap != Decimal("75.00")/cap != Decimal("150.00")/' \
+    -e 's/verified accrued cost plus worker window and B2 reserve exceeds [$]75/verified accrued cost plus worker window and B2 reserve exceeds $150/' \
+    -e 's/current owner-verified pricing does not fit the frozen [$]75 all-in cap/current owner-verified pricing does not fit the owner-authorized $150 all-in cap/' \
     -e 's/CCX43 contract requires exactly 16 visible vCPUs/production contract requires exactly 16 visible vCPUs/' \
     -e 's/CCX43 contract requires AMD CPUs/production contract requires AMD CPUs/' \
     -e 's/CCX43 contract requires a host advertised with 64 GB RAM/production contract requires a host advertised with 64 GB RAM/' \
@@ -148,10 +148,10 @@ for expected in \
     'worker_hours = Decimal("96")' \
     '"maximum_worker_hours": 96,' \
     '--property=RuntimeMaxSec=96h' \
-    'require_exact ECHOES_HARD_BUDGET_USD 125.00' \
-    'cap != Decimal("125.00")' \
-    'verified accrued cost plus worker window and B2 reserve exceeds $125' \
-    'current owner-verified pricing does not fit the owner-authorized $125 all-in cap' \
+    'require_exact ECHOES_HARD_BUDGET_USD 150.00' \
+    'cap != Decimal("150.00")' \
+    'verified accrued cost plus worker window and B2 reserve exceeds $150' \
+    'current owner-verified pricing does not fit the owner-authorized $150 all-in cap' \
     '--property=OnSuccess=echoes-final-discovery-poweroff.service' \
     '--property=OnFailure=echoes-final-discovery-poweroff.service' \
     'Scaleway POP2-16C-64G / Ubuntu 24.04 / 16 dedicated AMD vCPU / 64 GB / 400 GB Block Storage 5K'; do
