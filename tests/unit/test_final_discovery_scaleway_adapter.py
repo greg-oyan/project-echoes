@@ -6,9 +6,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 ADAPTER = ROOT / "cloud" / "launch_final_discovery_scaleway.sh"
+ENV_EXAMPLE = ROOT / "cloud" / "final-discovery-scaleway.env.example"
 
 
-def test_scaleway_adapter_binds_reviewed_provider_and_operational_cap() -> None:
+def test_scaleway_adapter_binds_reviewed_provider_budget_and_full_runtime() -> None:
     script = ADAPTER.read_text(encoding="utf-8")
 
     assert script.startswith("#!/usr/bin/env bash\nset -Eeuo pipefail\n")
@@ -17,10 +18,14 @@ def test_scaleway_adapter_binds_reviewed_provider_and_operational_cap() -> None:
         "require_source_occurrence",
         "require_exact ECHOES_EXPECTED_SERVER_TYPE POP2-16C-64G",
         "require_exact ECHOES_SERVER_NAME project-echoes-final-discovery",
-        "require_exact ECHOES_FINAL_DISCOVERY_RUNTIME_HOURS 68",
-        'worker_hours = Decimal("68")',
-        '"maximum_worker_hours": 68,',
-        "--property=RuntimeMaxSec=68h",
+        "require_exact ECHOES_FINAL_DISCOVERY_RUNTIME_HOURS 96",
+        'worker_hours = Decimal("96")',
+        '"maximum_worker_hours": 96,',
+        "--property=RuntimeMaxSec=96h",
+        "require_exact ECHOES_HARD_BUDGET_USD 125.00",
+        'cap != Decimal("125.00")',
+        "verified accrued cost plus worker window and B2 reserve exceeds $125",
+        "current owner-verified pricing does not fit the owner-authorized $125 all-in cap",
         (
             "Scaleway POP2-16C-64G / Ubuntu 24.04 / 16 dedicated AMD vCPU / "
             "64 GB / 400 GB Block Storage 5K"
@@ -29,8 +34,8 @@ def test_scaleway_adapter_binds_reviewed_provider_and_operational_cap() -> None:
     for token in expected_tokens:
         assert token in script
 
-    # The adapter must fail closed if any pinned upstream substitution stops
-    # matching exactly once.
+    # The adapter must fail closed if any pinned upstream substitution or
+    # retained runtime contract stops matching exactly once.
     pinned_upstream_literals = (
         "require_exact ECHOES_EXPECTED_SERVER_TYPE CCX43",
         "require_exact ECHOES_SERVER_NAME project-echoes-final-discovery-v1",
@@ -38,13 +43,17 @@ def test_scaleway_adapter_binds_reviewed_provider_and_operational_cap() -> None:
         'worker_hours = Decimal("96")',
         '"maximum_worker_hours": 96,',
         "--property=RuntimeMaxSec=96h",
+        "require_exact ECHOES_HARD_BUDGET_USD 75.00",
+        'cap != Decimal("75.00")',
+        "verified accrued cost plus worker window and B2 reserve exceeds $75",
+        "current owner-verified pricing does not fit the frozen $75 all-in cap",
     )
     for literal in pinned_upstream_literals:
         assert f"require_source_occurrence '{literal}' 1" in script
 
-    # The adapter never provisions, starts, stops, resizes, or deletes a cloud
-    # resource. It only invokes the frozen owner launcher on an already-created
-    # host.
+    # The adapter never provisions, starts, resizes, or deletes a cloud
+    # resource. Provider poweroff is delegated to the separately reviewed
+    # least-privilege guard.
     forbidden = (
         "scw instance server create",
         "scw instance server delete",
@@ -58,8 +67,8 @@ def test_scaleway_adapter_binds_reviewed_provider_and_operational_cap() -> None:
         assert token not in script
 
     # Scientific identities and CPU/memory/disk ceilings remain delegated to
-    # the frozen launcher. Only the provider identity and separately authorized
-    # operational stop are adapted.
+    # the frozen launcher. Only provider identity, the separately authorized
+    # budget ceiling, and provider-side poweroff are adapted.
     delegated_tokens = (
         "CONFIG_FILE_SHA256",
         "M7_MANIFEST_SHA256",
@@ -68,7 +77,15 @@ def test_scaleway_adapter_binds_reviewed_provider_and_operational_cap() -> None:
         "ECHOES_FINAL_DISCOVERY_DUCKDB_MEMORY_LIMIT_GIB",
         "ECHOES_FINAL_DISCOVERY_INITIAL_FREE_DISK_GIB",
         "ECHOES_FINAL_DISCOVERY_DISK_FLOOR_GIB",
-        "ECHOES_HARD_BUDGET_USD",
     )
     for token in delegated_tokens:
         assert token not in script
+
+
+def test_scaleway_environment_authorizes_125_dollars_and_96_hours() -> None:
+    environment = ENV_EXAMPLE.read_text(encoding="utf-8")
+
+    assert "ECHOES_FINAL_DISCOVERY_RUNTIME_HOURS=96\n" in environment
+    assert "ECHOES_HARD_BUDGET_USD=125.00\n" in environment
+    assert "ECHOES_FINAL_DISCOVERY_RUNTIME_HOURS=68\n" not in environment
+    assert "ECHOES_HARD_BUDGET_USD=75.00\n" not in environment
