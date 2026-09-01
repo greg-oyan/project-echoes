@@ -22,10 +22,10 @@ def test_scaleway_adapter_binds_reviewed_provider_budget_and_full_runtime() -> N
         'worker_hours = Decimal("96")',
         '"maximum_worker_hours": 96,',
         "--property=RuntimeMaxSec=96h",
-        "require_exact ECHOES_HARD_BUDGET_USD 125.00",
-        'cap != Decimal("125.00")',
-        "verified accrued cost plus worker window and B2 reserve exceeds $125",
-        "current owner-verified pricing does not fit the owner-authorized $125 all-in cap",
+        "require_exact ECHOES_HARD_BUDGET_USD 150.00",
+        'cap != Decimal("150.00")',
+        "verified accrued cost plus worker window and B2 reserve exceeds $150",
+        "current owner-verified pricing does not fit the owner-authorized $150 all-in cap",
         (
             "Scaleway POP2-16C-64G / Ubuntu 24.04 / 16 dedicated AMD vCPU / "
             "64 GB / 400 GB Block Storage 5K"
@@ -82,10 +82,10 @@ def test_scaleway_adapter_binds_reviewed_provider_budget_and_full_runtime() -> N
         assert token not in script
 
 
-def test_scaleway_environment_authorizes_125_dollars_and_96_hours() -> None:
+def test_scaleway_environment_authorizes_150_dollars_and_96_hours() -> None:
     environment = ENV_EXAMPLE.read_text(encoding="utf-8")
 
     assert "ECHOES_FINAL_DISCOVERY_RUNTIME_HOURS=96\n" in environment
-    assert "ECHOES_HARD_BUDGET_USD=125.00\n" in environment
+    assert "ECHOES_HARD_BUDGET_USD=150.00\n" in environment
     assert "ECHOES_FINAL_DISCOVERY_RUNTIME_HOURS=68\n" not in environment
     assert "ECHOES_HARD_BUDGET_USD=75.00\n" not in environment
