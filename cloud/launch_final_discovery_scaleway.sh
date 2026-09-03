@@ -7,10 +7,11 @@ set -Eeuo pipefail
 # contracts, memory/CPU/disk ceilings, systemd isolation, and launch-intent
 # machinery remain owned by cloud/launch_final_discovery.sh. This wrapper
 # changes only the reviewed Scaleway provider identity, the owner-authorized
-# USD 125 all-in budget ceiling, and provider-side auto-poweroff around every
-# production boundary. It deliberately retains the frozen 96-hour worker
-# window to maximize the probability that the campaign completes. It does not
-# change any scientific configuration.
+# USD 125 all-in budget ceiling, the minimum traversal required for the service
+# account to authenticate its immutable launch intent, and provider-side
+# auto-poweroff around every production boundary. It deliberately retains the
+# frozen 96-hour worker window to maximize the probability that the campaign
+# completes. It does not change any scientific configuration.
 
 readonly REPO_ROOT="/srv/project-echoes/repo"
 readonly SOURCE_LAUNCHER="$REPO_ROOT/cloud/launch_final_discovery.sh"
@@ -103,6 +104,8 @@ require_source_occurrence 'require_exact ECHOES_HARD_BUDGET_USD 75.00' 1
 require_source_occurrence 'cap != Decimal("75.00")' 1
 require_source_occurrence 'verified accrued cost plus worker window and B2 reserve exceeds $75' 1
 require_source_occurrence 'current owner-verified pricing does not fit the frozen $75 all-in cap' 1
+require_source_occurrence 'install -d -m 0700 -o root -g root "$STATE_ROOT" "$STATE_ROOT/launches" "$LOG_ROOT"' 1
+require_source_occurrence 'chmod 0440 "$intent_path"' 1
 require_source_occurrence '    --property=Restart=no \' 1
 require_source_occurrence 'CCX43 / Ubuntu 24.04 / 16 dedicated AMD vCPU / 64 GB / 360 GB SSD' 1
 
@@ -128,15 +131,49 @@ import sys
 path = Path(sys.argv[1])
 poweroff_unit = sys.argv[2]
 text = path.read_text(encoding="utf-8")
-old = "    --property=Restart=no \\\n"
-new = (
-    old
+
+restart_old = "    --property=Restart=no \\\n"
+restart_new = (
+    restart_old
     + f"    --property=OnSuccess={poweroff_unit} \\\n"
     + f"    --property=OnFailure={poweroff_unit} \\\n"
 )
-if text.count(old) != 1:
-    raise SystemExit("Scaleway adapter could not bind one poweroff dependency")
-path.write_text(text.replace(old, new, 1), encoding="utf-8")
+state_directories_old = (
+    'install -d -m 0700 -o root -g root "$STATE_ROOT" '
+    '"$STATE_ROOT/launches" "$LOG_ROOT"\n'
+)
+state_directories_new = (
+    'install -d -m 0710 -o root -g "$ECHOES_SERVICE_GROUP" '
+    '"$STATE_ROOT" "$STATE_ROOT/launches"\n'
+    'install -d -m 0700 -o root -g root "$LOG_ROOT"\n'
+    'for state_path in "$STATE_ROOT" "$STATE_ROOT/launches"; do\n'
+    '    [[ "$(stat -c \'%U:%G:%a\' "$state_path")" == '
+    '"root:$ECHOES_SERVICE_GROUP:710" ]] ||\n'
+    '        die "state directory access contract differs: $state_path"\n'
+    'done\n'
+)
+intent_mode_old = 'chmod 0440 "$intent_path"\n'
+intent_mode_new = (
+    intent_mode_old
+    + 'runuser -u "$ECHOES_SERVICE_USER" -- /usr/bin/test -x "$STATE_ROOT" ||\n'
+    + '    die "service user cannot traverse final-discovery state directory"\n'
+    + 'runuser -u "$ECHOES_SERVICE_USER" -- /usr/bin/test -x "$STATE_ROOT/launches" ||\n'
+    + '    die "service user cannot traverse final-discovery launch directory"\n'
+    + 'runuser -u "$ECHOES_SERVICE_USER" -- /usr/bin/test -r "$intent_path" ||\n'
+    + '    die "service user cannot read immutable launch intent"\n'
+)
+
+replacements = (
+    (restart_old, restart_new, "poweroff dependency"),
+    (state_directories_old, state_directories_new, "state-directory access"),
+    (intent_mode_old, intent_mode_new, "launch-intent readability"),
+)
+for old, new, label in replacements:
+    if text.count(old) != 1:
+        raise SystemExit(f"Scaleway adapter could not bind one {label} contract")
+    text = text.replace(old, new, 1)
+
+path.write_text(text, encoding="utf-8")
 PY
 chmod 0700 "$adapter"
 
@@ -152,6 +189,12 @@ for expected in \
     'cap != Decimal("125.00")' \
     'verified accrued cost plus worker window and B2 reserve exceeds $125' \
     'current owner-verified pricing does not fit the owner-authorized $125 all-in cap' \
+    'install -d -m 0710 -o root -g "$ECHOES_SERVICE_GROUP" "$STATE_ROOT" "$STATE_ROOT/launches"' \
+    'install -d -m 0700 -o root -g root "$LOG_ROOT"' \
+    'state directory access contract differs: $state_path' \
+    'service user cannot traverse final-discovery state directory' \
+    'service user cannot traverse final-discovery launch directory' \
+    'service user cannot read immutable launch intent' \
     '--property=OnSuccess=echoes-final-discovery-poweroff.service' \
     '--property=OnFailure=echoes-final-discovery-poweroff.service' \
     'Scaleway POP2-16C-64G / Ubuntu 24.04 / 16 dedicated AMD vCPU / 64 GB / 400 GB Block Storage 5K'; do
