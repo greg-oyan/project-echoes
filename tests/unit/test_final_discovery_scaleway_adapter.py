@@ -137,7 +137,7 @@ def test_scaleway_adapter_generated_launcher_authenticates_intent_as_worker(
     for token in expected:
         assert token in generated
 
-    assert generated.index("worker_intent_sha256") < generated.index("systemd-run")
+    assert generated.index("worker_intent_sha256") < generated.index("\nsystemd-run \\\n")
     assert (
         'install -d -m 0700 -o root -g root "$STATE_ROOT" '
         '"$STATE_ROOT/launches" "$LOG_ROOT"' not in generated
