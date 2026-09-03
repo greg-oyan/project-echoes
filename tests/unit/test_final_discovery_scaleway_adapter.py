@@ -47,9 +47,34 @@ def test_scaleway_adapter_binds_reviewed_provider_budget_and_full_runtime() -> N
         'cap != Decimal("75.00")',
         "verified accrued cost plus worker window and B2 reserve exceeds $75",
         "current owner-verified pricing does not fit the frozen $75 all-in cap",
+        (
+            'install -d -m 0700 -o root -g root "$STATE_ROOT" '
+            '"$STATE_ROOT/launches" "$LOG_ROOT"'
+        ),
+        'chmod 0440 "$intent_path"',
     )
     for literal in pinned_upstream_literals:
         assert f"require_source_occurrence '{literal}' 1" in script
+
+    # The adapted launcher grants the service group search-only access to both
+    # parent directories, keeps logs root-only, and proves the worker can read
+    # the immutable intent before systemd receives the service submission.
+    traversal_contracts = (
+        (
+            'install -d -m 0710 -o root -g "$ECHOES_SERVICE_GROUP" '
+            '"$STATE_ROOT" "$STATE_ROOT/launches"'
+        ),
+        'install -d -m 0700 -o root -g root "$LOG_ROOT"',
+        '"root:$ECHOES_SERVICE_GROUP:710"',
+        'test -x "$STATE_ROOT"',
+        'test -x "$STATE_ROOT/launches"',
+        'test -r "$intent_path"',
+        "service user cannot read immutable launch intent",
+    )
+    for token in traversal_contracts:
+        assert token in script
+    assert "-m 0770" not in script
+    assert "-m 0750" not in script
 
     # The adapter never provisions, starts, resizes, or deletes a cloud
     # resource. Provider poweroff is delegated to the separately reviewed
@@ -68,7 +93,8 @@ def test_scaleway_adapter_binds_reviewed_provider_budget_and_full_runtime() -> N
 
     # Scientific identities and CPU/memory/disk ceilings remain delegated to
     # the frozen launcher. Only provider identity, the separately authorized
-    # budget ceiling, and provider-side poweroff are adapted.
+    # budget ceiling, minimum launch-intent traversal, and provider poweroff
+    # are adapted.
     delegated_tokens = (
         "CONFIG_FILE_SHA256",
         "M7_MANIFEST_SHA256",
