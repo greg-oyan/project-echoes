@@ -53,10 +53,7 @@ def test_scaleway_adapter_binds_reviewed_provider_budget_and_full_runtime() -> N
         'cap != Decimal("75.00")',
         "verified accrued cost plus worker window and B2 reserve exceeds $75",
         "current owner-verified pricing does not fit the frozen $75 all-in cap",
-        (
-            'install -d -m 0700 -o root -g root "$STATE_ROOT" '
-            '"$STATE_ROOT/launches" "$LOG_ROOT"'
-        ),
+        ('install -d -m 0700 -o root -g root "$STATE_ROOT" "$STATE_ROOT/launches" "$LOG_ROOT"'),
         'intent_sha256="$(sha256sum "$intent_path" | awk',
     )
     for literal in pinned_upstream_literals:
@@ -143,8 +140,7 @@ def test_scaleway_adapter_generated_launcher_authenticates_intent_as_worker(
     assert generated.index("worker_intent_sha256") < generated.index("systemd-run")
     assert (
         'install -d -m 0700 -o root -g root "$STATE_ROOT" '
-        '"$STATE_ROOT/launches" "$LOG_ROOT"'
-        not in generated
+        '"$STATE_ROOT/launches" "$LOG_ROOT"' not in generated
     )
 
 

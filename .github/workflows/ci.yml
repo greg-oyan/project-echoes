@@ -26,11 +26,7 @@ jobs:
       - name: Lint
         run: uv run ruff check .
       - name: Check formatting
-        run: |
-          cp tests/unit/test_final_discovery_scaleway_adapter.py /tmp/candidate.py
-          uv run ruff format /tmp/candidate.py
-          diff -u tests/unit/test_final_discovery_scaleway_adapter.py /tmp/candidate.py || true
-          uv run ruff format --check .
+        run: uv run ruff format --check .
       - name: Check cloud shell syntax
         run: |
           for script in cloud/*.sh; do
