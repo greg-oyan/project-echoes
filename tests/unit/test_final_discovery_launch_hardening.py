@@ -52,6 +52,26 @@ def test_scaleway_adapter_retains_worker_and_protects_pre_worker_failures() -> N
     assert "poweroff_if_unsuccessful=false" in adapter
 
 
+def test_scaleway_adapter_makes_launch_intent_reachable_before_submission() -> None:
+    adapter = ADAPTER.read_text(encoding="utf-8")
+
+    assert (
+        'install -d -m 0710 -o root -g "$ECHOES_SERVICE_GROUP" '
+        '"$STATE_ROOT" "$STATE_ROOT/launches"'
+    ) in adapter
+    assert 'install -d -m 0700 -o root -g root "$LOG_ROOT"' in adapter
+    assert '"root:$ECHOES_SERVICE_GROUP:710"' in adapter
+    assert 'runuser -u "$ECHOES_SERVICE_USER" -- /usr/bin/test -x "$STATE_ROOT"' in adapter
+    assert (
+        'runuser -u "$ECHOES_SERVICE_USER" -- /usr/bin/test -x '
+        '"$STATE_ROOT/launches"'
+    ) in adapter
+    assert 'runuser -u "$ECHOES_SERVICE_USER" -- /usr/bin/test -r "$intent_path"' in adapter
+    assert "service user cannot read immutable launch intent" in adapter
+    assert "-m 0770" not in adapter
+    assert "-m 0750" not in adapter
+
+
 def test_scaleway_environment_template_contains_every_cost_input() -> None:
     example = SCALEWAY_ENV.read_text(encoding="utf-8")
     for token in (
