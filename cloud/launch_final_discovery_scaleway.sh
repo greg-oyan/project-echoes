@@ -7,10 +7,10 @@ set -Eeuo pipefail
 # contracts, memory/CPU/disk ceilings, systemd isolation, and launch-intent
 # machinery remain owned by cloud/launch_final_discovery.sh. This wrapper
 # changes only the reviewed Scaleway provider identity, the owner-authorized
-# USD 125 all-in budget ceiling, and provider-side auto-poweroff around every
-# production boundary. It deliberately retains the frozen 96-hour worker
-# window to maximize the probability that the campaign completes. It does not
-# change any scientific configuration.
+# USD 125 all-in budget ceiling, provider-side auto-poweroff around every
+# production boundary, and the minimum worker traversal needed to authenticate
+# its root-owned launch intent. It deliberately retains the frozen 96-hour
+# worker window and does not change any scientific configuration.
 
 readonly REPO_ROOT="/srv/project-echoes/repo"
 readonly SOURCE_LAUNCHER="$REPO_ROOT/cloud/launch_final_discovery.sh"
@@ -103,6 +103,8 @@ require_source_occurrence 'require_exact ECHOES_HARD_BUDGET_USD 75.00' 1
 require_source_occurrence 'cap != Decimal("75.00")' 1
 require_source_occurrence 'verified accrued cost plus worker window and B2 reserve exceeds $75' 1
 require_source_occurrence 'current owner-verified pricing does not fit the frozen $75 all-in cap' 1
+require_source_occurrence 'install -d -m 0700 -o root -g root "$STATE_ROOT" "$STATE_ROOT/launches" "$LOG_ROOT"' 1
+require_source_occurrence 'intent_sha256="$(sha256sum "$intent_path" | awk' 1
 require_source_occurrence '    --property=Restart=no \' 1
 require_source_occurrence 'CCX43 / Ubuntu 24.04 / 16 dedicated AMD vCPU / 64 GB / 360 GB SSD' 1
 
@@ -128,15 +130,49 @@ import sys
 path = Path(sys.argv[1])
 poweroff_unit = sys.argv[2]
 text = path.read_text(encoding="utf-8")
-old = "    --property=Restart=no \\\n"
-new = (
-    old
+
+state_old = '''install -d -m 0700 -o root -g root "$STATE_ROOT" "$STATE_ROOT/launches" "$LOG_ROOT"
+'''
+state_new = '''install -d -m 0710 -o root -g "$ECHOES_SERVICE_GROUP" "$STATE_ROOT" "$STATE_ROOT/launches"
+install -d -m 0700 -o root -g root "$LOG_ROOT"
+[[ "$(stat -c '%U:%G:%a' "$STATE_ROOT")" == "root:$ECHOES_SERVICE_GROUP:710" ]] ||
+    die "state root ownership or mode differs from the worker-traversal contract"
+[[ "$(stat -c '%U:%G:%a' "$STATE_ROOT/launches")" == "root:$ECHOES_SERVICE_GROUP:710" ]] ||
+    die "launch directory ownership or mode differs from the worker-traversal contract"
+runuser -u "$ECHOES_SERVICE_USER" -- /usr/bin/test -x "$STATE_ROOT" ||
+    die "service user cannot traverse the state root"
+runuser -u "$ECHOES_SERVICE_USER" -- /usr/bin/test -x "$STATE_ROOT/launches" ||
+    die "service user cannot traverse the launch directory"
+'''
+
+intent_old = '''intent_sha256="$(sha256sum "$intent_path" | awk '{print $1}')"
+[[ "$intent_sha256" =~ ^[a-f0-9]{64}$ ]] || die "could not authenticate launch intent"
+'''
+intent_new = intent_old + '''worker_intent_sha256="$(
+    runuser -u "$ECHOES_SERVICE_USER" -- sha256sum "$intent_path" | awk '{print $1}'
+)" || die "service user cannot read the authenticated launch intent"
+[[ "$worker_intent_sha256" == "$intent_sha256" ]] ||
+    die "service user observes a different authenticated launch intent"
+'''
+
+poweroff_old = "    --property=Restart=no \\\n"
+poweroff_new = (
+    poweroff_old
     + f"    --property=OnSuccess={poweroff_unit} \\\n"
     + f"    --property=OnFailure={poweroff_unit} \\\n"
 )
-if text.count(old) != 1:
-    raise SystemExit("Scaleway adapter could not bind one poweroff dependency")
-path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+replacements = (
+    (state_old, state_new, "worker launch-intent traversal"),
+    (intent_old, intent_new, "worker launch-intent read authentication"),
+    (poweroff_old, poweroff_new, "poweroff dependency"),
+)
+for old, new, label in replacements:
+    if text.count(old) != 1:
+        raise SystemExit(f"Scaleway adapter could not bind one {label}")
+    text = text.replace(old, new, 1)
+
+path.write_text(text, encoding="utf-8")
 PY
 chmod 0700 "$adapter"
 
@@ -152,6 +188,13 @@ for expected in \
     'cap != Decimal("125.00")' \
     'verified accrued cost plus worker window and B2 reserve exceeds $125' \
     'current owner-verified pricing does not fit the owner-authorized $125 all-in cap' \
+    'install -d -m 0710 -o root -g "$ECHOES_SERVICE_GROUP" "$STATE_ROOT" "$STATE_ROOT/launches"' \
+    'install -d -m 0700 -o root -g root "$LOG_ROOT"' \
+    'die "service user cannot traverse the state root"' \
+    'die "service user cannot traverse the launch directory"' \
+    'worker_intent_sha256="$(' \
+    'die "service user cannot read the authenticated launch intent"' \
+    'die "service user observes a different authenticated launch intent"' \
     '--property=OnSuccess=echoes-final-discovery-poweroff.service' \
     '--property=OnFailure=echoes-final-discovery-poweroff.service' \
     'Scaleway POP2-16C-64G / Ubuntu 24.04 / 16 dedicated AMD vCPU / 64 GB / 400 GB Block Storage 5K'; do
