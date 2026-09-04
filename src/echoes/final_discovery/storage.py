@@ -211,10 +211,10 @@ def write_jsonl_atomic(
 
 
 def iter_jsonl[ModelT: BaseModel](path: Path, model: type[ModelT]) -> Iterator[ModelT]:
-    """Stream and validate one canonical JSON object per line."""
+    """Stream and validate one UTF-8 JSON object per LF-terminated line."""
 
     try:
-        with path.open(encoding="ascii", newline="") as handle:
+        with path.open(encoding="utf-8", newline="") as handle:
             for line_number, line in enumerate(handle, start=1):
                 if not line.endswith("\n"):
                     raise FinalDiscoveryStorageError(
