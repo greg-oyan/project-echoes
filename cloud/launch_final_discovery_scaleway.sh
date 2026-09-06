@@ -116,7 +116,6 @@ sed \
     -e 's/require_exact ECHOES_HARD_BUDGET_USD 75.00/require_exact ECHOES_HARD_BUDGET_USD 125.00/' \
     -e 's/cap != Decimal("75.00")/cap != Decimal("125.00")/' \
     -e 's/verified accrued cost plus worker window and B2 reserve exceeds [$]75/verified accrued cost plus worker window and B2 reserve exceeds $125/' \
-    -e 's/current owner-verified pricing does not fit the frozen [$]75 all-in cap/current owner-verified pricing does not fit the owner-authorized $125 all-in cap/' \
     -e 's/CCX43 contract requires exactly 16 visible vCPUs/production contract requires exactly 16 visible vCPUs/' \
     -e 's/CCX43 contract requires AMD CPUs/production contract requires AMD CPUs/' \
     -e 's/CCX43 contract requires a host advertised with 64 GB RAM/production contract requires a host advertised with 64 GB RAM/' \
@@ -155,6 +154,11 @@ intent_new = intent_old + '''worker_intent_sha256="$(
     die "service user observes a different authenticated launch intent"
 '''
 
+budget_failure_old = '''die "current owner-verified pricing does not fit the frozen $75 all-in cap"
+'''
+budget_failure_new = '''die 'current owner-verified pricing does not fit the owner-authorized $125 all-in cap'
+'''
+
 poweroff_old = "    --property=Restart=no \\\n"
 poweroff_new = (
     poweroff_old
@@ -165,6 +169,7 @@ poweroff_new = (
 replacements = (
     (state_old, state_new, "worker launch-intent traversal"),
     (intent_old, intent_new, "worker launch-intent read authentication"),
+    (budget_failure_old, budget_failure_new, "nounset-safe budget failure message"),
     (poweroff_old, poweroff_new, "poweroff dependency"),
 )
 for old, new, label in replacements:
