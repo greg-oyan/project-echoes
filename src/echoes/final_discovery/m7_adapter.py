@@ -215,10 +215,14 @@ def _validate_shared_evidence_rows(
                 positions = json.loads(str(row[field]))
             except json.JSONDecodeError as exc:
                 raise M7AdapterError(f"M7 shared evidence has invalid {field}") from exc
+            # Milestone 7 persists positions from zero-based Python sequence indexes.
             if (
                 not isinstance(positions, list)
                 or not positions
-                or not all(isinstance(position, int) and position >= 1 for position in positions)
+                or not all(
+                    isinstance(position, int) and not isinstance(position, bool) and position >= 0
+                    for position in positions
+                )
             ):
                 raise M7AdapterError(f"M7 shared evidence has invalid {field}")
     try:
