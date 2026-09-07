@@ -59,7 +59,7 @@ def test_m7_adapter_accepts_canonical_zero_based_positions() -> None:
     assert len(digest) == 64
 
 
-@pytest.mark.parametrize("positions", ["[-1]", "[true]", "[]", "[0.5]"])
+@pytest.mark.parametrize("positions", ("[-1]", "[true]", "[]", "[0.5]"))
 def test_m7_adapter_rejects_non_index_positions(positions: str) -> None:
     row = _shared_evidence_row(passage_a_positions_json=positions)
 
