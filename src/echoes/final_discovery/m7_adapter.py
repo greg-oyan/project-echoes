@@ -220,9 +220,7 @@ def _validate_shared_evidence_rows(
                 not isinstance(positions, list)
                 or not positions
                 or not all(
-                    isinstance(position, int)
-                    and not isinstance(position, bool)
-                    and position >= 0
+                    isinstance(position, int) and not isinstance(position, bool) and position >= 0
                     for position in positions
                 )
             ):
