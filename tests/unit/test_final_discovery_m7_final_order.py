@@ -99,8 +99,6 @@ def _write_ordering_fixture(tmp_path: Path) -> Path:
                 "contains_primary_rare_item": True,
                 "counts_as_independent_co_signal": False,
                 "english_derived": False,
-                "thread_controls_json": "{}",
-                "acceptance_status": "retained",
                 "notes": "final-ID ordering regression fixture",
             }
         )
