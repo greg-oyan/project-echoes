@@ -1,0 +1,113 @@
+name: Apply final M7 pair ordering fix
+
+on:
+  push:
+    branches: [fix/m7-final-pair-order]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: fix/m7-final-pair-order
+      - name: Install uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          version: "0.11.28"
+      - name: Install Python
+        run: uv python install 3.12
+      - name: Sync locked environment
+        run: uv sync --locked
+      - name: Apply, validate, and commit the exact fix
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/echoes/final_discovery/m7_adapter.py")
+          text = path.read_text(encoding="utf-8")
+
+          replacements = (
+              (
+                  """            connection.execute(f\"SET temp_directory='{escaped_temp}'\")
+            pair_summary = connection.execute(
+""",
+                  """            connection.execute(f\"SET temp_directory='{escaped_temp}'\")
+            connection.create_function(
+                \"final_discovery_candidate_pair_id\",
+                candidate_pair_id,
+            )
+            pair_summary = connection.execute(
+""",
+              ),
+              (
+                  """                    ORDER BY p.candidate_pair_id
+""",
+                  """                    ORDER BY final_discovery_candidate_pair_id(
+                        p.passage_a_id,
+                        p.passage_b_id
+                    )
+""",
+              ),
+              (
+                  """    previous_source_candidate_id: str | None = None
+    for batch in parquet.iter_batches(batch_size=batch_size):
+        for row in batch.to_pylist():
+            values = cast(dict[str, object], row)
+            source_candidate_id = str(values[\"candidate_pair_id\"])
+            if not source_candidate_id or (
+                previous_source_candidate_id is not None
+                and source_candidate_id <= previous_source_candidate_id
+            ):
+                raise M7AdapterError(\"M7 projection candidate IDs are not unique and ordered\")
+            previous_source_candidate_id = source_candidate_id
+""",
+                  """    previous_final_candidate_id: str | None = None
+    for batch in parquet.iter_batches(batch_size=batch_size):
+        for row in batch.to_pylist():
+            values = cast(dict[str, object], row)
+            source_candidate_id = str(values[\"candidate_pair_id\"])
+            if not source_candidate_id:
+                raise M7AdapterError(\"M7 projection carries an empty source candidate ID\")
+            passage_a_id = str(values[\"passage_a_id\"])
+            passage_b_id = str(values[\"passage_b_id\"])
+            final_candidate_id = candidate_pair_id(passage_a_id, passage_b_id)
+            if (
+                previous_final_candidate_id is not None
+                and final_candidate_id <= previous_final_candidate_id
+            ):
+                raise M7AdapterError(
+                    \"M7 projection final candidate IDs are not unique and ordered\"
+                )
+            previous_final_candidate_id = final_candidate_id
+""",
+              ),
+              (
+                  """                candidate_pair_id=candidate_pair_id(passage_a_id, passage_b_id),
+""",
+                  """                candidate_pair_id=final_candidate_id,
+""",
+              ),
+          )
+
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"expected one exact replacement target, found {count}")
+              text = text.replace(old, new)
+
+          path.write_text(text, encoding="utf-8")
+          PY
+          uv run ruff format src/echoes/final_discovery/m7_adapter.py tests/unit/test_final_discovery_m7_final_order.py
+          uv run ruff check src/echoes/final_discovery/m7_adapter.py tests/unit/test_final_discovery_m7_final_order.py
+          uv run pytest -q tests/unit/test_final_discovery_m7_final_order.py tests/unit/test_final_discovery_m7_adapter.py tests/unit/test_final_discovery_m7_positions.py
+          rm .github/workflows/apply-m7-final-pair-order-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/echoes/final_discovery/m7_adapter.py tests/unit/test_final_discovery_m7_final_order.py .github/workflows/apply-m7-final-pair-order-fix.yml
+          git commit -m "Order M7 projection by final candidate identity"
+          git push origin HEAD:fix/m7-final-pair-order
