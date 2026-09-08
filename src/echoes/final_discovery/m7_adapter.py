@@ -459,6 +459,10 @@ def build_m7_lexical_projection(
             connection.execute(f"SET memory_limit='{memory_limit_bytes}B'")
             connection.execute("SET threads=1")
             connection.execute(f"SET temp_directory='{escaped_temp}'")
+            connection.create_function(
+                "final_discovery_candidate_pair_id",
+                candidate_pair_id,
+            )
             pair_summary = connection.execute(
                 f"""
                 SELECT
@@ -609,7 +613,10 @@ def build_m7_lexical_projection(
                     USING (candidate_pair_id)
                     LEFT JOIN read_parquet('{escaped_index}') AS i
                     USING (candidate_pair_id)
-                    ORDER BY p.candidate_pair_id
+                    ORDER BY final_discovery_candidate_pair_id(
+                        p.passage_a_id,
+                        p.passage_b_id
+                    )
                 ) TO '{escaped_output}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)
                 """
             )
@@ -692,17 +699,22 @@ def iter_m7_raw_evidence(
     }
     if set(parquet.schema.names) != required_columns:
         raise M7AdapterError("M7 projection does not have the exact registered column inventory")
-    previous_source_candidate_id: str | None = None
+    previous_final_candidate_id: str | None = None
     for batch in parquet.iter_batches(batch_size=batch_size):
         for row in batch.to_pylist():
             values = cast(dict[str, object], row)
             source_candidate_id = str(values["candidate_pair_id"])
-            if not source_candidate_id or (
-                previous_source_candidate_id is not None
-                and source_candidate_id <= previous_source_candidate_id
+            if not source_candidate_id:
+                raise M7AdapterError("M7 projection carries an empty source candidate ID")
+            passage_a_id = str(values["passage_a_id"])
+            passage_b_id = str(values["passage_b_id"])
+            final_candidate_id = candidate_pair_id(passage_a_id, passage_b_id)
+            if (
+                previous_final_candidate_id is not None
+                and final_candidate_id <= previous_final_candidate_id
             ):
-                raise M7AdapterError("M7 projection candidate IDs are not unique and ordered")
-            previous_source_candidate_id = source_candidate_id
+                raise M7AdapterError("M7 projection final candidate IDs are not unique and ordered")
+            previous_final_candidate_id = final_candidate_id
             if values["m7_source_manifest_sha256"] != source_artifact_sha256:
                 raise M7AdapterError("M7 projection is not bound to the supplied source manifest")
             logical_hashes = {
@@ -814,7 +826,7 @@ def iter_m7_raw_evidence(
                 "m7_quality": source_quality.model_dump(mode="json"),
             }
             yield RawEvidence(
-                candidate_pair_id=candidate_pair_id(passage_a_id, passage_b_id),
+                candidate_pair_id=final_candidate_id,
                 passage_a_id=passage_a_id,
                 passage_b_id=passage_b_id,
                 detector_id=registration.detector_id,
