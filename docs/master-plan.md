@@ -37,6 +37,12 @@ Codex must treat this project as a staged research program.
 
 This document is the sole governing implementation specification for Project Echoes. Amend requirements within the existing milestone numbers rather than creating a competing plan or renumbering milestones. A requirement added to a future milestone changes that milestone's specification; it does not authorize early implementation before the current milestone and acceptance gate are complete.
 
+The owner-authorized 2026-09-20 recovery of the existing `final-discovery-v1`
+campaign has the scoped operational exception recorded below under
+**Current final-discovery recovery** and in ADR 0022. That exception supersedes
+historical startup-only monitoring, manual billing, and operational milestone
+stops for this recovery; it does not waive scientific acceptance criteria.
+
 ## 2.1 General execution rules
 
 Codex must:
@@ -3052,6 +3058,47 @@ The consolidated campaign has these binding additions:
   determinism requirement.
 * After the final run and top-100 review, engine development stops. An empty
   Tier A is a valid final result.
+
+### Current final-discovery recovery
+
+On 2026-09-20 the owner explicitly authorized finishing the existing campaign,
+including necessary repairs, authenticated reuse of completed stages and
+passing receipts under ADR 0021, and monitoring through verified delivery.
+This is recovery of the existing experiment, not a second scientific campaign.
+The engineer may inspect status repeatedly and carry out necessary recovery
+without stopping after startup, at historical implementation milestones, or
+for repeated approval of already authorized operations. Failed integrity or
+scientific validation still blocks acceptance; repair must preserve the
+governed inputs, frozen thresholds, detector/null policy, and honest Tier A
+versus exploratory Tier B distinction. Historical M7 results and scientific
+gates remain unchanged.
+
+For this recovery, the owner removed dollar ceilings, manual verified-rate
+and accrued-cost inputs, and any billing-API prerequisite. A billing denial
+does not authorize broader credentials or fabricated financial values. Actual
+provider permissions, least-privilege credentials, exact-instance checks,
+data protection, sole-worker enforcement, and CPU/memory/disk limits remain.
+No new paid resource or destructive cleanup is authorized by this exception.
+
+One overall 96-hour recovery window is anchored to the first recorded recovery
+boot, `2026-09-21T02:46:42Z`, with fixed deadline `2026-09-25T02:46:42Z`.
+The earlier diagnostic boot counts; the next power-on is not a fresh start.
+This deadline persists across all attempts, repairs, restarts, and powered-off
+time; it cannot be reset or extended by a retry. Prepare and validate the
+recovery and shutdown safeguards before requesting power-on. Each worker is
+limited to the remaining window. A persistent absolute-deadline guard powers
+off the exact existing instance at expiry, including when no worker is active;
+success and an unrecoverable terminal failure also require poweroff. Recoverable
+failures may be repaired and retried within the remaining window. Poweroff
+must preserve staging, checkpoints, failure records, and B2 artifacts.
+
+Completion requires authenticated all-stage validation, exact remote output
+verification and retained receipts, followed by delivery of the results with
+Tier A clearly distinguished from the exploratory Tier B top 100 and actual
+passage-evidence examples. Empty Tier A is valid. Do not label partial or
+failed output complete. ADR 0022 and the
+[final-discovery cloud runbook](final-discovery-cloud-runbook.md) specify the
+operational procedure; neither changes the registered scientific experiment.
 
 ## Milestone 8: First unknown-candidate review
 

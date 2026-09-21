@@ -1626,12 +1626,27 @@ def _produce_stage_three(
 ) -> None:
     semantic_pairs = set(_read_pair_index(stage_two_root / "semantic-index.json"))
     if request.execution_mode == "production":
-        projection_path = build_m7_lexical_projection(
-            stage_one_root / "m7",
-            root / "m7-lexical-projection.parquet",
-            memory_limit_bytes=_M7_PROJECTION_MEMORY_LIMIT_BYTES,
-            temp_directory=root / "duckdb-temp",
-        )
+        cache_receipt = request.stage_store.root.parent / "recovery/m7-projection/receipt.json"
+        cache_receipt_sha256 = os.environ.get("ECHOES_M7_PROJECTION_RECEIPT_SHA256")
+        if cache_receipt.exists() or cache_receipt_sha256 is not None:
+            from echoes.final_discovery.projection_cache import reuse_tested_projection
+
+            if not cache_receipt_sha256:
+                raise FinalDiscoveryCampaignError("M7 cache receipt has no pinned SHA-256")
+            projection_path = reuse_tested_projection(
+                cache_receipt,
+                stage_one_root / "m7",
+                root / "m7-lexical-projection.parquet",
+                expected_manifest_sha256=request.m7_expectation.table_hashes_sha256,
+                expected_receipt_sha256=cache_receipt_sha256,
+            )
+        else:
+            projection_path = build_m7_lexical_projection(
+                stage_one_root / "m7",
+                root / "m7-lexical-projection.parquet",
+                memory_limit_bytes=_M7_PROJECTION_MEMORY_LIMIT_BYTES,
+                temp_directory=root / "duckdb-temp",
+            )
         selected_m7_pairs = _select_m7_evidence_pairs(
             iter_m7_raw_evidence(
                 projection_path,
@@ -2845,6 +2860,9 @@ def _produce_stage_eleven(
                 "formulaic-control-report.json",
                 "campaign-scale-contract.json",
                 "input-file-anchors.json",
+                "checkpoint-reuse/reuse-provenance.json",
+                "checkpoint-reuse/authenticate_materialize_inputs.source-completion.json",
+                "checkpoint-reuse/semantic_representations_indexes.source-completion.json",
             ),
         ),
         "representations": (stage_two_root, None),

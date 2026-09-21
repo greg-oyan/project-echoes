@@ -1,39 +1,51 @@
-# `final-discovery-v1` owner cloud runbook
+# `final-discovery-v1` recovery cloud runbook
 
-Status: guarded pre-production boundary; no production run has been launched
+Status: existing campaign recovery authorized on 2026-09-20; recovery changes
+are being prepared locally with the instance powered off.
 
-Last pricing review recorded in this document: 2026-08-08
+The current authorization is recorded in
+[ADR 0022](decisions/0022-owner-authorized-operational-recovery.md), with
+authenticated artifact reuse governed by
+[ADR 0021](decisions/0021-authenticated-final-discovery-recovery.md). It permits
+necessary repairs, reuse, monitoring, and verified delivery of the existing
+campaign. It removes dollar ceilings, manual verified-cost inputs,
+billing-API prerequisites, and repeated operational approval stops. Actual
+provider permissions, protected credentials, scientific validation, and
+preservation of evidence remain mandatory.
 
-This runbook is the exact owner-operated boundary for the one canonical
-`final-discovery-v1` campaign. It does not authorize Codex, a script, or any
-other agent to create, purchase, stop, or delete cloud resources. The owner
-creates the server, installs the protected environment, invokes the single
-launch command, verifies the result, and makes the destructive cleanup
-decision.
+Use only the existing Scaleway instance `project-echoes-final-discovery`,
+zone `nl-ams-1`, currently identified by public IPv4 `51.15.74.158`. Provider
+operations must authenticate its exact instance ID through the protected
+shutdown guard; the name or IP alone is insufficient. Do not create a new
+server, resize it, attach paid resources, or delete the instance or evidence.
+Finish local changes and validation before requesting power-on. Authorized
+terminal and expiry actions are evidence-preserving poweroff.
 
-The launcher contains no Hetzner provisioning API call and no polling loop. It
-starts one detached systemd worker, performs one immediate startup inspection,
-and returns control. Every later status check is a separate one-shot owner
-action.
+The launcher starts one detached systemd worker, records one immediate startup
+inspection, and exits. The engineer may then make repeated bounded status
+inspections, diagnose failures, and complete authorized repairs through
+verified delivery. Startup inspection is not the end of the recovery task.
+Use the fixed overall deadline below; neither retries nor monitoring create a
+fresh execution window.
 
 ## Frozen execution contract
 
 | Field | Required value |
 | --- | --- |
 | Experiment | `final-discovery-v1` |
-| Host | owner-created Hetzner `CCX43` |
+| Host | existing exact-ID Scaleway instance above; retain the governed resource envelope |
 | Operating system | Ubuntu 24.04 LTS, x86-64 |
 | Compute | 16 dedicated AMD vCPUs; campaign ceiling 12 CPU threads |
 | Memory | 64 GB advertised host RAM; cgroup `MemoryMax=56G`, `MemoryHigh=54G`, swap disabled |
 | Local SSD | 360 GB advertised; at least 280 GiB free at launch |
 | Disk abort floor | 80 GiB, checked at campaign checkpoint boundaries rather than by a monitor |
 | DuckDB | 40 GiB host/service ceiling |
-| Runtime | `RuntimeMaxSec=96h`; `Restart=no` |
+| Runtime | one persistent overall 96-hour window; each `RuntimeMaxSec` is remaining seconds; `Restart=no` |
 | Worker owner | exactly one `echoes-final-discovery.service` |
 | M7 input | B2 `project-echoes-archive/m7/canonical-schema-v1` |
 | M7 manifest SHA-256 | `e56a1d3ee4f9707c17e7a25dc6b3d82ad5ec9a9bb28234762d58179142ebf6b6` |
 | Authorization | exact `ECHOES_AUTHORIZE_PRODUCTION=final-discovery-v1` |
-| Hard all-in cap | USD 75.00, including elapsed server time and a declared B2 reserve |
+| Billing | no dollar ceiling, manual verified-cost input, or billing-API gate for this recovery |
 | Persistence | same-filesystem hardlink staging and direct authenticated object trees; no stage or final archive |
 
 The 40 GiB DuckDB and 12-thread values are ceilings for this machine and
@@ -42,6 +54,10 @@ projection deliberately retains its stricter built-in bound of 1 GiB and one
 DuckDB thread. Other numerical and sparse operations may use up to the
 12-thread service ceiling. The model is CPU-only; no GPU host or CUDA package
 is part of this run.
+
+The original CCX43 sizing/pricing references are historical planning context,
+not authority to provision a Hetzner host or substitute a provider target.
+Measured host checks and the protected exact-instance binding still apply.
 
 The stage runner applies the 80 GiB value as its production checkpoint floor
 and checks free space before entering each durable stage (therefore between
@@ -68,9 +84,10 @@ separate 32-hour reserve covers unbenchmarked representation and detector
 feature extraction (16 hours), B2 materialization/upload/verification (8
 hours), and strict validation/packaging/review artifacts (8 hours). The
 planning range is 32.600--64.600 hours, leaving 31.400 hours below the frozen
-96-hour stop. At the documented USD 0.529/hour assumption, the 64.600-hour
-worker portion is approximately USD 34.17 before setup time and the separately
-reserved B2 amount; the launcher still budgets the full 96-hour worst case.
+96-hour stop. These are preproduction planning measurements, not a renewed
+time allowance for recovery. Reuse of authenticated completed stages avoids
+repeating their expensive work; all remaining work must fit the single fixed
+recovery window.
 
 Projected persistent benchmark artifacts are 121,424,656,152 bytes (113.086
 GiB); adding the 17.149-GiB canonical M7 input gives 139,838,254,692 bytes
@@ -96,50 +113,64 @@ The canonical report is bound to commit
 `e0a48cfad963b709dd70e8f8df46ab4d18aed03e` and has SHA-256
 `2e5102d8c5c85da225f7a9e53e0a25627ff4ef7c74ccc1630153775fc7124175`.
 
-## Price and budget gate
+## Fixed overall recovery deadline
 
-The planning assumption on 2026-08-08 is USD 0.528/hour for a US CCX43 after
-the June 2026 Hetzner price adjustment, plus up to USD 0.001/hour if the owner
-uses a separately billed Primary IPv4: USD 0.529/hour combined. A full 96-hour
-worker window is therefore USD 50.784 before setup time and object storage.
-Backblaze's listed pay-as-you-go storage rate is USD 6.95/TB-month, with upload
-free; transaction and download conditions remain subject to the current
-pricing page. The environment example reserves USD 10.00 for B2 uncertainty.
-[Hetzner price adjustment](https://docs.hetzner.com/general/infrastructure-and-availability/price-adjustment/),
-[Hetzner general-purpose cloud](https://www.hetzner.com/cloud/general-purpose),
-[Backblaze B2 pricing](https://www.backblaze.com/cloud-storage/pricing),
-[Backblaze transaction pricing](https://www.backblaze.com/cloud-storage/transaction-pricing).
+The first recorded recovery boot was `2026-09-21T02:46:42Z`, retained in the
+local `initial-diagnostic.txt` evidence. That diagnostic boot counts. Use
+`START_UTC=2026-09-21T02:46:42Z` and the fixed deadline
+`2026-09-25T02:46:42Z`, exactly 96 hours later. The window includes
+installation, repairs, retries, downtime, and finalization. The next power-on
+cannot choose a later start. Do not power on until the local recovery changes
+and shutdown safeguards are ready.
 
-These are planning assumptions, not a quote. Immediately before every launch,
-the owner must verify the current all-in hourly rate for the chosen location,
-server, and IP configuration and enter:
+After access to the exact existing instance is established, install the same
+window using the chosen fresh recovery work directory:
 
-- the verified rate and UTC verification time;
-- the server's original creation time; and
-- a conservative B2 reserve.
-
-The launcher rejects a price verification older than 24 hours. It computes
-the worst case as:
-
-```text
-(elapsed server hours before launch + 96 worker hours) * verified hourly rate
-+ B2 reserve
+```bash
+START_UTC=2026-09-21T02:46:42Z
+sudo bash /srv/project-echoes/repo/cloud/final_discovery_recovery_window.sh \
+  --install "$START_UTC" "$RECOVERY_WORK_DIR"
 ```
 
-and refuses to start if that projection exceeds USD 75.00. This guard cannot
-replace provider billing review: the owner remains responsible for checking
-the Hetzner and Backblaze consoles and deleting the server before additional
-idle time breaches the cap.
+The root-owned immutable record is
+`/var/lib/project-echoes/final-discovery/recovery-window.json`. It binds the
+start, fixed deadline, recovery work directory, and exact instance. An existing
+record must match; it cannot be replaced to renew time. The protected launch
+environment must name the same recovery work directory. The launcher reads
+the remaining seconds and uses only those seconds for `RuntimeMaxSec`:
 
-## Owner preparation
+```bash
+sudo bash /srv/project-echoes/repo/cloud/final_discovery_recovery_window.sh \
+  --remaining "$RECOVERY_WORK_DIR"
+```
 
-1. Manually create exactly one server named
-   `project-echoes-final-discovery-v1` using CCX43, Ubuntu 24.04, 16 dedicated
-   AMD vCPUs, 64 GB RAM, and its 360 GB local SSD. Do not attach a paid volume,
-   snapshot, backup, GPU, database, or other service. The repository does not
-   provision this server.
-2. Create the unprivileged `echoes` service account. Keep SSH key-only and do
-   not expose an application or web service.
+A persistent native systemd expiry timer uses the absolute deadline plus a
+boot check. Its bounded expiry service calls the existing exact-instance
+poweroff service only when the deadline has expired, including between worker
+attempts. No monitoring daemon is needed. Missing, inconsistent, or expired
+window state blocks launch. Do not reset, extend, or reinstall a different
+window after a failure. A fresh worker is not a fresh 96-hour allowance.
+
+The existing service success action powers off after the worker's all-stage
+validation and durable B2 verification. An unrecoverable terminal failure or
+deadline expiry also requires poweroff. A recoverable worker failure can be
+diagnosed and retried within the remaining window; it does not itself trigger
+an automatic restart or renew time. Preserve all disks and artifacts.
+
+No verified rate, accrued-cost declaration, B2 reserve, dollar ceiling, or
+billing-API access is required. Do not fabricate cost data or broaden
+credentials after a billing denial. This changes the operational gate only;
+resource limits, exact-target authorization, and scientific validation remain.
+
+## Recovery preparation
+
+1. Retain the exact existing instance above. Verify its identity and existing
+   resource envelope; do not provision or attach a volume, snapshot, backup,
+   GPU, database, or other service. Keep it powered off until local preparation
+   and validation are complete. Retain the already-recorded first recovery
+   boot and fixed expiry; the next power-on cannot reset them.
+2. Verify the existing unprivileged `echoes` service account. Keep SSH key-only
+   and do not expose an application or web service.
 3. Place the reviewed repository at `/srv/project-echoes/repo` on the exact
    commit recorded in the protected environment. The tree must be completely
    clean, including untracked files. Inputs, work products, models, credentials,
@@ -147,34 +178,45 @@ idle time breaches the cap.
    store, checkpoint workspaces, and final package staging on the same local
    filesystem: checkpointing fails closed rather than copying payload bytes if
    a hardlink cannot be created.
-4. Install `uv`, `rclone`, Git, Python 3.12, and the locked project environment,
+4. Verify `uv`, `rclone`, Git, Python 3.12, and the locked project environment,
    including the non-default `models` dependency group. The service command
    uses `uv run --frozen --no-sync`, so launch cannot resolve or install a
    dependency.
-5. Materialize the nine allowed files for
+5. Authenticate the nine existing allowed files for
    `intfloat/multilingual-e5-small` revision
    `614241f622f53c4eeff9890bdc4f31cfecc418b3` under the offline model root.
    Do not place a floating Hugging Face cache there. The launch preflight
    verifies every registered file and SHA-256 with network model access
    disabled.
-6. Transfer the governed prepared-passage JSONL and bidirectional knownness
-   JSONL to the paths declared in the environment. Place the authenticated
-   knownness receipt beside the JSONL using the fixed
+6. Authenticate the existing governed prepared-passage JSONL and bidirectional
+   knownness JSONL at the paths declared in the environment. Require the
+   authenticated knownness receipt beside the JSONL using the fixed
    `<stem>.receipt.json` name. The launcher checks both files before starting
    the worker. Verify all transfer receipts before launch. Do not transfer raw
    restricted acquisitions.
-7. Create a least-privilege Backblaze application key capable of reading the
-   frozen M7 prefix and writing/checking the chosen final output prefix. Choose
+7. Use the existing least-privilege Backblaze application key capable of reading
+   the frozen M7 prefix and writing/checking the chosen final output prefix. Choose
    a normalized, unique output prefix that is initially empty. A reused or
    mismatched prefix fails closed.
-8. Copy [`cloud/final-discovery.env.example`](../cloud/final-discovery.env.example)
-   to `/etc/project-echoes/final-discovery.env`, replace every `OWNER_SET`
-   value, then protect it:
+8. Prepare `/etc/project-echoes/final-discovery.env` using the current
+   [`environment contract`](../cloud/final-discovery.env.example), preserving
+   protected credentials and recording the reviewed recovery commit, fresh
+   work directory, and output prefix. No `OWNER_SET` placeholder may remain.
+   Protect it:
 
    ```bash
    sudo chown root:root /etc/project-echoes/final-discovery.env
    sudo chmod 600 /etc/project-echoes/final-discovery.env
    ```
+
+For recovery, preserve the earlier work directories and output namespaces.
+Use a fresh recovery work directory and initially empty output prefix.
+Authenticate imported Stage 1/2 artifacts under ADR 0021, including original
+completion bytes and provenance; do not copy old completion identities into
+place. A cached M7 projection is usable only with its pinned original passing
+receipt SHA-256 and complete source/projection authentication. Reuse never
+bypasses the ordinary downstream validators. Install the fixed recovery window
+and expiry guard before launching the worker.
 
 The populated environment is a secret and must never enter Git, shell history,
 chat, logs, launch arguments, or a result package. The launch record retains
@@ -185,7 +227,7 @@ from those environment values and redacts subprocess errors.
 
 ## Launch
 
-From an owner-controlled SSH session on the prepared server, run exactly:
+From an authorized SSH session on the prepared exact instance, run exactly:
 
 ```bash
 sudo bash /srv/project-echoes/repo/cloud/launch_final_discovery.sh
@@ -194,8 +236,10 @@ sudo bash /srv/project-echoes/repo/cloud/launch_final_discovery.sh
 There are no launch flags. The script refuses to start unless all of these
 conditions hold:
 
-- Ubuntu, CPU, RAM, server-type attestation, disk, runtime, resource, and
-  budget values match the contract;
+- Ubuntu, CPU, RAM, server-type attestation, disk, and resource values match
+  the contract;
+- the protected overall recovery window matches the exact instance/work
+  directory, its expiry guard is installed, and positive time remains;
 - the authorization value is exact;
 - the environment is root-owned and inaccessible to group/other users;
 - every required path is absolute, present, safe, and outside the repository
@@ -211,8 +255,7 @@ conditions hold:
 - the complete B2 base namespace is either empty or contains only registered
   stage/final prefixes whose path/size state is an exact complete or resumable
   subset of preserved local transfer state;
-- no final-discovery worker is active; and
-- projected worst-case cost fits the USD 75.00 all-in cap.
+- no final-discovery worker is active.
 
 The detached service runs this secret-free scientific command:
 
@@ -241,7 +284,7 @@ records under `/var/lib/project-echoes/final-discovery/launches/`:
 
 - an intent containing the exact command, nonsecret environment, Git commit,
   Git tree, deterministic Git-archive SHA-256, lock hash, config hashes,
-  resource envelope, disk measurement, and budget calculation; and
+  resource envelope, disk measurement, and fixed recovery-window identity; and
 - one startup snapshot containing the systemd unit, PID, limits, and the
   intent SHA-256.
 
@@ -251,11 +294,12 @@ restart receives a new launch ID and preserves prior logs and records.
 After systemd accepts the service, the launcher performs exactly one startup
 inspection. It does not sleep or retry. It prints the PID, record paths, log
 paths, and status command, then exits. A failed startup check requires owner
-inspection; it never triggers an automatic restart.
+or authorized engineer inspection; it never triggers an automatic restart.
+Continue the authorized recovery after this bounded launcher action.
 
-## One-shot status
+## Bounded status and continued recovery
 
-Run only when a human wants a snapshot:
+Use this bounded snapshot command as needed through verified delivery:
 
 ```bash
 sudo bash /srv/project-echoes/repo/cloud/final_discovery_status.sh
@@ -267,9 +311,13 @@ presence and declared identities of all 11 completion manifests, Stage 10's
 validation summary, and Stage 11's transfer summary. It deliberately does not
 print log contents, process environment, or credentials.
 
-Do not use `watch`, a shell loop, a sleep loop, `journalctl -f`, repeated SSH
-automation, or any other continuous monitor. Logs and checkpoints are
-diagnostic artifacts to inspect once, not a feed to follow.
+Repeated bounded status checks and log/checkpoint inspection are authorized
+for this recovery. Space checks sensibly around stage progress and failures;
+avoid a busy polling loop or unbounded command that prevents diagnosis or
+communication. Do not stop work solely because startup verification passed.
+The absolute expiry guard remains independent of this monitoring and must
+work when no engineer or worker is active. Never print protected environment
+contents or credentials while inspecting status or logs.
 
 ## Stages, restart, and failure behavior
 
@@ -338,11 +386,20 @@ discarded merely because the final package prefix is complete.
 If the worker exits nonzero, is stopped at a checkpoint, reaches the 80 GiB
 floor, times out, or is OOM-killed:
 
-1. take one status snapshot;
-2. inspect the uniquely named stderr/stdout files once;
-3. correct only the infrastructure failure without changing experiment code,
-   configuration, model, inputs, output prefix identity, or thresholds; and
-4. invoke the same launch command again.
+1. preserve a bounded status snapshot and inspect the uniquely named logs;
+2. check the fixed deadline before any recovery operation;
+3. diagnose and make only necessary repairs, with focused regression
+   validation and a reviewed clean code identity when code changes are needed;
+4. reauthenticate every reused artifact and code/config dependency under
+   ADR 0021, preserving original completions, failure records, and provenance;
+5. retry the same launch command only if the failure is recoverable and time
+   remains; otherwise power off the exact instance while preserving evidence.
+
+Repairs do not authorize changes to governed inputs, models, detector/null
+policy, thresholds, tier meanings, or the recovery output-prefix identity.
+Changed relevant code invalidates a prior reuse proof until authenticated
+again; a passing receipt cannot bypass changed-code validation. A worker
+timeout at the fixed overall deadline is expiry, not a retry opportunity.
 
 The launcher refuses a duplicate active worker, keeps `Restart=no`, and never
 deletes a checkpoint. A new scientific configuration or a reused/nonmatching
@@ -352,13 +409,20 @@ authorization.
 Hard abort conditions include source/model/config/code drift, dirty code,
 duplicate worker ownership, M7 authentication failure, unexpected output
 objects, trace or validation failure, a disk-floor crossing, cgroup memory
-limit, the 96-hour runtime, nonzero exit, and inability to establish exact B2
+limit, the fixed overall deadline, nonzero exit, and inability to establish exact B2
 inventory equality. None of these conditions converts partial output into an
-accepted result.
+accepted result. Preserve the failed attempt; authorized diagnosis and a
+corrected retry may proceed only within the same unexpired recovery window.
 
-## Completion and owner-only cleanup gate
+## Verified delivery and evidence-preserving poweroff
 
-Server deletion is prohibited until every item below is true:
+All verification and retention items below remain required for completed
+delivery. Poweroff does not delete evidence and is mandatory on successful
+worker completion, unrecoverable terminal failure, or expiry even if delivery
+checks are still pending. Retrieve from verified B2 outputs after shutdown;
+any necessary further instance access is bounded by the same fixed deadline.
+This recovery does not authorize server deletion, disk destruction, or B2
+cleanup.
 
 1. `systemctl show echoes-final-discovery.service --property=Result --value`
    returns exactly `success` in a one-shot call.
@@ -366,8 +430,8 @@ Server deletion is prohibited until every item below is true:
    zero:
 
    ```bash
-   sudo -u echoes bash -c \
-     'cd /srv/project-echoes/repo && exec /usr/local/bin/uv run --frozen --no-sync echoes validate-final-discovery --all --work-dir /srv/project-echoes/final-discovery/work'
+   sudo bash -c \
+     'set -a; source /etc/project-echoes/final-discovery.env; set +a; cd "$ECHOES_REPO_ROOT"; exec runuser -u "$ECHOES_SERVICE_USER" -- "$ECHOES_UV_BIN" run --frozen --no-sync echoes validate-final-discovery --all --work-dir "$ECHOES_WORK_DIR"'
    ```
 
 3. The validator reports `passed=true`, zero findings, and 11 authenticated
@@ -400,46 +464,44 @@ Server deletion is prohibited until every item below is true:
    command creates a new root-readable receipt under
    `/var/lib/project-echoes/final-discovery/cleanup-verifications/`, preserves
    a failed record, never polls, and never deletes anything.
-6. The owner copies the stable `finalization-receipt.json` and every Stage 11
+6. Copy the stable `finalization-receipt.json` and every Stage 11
    UUID-named `stage-checkpoint-receipt.json` to durable owner-controlled
-   storage and verifies their SHA-256 values. The stable receipt must bind the
+   storage and verify their SHA-256 values. The stable receipt must bind the
    campaign seal, Stage 11 completion, validation receipts, and the exact
    remote checkpoint inventory; the per-attempt receipt retains the actual
    `uploaded_new`, `resumed_partial`, or `verified_existing` action.
-7. The owner confirms in Backblaze that both the intended immutable final
-   package prefix and Stage 11 finalization-checkpoint prefix remain present.
-   Do not delete or overwrite either after server cleanup.
-8. The owner copies the immutable launch intent/startup records and stdout/
-   stderr logs to durable owner-controlled storage and verifies their SHA-256
-   values. These operational records live outside the scientific package and
-   would otherwise be lost with the server.
-9. The owner has retained any staging/checkpoints needed for diagnosis. Server
-   deletion irreversibly destroys the local SSD; the B2 package is not a
-   replacement for un-packaged staging or failed-attempt evidence.
+7. Verify that both the intended immutable final package prefix and Stage 11
+   finalization-checkpoint prefix remain present in B2 using authenticated
+   inventories/receipts. No manual billing or console acknowledgment is a
+   prerequisite. Do not delete or overwrite either after poweroff.
+8. Copy the immutable launch intent/startup records, recovery-window record,
+   and stdout/stderr logs to durable owner-controlled storage and verify their
+   SHA-256 values. These operational records live outside the scientific
+   package and would otherwise be lost with the server.
+9. Retain all earlier work directories, staging/checkpoints, and failure
+   records needed for diagnosis. Poweroff preserves them. The B2 package is
+   not a replacement for un-packaged staging or failed-attempt evidence.
 
-If any item is false or ambiguous, do not clean up. Preserve the server,
-staging, logs, and remote prefix, then resolve the ambiguity within the hard
-budget. Do not weaken the gate to avoid idle cost.
+Capture the service result and verification receipts while the instance is
+available; retain them durably alongside the authenticated finalization
+records. Automatic success poweroff follows the worker's internal all-stage
+validation and B2 verification. It does not waive delivery or independent
+reverification. If a check cannot be completed before poweroff, continue from
+the preserved local/durable receipts and verified remote artifacts, or obtain
+the necessary instance records within the same unexpired window.
 
-After all nine items pass, return to the owner's trusted workstation (not an
-agent session), verify the exact target once:
+Deliver the verified result locations, retained receipt identities, a clear
+distinction between statistically eligible Tier A and exploratory Tier B top
+100, and several actual passage-evidence examples. Do not describe Tier B as
+accepted discoveries; an empty Tier A is a valid outcome. Confirm the provider
+reports the exact instance powered off when recovery terminates.
 
-```bash
-hcloud server describe project-echoes-final-discovery-v1 -o json
-```
-
-Then the owner may perform the explicitly destructive cleanup:
-
-```bash
-hcloud server delete project-echoes-final-discovery-v1
-```
-
-That command permanently deletes the server and its local SSD. It does not
-authorize deletion of the B2 result prefix. If the owner separately created a
-Primary IP, volume, snapshot, or backup contrary to the minimal plan, inspect
-that resource by its exact provider ID and remove it separately only after the
-same evidence gate; deleting a server may not stop billing for a separately
-owned resource.
+If any required verification is false or ambiguous, report the incomplete
+result accurately and preserve the instance, staging, logs, and remote
+prefixes. Resolve a recoverable problem within the remaining window; do not
+weaken validation, prolong the deadline, or keep compute on after expiry.
+Future destructive cleanup requires separate explicit authorization and must
+retain the evidence required above.
 
 After the canonical run and Tier B top-100 human review, stop retrieval-engine
 development. An empty Tier A remains a valid result. A second full production

@@ -1,4 +1,4 @@
-"""Cost and preflight contracts for the production owner launcher."""
+"""Billing metadata and preflight contracts for the production launcher."""
 
 from __future__ import annotations
 
@@ -29,37 +29,36 @@ def test_preflight_authenticates_exact_m7_remote_identity() -> None:
     assert "canonical M7 remote identity or credentials failed preflight" in script
 
 
-def test_budget_uses_verified_accrued_cost_not_server_wall_clock() -> None:
+def test_billing_is_unknown_without_a_fabricated_dollar_guarantee() -> None:
     script = LAUNCHER.read_text(encoding="utf-8")
-    assert "ECHOES_ACCRUED_INFRASTRUCTURE_USD" in script
-    assert "ECHOES_ACCRUED_COST_VERIFIED_AT_UTC" in script
-    assert "projected_all_in = accrued + projected_future_infrastructure + reserve" in script
-    assert "accrued_hours" not in script
+    assert '"billing_status": "unknown"' in script
+    assert '"dollar_cap_enforced": False' in script
+    assert '"verified_accrued_infrastructure_usd": None' in script
+    assert '"projected_all_in_usd": None' in script
+    assert "projected_all_in > cap" not in script
 
 
-def test_scaleway_adapter_retains_worker_and_protects_pre_worker_failures() -> None:
+def test_scaleway_adapter_retains_worker_without_poweroff_on_preparation_errors() -> None:
     adapter = ADAPTER.read_text(encoding="utf-8")
     assert "require_exact ECHOES_FINAL_DISCOVERY_RUNTIME_HOURS 96" in adapter
-    assert 'worker_hours = Decimal("96")' in adapter
     assert '"maximum_worker_hours": 96,' in adapter
-    assert "--property=RuntimeMaxSec=96h" in adapter
-    assert "require_exact ECHOES_HARD_BUDGET_USD 125.00" in adapter
-    assert 'cap != Decimal("125.00")' in adapter
+    assert '--property="RuntimeMaxSec=${remaining_runtime_seconds}s"' in adapter
+    assert '"billing_status": "unknown",' in adapter
+    assert '"dollar_cap_enforced": False,' in adapter
     assert "trap cleanup EXIT" in adapter
     assert "trap 'exit 1' HUP INT TERM" in adapter
-    assert 'bash "$POWER_OFF_GUARD" --poweroff' in adapter
+    assert 'bash "$POWER_OFF_GUARD" --verify-only' in adapter
+    assert 'bash "$POWER_OFF_GUARD" --poweroff' not in adapter
     assert 'bash "$adapter" "$@"' in adapter
-    assert "poweroff_if_unsuccessful=false" in adapter
+    assert "poweroff_if_unsuccessful" not in adapter
 
 
-def test_scaleway_environment_template_contains_every_cost_input() -> None:
+def test_scaleway_environment_template_has_resources_without_cost_inputs() -> None:
     example = SCALEWAY_ENV.read_text(encoding="utf-8")
     for token in (
         "ECHOES_EXPECTED_SERVER_TYPE=POP2-16C-64G",
         "ECHOES_FINAL_DISCOVERY_RUNTIME_HOURS=96",
-        "ECHOES_HARD_BUDGET_USD=125.00",
-        "ECHOES_ACCRUED_INFRASTRUCTURE_USD=",
-        "ECHOES_ACCRUED_COST_VERIFIED_AT_UTC=",
-        "ECHOES_B2_COST_RESERVE_USD=10.00",
     ):
         assert token in example
+    for token in ("ECHOES_HARD_BUDGET_USD=", "ECHOES_ACCRUED_", "ECHOES_VERIFIED_RATE_"):
+        assert token not in example

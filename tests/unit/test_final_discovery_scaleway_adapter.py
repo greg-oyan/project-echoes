@@ -12,7 +12,7 @@ LAUNCHER = ROOT / "cloud" / "launch_final_discovery.sh"
 ENV_EXAMPLE = ROOT / "cloud" / "final-discovery-scaleway.env.example"
 
 
-def test_scaleway_adapter_binds_reviewed_provider_budget_and_full_runtime() -> None:
+def test_scaleway_adapter_binds_reviewed_provider_unknown_billing_and_runtime() -> None:
     script = ADAPTER.read_text(encoding="utf-8")
 
     assert script.startswith("#!/usr/bin/env bash\nset -Eeuo pipefail\n")
@@ -22,13 +22,10 @@ def test_scaleway_adapter_binds_reviewed_provider_budget_and_full_runtime() -> N
         "require_exact ECHOES_EXPECTED_SERVER_TYPE POP2-16C-64G",
         "require_exact ECHOES_SERVER_NAME project-echoes-final-discovery",
         "require_exact ECHOES_FINAL_DISCOVERY_RUNTIME_HOURS 96",
-        'worker_hours = Decimal("96")',
         '"maximum_worker_hours": 96,',
-        "--property=RuntimeMaxSec=96h",
-        "require_exact ECHOES_HARD_BUDGET_USD 125.00",
-        'cap != Decimal("125.00")',
-        "verified accrued cost plus worker window and B2 reserve exceeds $125",
-        "current owner-verified pricing does not fit the owner-authorized $125 all-in cap",
+        '--property="RuntimeMaxSec=${remaining_runtime_seconds}s"',
+        '"billing_status": "unknown",',
+        '"dollar_cap_enforced": False,',
         'install -d -m 0710 -o root -g "$ECHOES_SERVICE_GROUP"',
         'die "service user cannot traverse the launch directory"',
         'die "service user cannot read the authenticated launch intent"',
@@ -46,13 +43,10 @@ def test_scaleway_adapter_binds_reviewed_provider_budget_and_full_runtime() -> N
         "require_exact ECHOES_EXPECTED_SERVER_TYPE CCX43",
         "require_exact ECHOES_SERVER_NAME project-echoes-final-discovery-v1",
         "require_exact ECHOES_FINAL_DISCOVERY_RUNTIME_HOURS 96",
-        'worker_hours = Decimal("96")',
         '"maximum_worker_hours": 96,',
-        "--property=RuntimeMaxSec=96h",
-        "require_exact ECHOES_HARD_BUDGET_USD 75.00",
-        'cap != Decimal("75.00")',
-        "verified accrued cost plus worker window and B2 reserve exceeds $75",
-        "current owner-verified pricing does not fit the frozen $75 all-in cap",
+        '--property="RuntimeMaxSec=${remaining_runtime_seconds}s"',
+        '"billing_status": "unknown",',
+        '"dollar_cap_enforced": False,',
         ('install -d -m 0700 -o root -g root "$STATE_ROOT" "$STATE_ROOT/launches" "$LOG_ROOT"'),
         'intent_sha256="$(sha256sum "$intent_path" | awk',
     )
@@ -75,9 +69,8 @@ def test_scaleway_adapter_binds_reviewed_provider_budget_and_full_runtime() -> N
         assert token not in script
 
     # Scientific identities and CPU/memory/disk ceilings remain delegated to
-    # the frozen launcher. Only provider identity, the separately authorized
-    # budget ceiling, launch-intent traversal, and provider-side poweroff are
-    # adapted.
+    # the launcher. Only provider identity, launch-intent traversal, and
+    # provider-side completion poweroff are adapted.
     delegated_tokens = (
         "CONFIG_FILE_SHA256",
         "M7_MANIFEST_SHA256",
@@ -132,10 +125,10 @@ def test_scaleway_adapter_generated_launcher_authenticates_intent_as_worker(
         'die "service user cannot read the authenticated launch intent"',
         'die "service user observes a different authenticated launch intent"',
         "--property=OnSuccess=echoes-final-discovery-poweroff.service",
-        "--property=OnFailure=echoes-final-discovery-poweroff.service",
     )
     for token in expected:
         assert token in generated
+    assert "--property=OnFailure=" not in generated
 
     assert generated.index("worker_intent_sha256") < generated.index("\nsystemd-run \\\n")
     assert (
@@ -144,10 +137,10 @@ def test_scaleway_adapter_generated_launcher_authenticates_intent_as_worker(
     )
 
 
-def test_scaleway_environment_authorizes_125_dollars_and_96_hours() -> None:
+def test_scaleway_environment_retains_96_hours_without_dollar_inputs() -> None:
     environment = ENV_EXAMPLE.read_text(encoding="utf-8")
 
     assert "ECHOES_FINAL_DISCOVERY_RUNTIME_HOURS=96\n" in environment
-    assert "ECHOES_HARD_BUDGET_USD=125.00\n" in environment
     assert "ECHOES_FINAL_DISCOVERY_RUNTIME_HOURS=68\n" not in environment
-    assert "ECHOES_HARD_BUDGET_USD=75.00\n" not in environment
+    assert "ECHOES_HARD_BUDGET_USD=" not in environment
+    assert "ECHOES_VERIFIED_RATE_USD_PER_HOUR=" not in environment

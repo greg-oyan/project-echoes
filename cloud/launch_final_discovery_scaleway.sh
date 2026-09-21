@@ -6,11 +6,11 @@ set -Eeuo pipefail
 # The scientific campaign, detector/null/tier contracts, config hashes, B2
 # contracts, memory/CPU/disk ceilings, systemd isolation, and launch-intent
 # machinery remain owned by cloud/launch_final_discovery.sh. This wrapper
-# changes only the reviewed Scaleway provider identity, the owner-authorized
-# USD 125 all-in budget ceiling, provider-side auto-poweroff around every
-# production boundary, and the minimum worker traversal needed to authenticate
-# its root-owned launch intent. It deliberately retains the frozen 96-hour
-# worker window and does not change any scientific configuration.
+# changes only the reviewed Scaleway provider identity, provider-side poweroff
+# after successful completion, and the minimum worker traversal needed to
+# authenticate its root-owned launch intent. Billing is unknown and does not
+# block this explicitly authorized recovery. The overall 96-hour recovery
+# deadline is enforced separately and scientific configuration is unchanged.
 
 readonly REPO_ROOT="/srv/project-echoes/repo"
 readonly SOURCE_LAUNCHER="$REPO_ROOT/cloud/launch_final_discovery.sh"
@@ -63,17 +63,12 @@ poweroff_active="$(systemctl show "$POWER_OFF_UNIT" --property=ActiveState --val
 systemctl reset-failed "$POWER_OFF_UNIT" >/dev/null 2>&1 || true
 bash "$POWER_OFF_GUARD" --verify-only >/dev/null
 
-# From this point forward, every refusal, shell error, interrupt, or SSH hangup
-# requests a true provider poweroff. Successful service handoff disarms it;
-# the service itself has OnSuccess and OnFailure poweroff dependencies.
+# Recoverable preparation failures and return of control must not power off
+# the instance. Cleanup removes only this wrapper's temporary adapter; the
+# successful worker completion and fixed recovery expiry own poweroff.
 adapter=""
-poweroff_if_unsuccessful=true
 cleanup() {
-    local status=$?
     [[ -z "$adapter" ]] || rm -f -- "$adapter"
-    if [[ "$poweroff_if_unsuccessful" == true && $status -ne 0 ]]; then
-        bash "$POWER_OFF_GUARD" --poweroff >/dev/null 2>&1 || true
-    fi
 }
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
@@ -96,13 +91,10 @@ require_source_occurrence() {
 require_source_occurrence 'require_exact ECHOES_EXPECTED_SERVER_TYPE CCX43' 1
 require_source_occurrence 'require_exact ECHOES_SERVER_NAME project-echoes-final-discovery-v1' 1
 require_source_occurrence 'require_exact ECHOES_FINAL_DISCOVERY_RUNTIME_HOURS 96' 1
-require_source_occurrence 'worker_hours = Decimal("96")' 1
 require_source_occurrence '"maximum_worker_hours": 96,' 1
-require_source_occurrence '--property=RuntimeMaxSec=96h' 1
-require_source_occurrence 'require_exact ECHOES_HARD_BUDGET_USD 75.00' 1
-require_source_occurrence 'cap != Decimal("75.00")' 1
-require_source_occurrence 'verified accrued cost plus worker window and B2 reserve exceeds $75' 1
-require_source_occurrence 'current owner-verified pricing does not fit the frozen $75 all-in cap' 1
+require_source_occurrence '--property="RuntimeMaxSec=${remaining_runtime_seconds}s"' 1
+require_source_occurrence '"billing_status": "unknown",' 1
+require_source_occurrence '"dollar_cap_enforced": False,' 1
 require_source_occurrence 'install -d -m 0700 -o root -g root "$STATE_ROOT" "$STATE_ROOT/launches" "$LOG_ROOT"' 1
 require_source_occurrence 'intent_sha256="$(sha256sum "$intent_path" | awk' 1
 require_source_occurrence '    --property=Restart=no \' 1
@@ -113,9 +105,6 @@ adapter="$(mktemp /run/project-echoes-final-discovery-scaleway.XXXXXX)"
 sed \
     -e 's/require_exact ECHOES_EXPECTED_SERVER_TYPE CCX43/require_exact ECHOES_EXPECTED_SERVER_TYPE POP2-16C-64G/' \
     -e 's/require_exact ECHOES_SERVER_NAME project-echoes-final-discovery-v1/require_exact ECHOES_SERVER_NAME project-echoes-final-discovery/' \
-    -e 's/require_exact ECHOES_HARD_BUDGET_USD 75.00/require_exact ECHOES_HARD_BUDGET_USD 125.00/' \
-    -e 's/cap != Decimal("75.00")/cap != Decimal("125.00")/' \
-    -e 's/verified accrued cost plus worker window and B2 reserve exceeds [$]75/verified accrued cost plus worker window and B2 reserve exceeds $125/' \
     -e 's/CCX43 contract requires exactly 16 visible vCPUs/production contract requires exactly 16 visible vCPUs/' \
     -e 's/CCX43 contract requires AMD CPUs/production contract requires AMD CPUs/' \
     -e 's/CCX43 contract requires a host advertised with 64 GB RAM/production contract requires a host advertised with 64 GB RAM/' \
@@ -154,22 +143,15 @@ intent_new = intent_old + '''worker_intent_sha256="$(
     die "service user observes a different authenticated launch intent"
 '''
 
-budget_failure_old = '''die "current owner-verified pricing does not fit the frozen $75 all-in cap"
-'''
-budget_failure_new = '''die 'current owner-verified pricing does not fit the owner-authorized $125 all-in cap'
-'''
-
 poweroff_old = "    --property=Restart=no \\\n"
 poweroff_new = (
     poweroff_old
     + f"    --property=OnSuccess={poweroff_unit} \\\n"
-    + f"    --property=OnFailure={poweroff_unit} \\\n"
 )
 
 replacements = (
     (state_old, state_new, "worker launch-intent traversal"),
     (intent_old, intent_new, "worker launch-intent read authentication"),
-    (budget_failure_old, budget_failure_new, "nounset-safe budget failure message"),
     (poweroff_old, poweroff_new, "poweroff dependency"),
 )
 for old, new, label in replacements:
@@ -186,13 +168,10 @@ for expected in \
     'require_exact ECHOES_EXPECTED_SERVER_TYPE POP2-16C-64G' \
     'require_exact ECHOES_SERVER_NAME project-echoes-final-discovery' \
     'require_exact ECHOES_FINAL_DISCOVERY_RUNTIME_HOURS 96' \
-    'worker_hours = Decimal("96")' \
     '"maximum_worker_hours": 96,' \
-    '--property=RuntimeMaxSec=96h' \
-    'require_exact ECHOES_HARD_BUDGET_USD 125.00' \
-    'cap != Decimal("125.00")' \
-    'verified accrued cost plus worker window and B2 reserve exceeds $125' \
-    'current owner-verified pricing does not fit the owner-authorized $125 all-in cap' \
+    '--property="RuntimeMaxSec=${remaining_runtime_seconds}s"' \
+    '"billing_status": "unknown",' \
+    '"dollar_cap_enforced": False,' \
     'install -d -m 0710 -o root -g "$ECHOES_SERVICE_GROUP" "$STATE_ROOT" "$STATE_ROOT/launches"' \
     'install -d -m 0700 -o root -g root "$LOG_ROOT"' \
     'die "service user cannot traverse the state root"' \
@@ -201,7 +180,6 @@ for expected in \
     'die "service user cannot read the authenticated launch intent"' \
     'die "service user observes a different authenticated launch intent"' \
     '--property=OnSuccess=echoes-final-discovery-poweroff.service' \
-    '--property=OnFailure=echoes-final-discovery-poweroff.service' \
     'Scaleway POP2-16C-64G / Ubuntu 24.04 / 16 dedicated AMD vCPU / 64 GB / 400 GB Block Storage 5K'; do
     grep -F -q -- "$expected" "$adapter" || {
         printf 'Scaleway adapter could not bind required contract: %s\n' "$expected" >&2
@@ -210,4 +188,3 @@ for expected in \
 done
 
 bash "$adapter" "$@"
-poweroff_if_unsuccessful=false

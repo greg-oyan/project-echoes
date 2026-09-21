@@ -6,6 +6,25 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 ### Changed
 
+- Prepare authenticated recovery of completed final-discovery Stage 1/2
+  artifacts and the previously validated M7 projection (ADR 0021). Reuse
+  preserves original completions and artifact provenance, publishes fresh
+  authenticated completion records, and retains all scientific validators,
+  frozen thresholds, resource limits, and shutdown safeguards. This local
+  recovery change has not yet been deployed.
+
+- Record the owner's 2026-09-20 operational recovery authorization (ADR 0022):
+  remove dollar ceilings, manual verified-cost inputs, and billing-API
+  prerequisites; allow monitoring and necessary recovery through verified
+  delivery without startup-only or repeated approval stops. Replace the
+  resettable per-launch 96-hour allowance with one persistent overall
+  96-hour recovery deadline, from the recorded first boot at
+  `2026-09-21T02:46:42Z` through `2026-09-25T02:46:42Z`, including downtime
+  and all retries. Exact-target
+  success/terminal-failure/expiry poweroff preserves evidence; scientific
+  acceptance, frozen policy, actual provider permissions, and data protection
+  remain unchanged. The historical M7 contract remains recorded separately.
+
 - `final-discovery-v1` documentation now fixes the active UBS role to its
   24-row reference-only CC BY-SA 4.0 adaptation, with exact attribution,
   modification, and ShareAlike boundaries while keeping upstream biblical text

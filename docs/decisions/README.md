@@ -52,3 +52,5 @@ Decision records preserve durable methodological, data, licensing, architecture,
 - [0018 — Close the lexical baseline and authorize final-discovery-v1](0018-close-m7-and-authorize-final-discovery-v1.md)
 - [0019 — Defer the LXX bridge and govern the supplemental embedding model](0019-defer-lxx-and-govern-multilingual-e5.md)
 - [0020 — Use direct authenticated object trees for production-scale persistence](0020-use-direct-authenticated-object-trees.md)
+- [0021 — Authenticate preserved final-discovery artifacts for recovery](0021-authenticated-final-discovery-recovery.md)
+- [0022 — Owner-authorized operational recovery with a fixed deadline](0022-owner-authorized-operational-recovery.md)
