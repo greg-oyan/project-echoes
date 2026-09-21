@@ -103,15 +103,25 @@ It fails closed if the measurement is unavailable or exceeds that limit. The
 benchmark report is preserved for diagnosis, but its command exits nonzero
 unless runtime, memory, disk, and exact cardinality all pass.
 
-The authoritative benchmark must be generated outside the repository from
-the exact clean launch commit and then added at
-`outputs/reports/final-discovery-preproduction-benchmark.json`. Its
-`report_status` must be `commit_bound_clean`; its commit, code/config hashes,
-resource gates, and file SHA-256 must be recorded together. A dirty-tree
-development report is provisional evidence only and cannot authorize launch.
-The canonical report is bound to commit
+The authoritative benchmark at
+`outputs/reports/final-discovery-preproduction-benchmark.json` was generated
+outside the repository from its recorded clean commit. Its `report_status`
+must remain `commit_bound_clean`; retain its original commit, code/config
+hashes, resource gates, and file SHA-256 together. A dirty-tree development
+report is provisional evidence only and cannot authorize launch. The
+canonical report is bound to commit
 `e0a48cfad963b709dd70e8f8df46ab4d18aed03e` and has SHA-256
 `2e5102d8c5c85da225f7a9e53e0a25627ff4ef7c74ccc1630153775fc7124175`.
+
+For this recovery, reuse that original committed passing report after
+confirming the registered benchmark kernels, cardinality contract, and
+configuration remain unchanged. The Stage 3 authenticated-projection reuse
+and Stage 11 provenance-packaging changes do not rerun or alter those
+benchmark kernels. Preserve the report's original generation identity; do
+not relabel it with the recovery commit or claim a new measurement. The
+frozen runtime, memory, disk, and cardinality checks still apply. A changed
+benchmark kernel, cardinality contract, configuration, or report byte
+invalidates this reuse proof.
 
 ## Fixed overall recovery deadline
 
@@ -124,7 +134,7 @@ cannot choose a later start. Do not power on until the local recovery changes
 and shutdown safeguards are ready.
 
 After access to the exact existing instance is established, install the same
-window using the chosen fresh recovery work directory:
+window using the authorized campaign work directory:
 
 ```bash
 START_UTC=2026-09-21T02:46:42Z
@@ -195,14 +205,18 @@ resource limits, exact-target authorization, and scientific validation remain.
    the worker. Verify all transfer receipts before launch. Do not transfer raw
    restricted acquisitions.
 7. Use the existing least-privilege Backblaze application key capable of reading
-   the frozen M7 prefix and writing/checking the chosen final output prefix. Choose
-   a normalized, unique output prefix that is initially empty. A reused or
-   mismatched prefix fails closed.
+   the frozen M7 prefix and writing/checking only the output identity already
+   authorized for this campaign. The launcher must inspect the complete
+   namespace and accept only an empty or authenticated resumable state; a
+   mismatched namespace must fail closed. Preserved earlier campaign
+   namespaces remain protected.
 8. Prepare `/etc/project-echoes/final-discovery.env` using the current
    [`environment contract`](../cloud/final-discovery.env.example), preserving
-   protected credentials and recording the reviewed recovery commit, fresh
-   work directory, and output prefix. No `OWNER_SET` placeholder may remain.
-   Protect it:
+   protected credentials and recording the reviewed recovery commit and the
+   work directory/output identity already authorized for this campaign.
+   These identities are protected environment inputs; this procedure does
+   not grant permission to select or reuse another namespace. No `OWNER_SET`
+   placeholder may remain. Protect it:
 
    ```bash
    sudo chown root:root /etc/project-echoes/final-discovery.env
@@ -210,7 +224,10 @@ resource limits, exact-target authorization, and scientific validation remain.
    ```
 
 For recovery, preserve the earlier work directories and output namespaces.
-Use a fresh recovery work directory and initially empty output prefix.
+Use the work directory and output identity already authorized for this
+campaign. Require the launcher's complete namespace inspection and fail
+closed on any state that is neither empty nor authenticated for resumption.
+These checks do not authorize reuse of a protected earlier namespace.
 Authenticate imported Stage 1/2 artifacts under ADR 0021, including original
 completion bytes and provenance; do not copy old completion identities into
 place. A cached M7 projection is usable only with its pinned original passing
@@ -230,11 +247,18 @@ from those environment values and redacts subprocess errors.
 From an authorized SSH session on the prepared exact instance, run exactly:
 
 ```bash
-sudo bash /srv/project-echoes/repo/cloud/launch_final_discovery.sh
+sudo bash /srv/project-echoes/repo/cloud/launch_final_discovery_scaleway.sh
 ```
 
-There are no launch flags. The script refuses to start unless all of these
-conditions hold:
+The Scaleway adapter authenticates the existing provider target and retains
+the base launcher's scientific and resource checks. To run its launch
+preflight without creating a worker, use:
+
+```bash
+sudo bash /srv/project-echoes/repo/cloud/launch_final_discovery_scaleway.sh --preflight-only
+```
+
+The script refuses to start unless all of these conditions hold:
 
 - Ubuntu, CPU, RAM, server-type attestation, disk, and resource values match
   the contract;
