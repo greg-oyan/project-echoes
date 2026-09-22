@@ -3061,6 +3061,19 @@ The consolidated campaign has these binding additions:
 
 ### Current final-discovery recovery
 
+ADR 0023 corrects the Stage 6 source-null authentication mismatch: canonical
+M7's false/no-qualified-threshold sentinel remains unchanged, while retained
+null runs and candidate outcomes are authenticated independently. Production
+consumers and final validation require that source proof. Authenticated reuse
+of unchanged completed Stages 1–5 under the repaired code must retain original
+completion provenance and use a fresh work directory/output namespace. The
+original fixed recovery deadline below applies unchanged to the successor.
+Its narrowly authenticated disk gate reserves the full original modeled
+artifact budget as additional future free space plus the unchanged 80-GiB
+checkpoint floor (225,737,600,612 bytes total), as specified in ADR 0023.
+All other launches retain the 280-GiB initial-space gate. No new resources or
+destructive cleanup are authorized by this recovery exception.
+
 On 2026-09-20 the owner explicitly authorized finishing the existing campaign,
 including necessary repairs, authenticated reuse of completed stages and
 passing receipts under ADR 0021, and monitoring through verified delivery.

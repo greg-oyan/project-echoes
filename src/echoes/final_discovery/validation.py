@@ -19,6 +19,10 @@ from echoes.final_discovery.features import (
     evidence_id,
 )
 from echoes.final_discovery.knownness import KnownnessIndex
+from echoes.final_discovery.m7_null_provenance import (
+    M7NullProvenance,
+    M7NullProvenanceError,
+)
 from echoes.final_discovery.models import (
     EvidenceFamily,
     EvidenceRow,
@@ -175,6 +179,7 @@ def _validate_m7_trace(
     *,
     config: FinalDiscoveryConfig,
     findings: list[ValidationFinding],
+    m7_null_provenance: M7NullProvenance | None = None,
 ) -> None:
     m7_input = next(item for item in config.inputs if item.role == "canonical_m7")
     if row.source_artifact_id != m7_input.artifact_id:
@@ -191,14 +196,29 @@ def _validate_m7_trace(
             f"M7 evidence {row.evidence_id} has the wrong representation trace",
             row.candidate_pair_id,
         )
-    if (
-        config.calibration.require_both_m7_null_families
-        and trace.get("m7_both_null_families_present") is not True
-    ):
+    source_null_error: str | None = None
+    if config.calibration.require_both_m7_null_families:
+        if m7_null_provenance is not None:
+            try:
+                m7_null_provenance.validate_trace(trace, row.source_artifact_sha256)
+            except M7NullProvenanceError as exc:
+                source_null_error = str(exc)
+            references = trace.get("m7_passage_references")
+            if (
+                not isinstance(references, dict)
+                or not all(isinstance(value, str) for value in references)
+                or set(references) != {row.passage_a_id, row.passage_b_id}
+            ):
+                source_null_error = "source trace references disagree with evidence passages"
+            if trace.get("rrf_score") != row.raw_score:
+                source_null_error = "source trace score disagrees with evidence raw score"
+        elif trace.get("m7_both_null_families_present") is not True:
+            source_null_error = "source trace does not authenticate both null families"
+    if source_null_error is not None:
         _finding(
             findings,
             "m7-null-family-authentication",
-            f"M7 evidence {row.evidence_id} does not authenticate both source null families",
+            f"M7 evidence {row.evidence_id} source null authentication failed: {source_null_error}",
             row.candidate_pair_id,
         )
     traced_ids = trace.get("m7_openbible_relationship_ids")
@@ -333,6 +353,7 @@ def _validate_evidence_contract(
     strict_lineage: bool,
     expected_source_artifact_sha256: Mapping[str, str] | None,
     findings: list[ValidationFinding],
+    m7_null_provenance: M7NullProvenance | None = None,
 ) -> tuple[dict[str, EvidenceRow], dict[str, list[EvidenceRow]]]:
     evidence_by_id: dict[str, EvidenceRow] = {}
     evidence_by_pair: dict[str, list[EvidenceRow]] = defaultdict(list)
@@ -458,7 +479,13 @@ def _validate_evidence_contract(
         )
         if strict_lineage and trace is not None:
             if row.detector_id == "m7_lexical_rrf":
-                _validate_m7_trace(row, trace, config=config, findings=findings)
+                _validate_m7_trace(
+                    row,
+                    trace,
+                    config=config,
+                    findings=findings,
+                    m7_null_provenance=m7_null_provenance,
+                )
             elif row.detector_id in {
                 "multilingual_e5_original_language",
                 "multilingual_e5_english_gloss",
@@ -1264,6 +1291,7 @@ def validate_final_discovery(
     null_calibration_by_pair: NullCalibrationInput | None = None,
     english_ablation_null_calibration_by_pair: NullCalibrationInput | None = None,
     expected_source_artifact_sha256: Mapping[str, str] | None = None,
+    m7_null_provenance: M7NullProvenance | None = None,
 ) -> FinalDiscoveryValidationReport:
     """Validate traceability, tier labels, statistical controls, and checkpoints.
 
@@ -1303,9 +1331,14 @@ def validate_final_discovery(
     evidence_by_id, evidence_by_pair = _validate_evidence_contract(
         evidence,
         config=config,
-        strict_lineage=(strict_requested or expected_source_artifact_sha256 is not None),
+        strict_lineage=(
+            strict_requested
+            or expected_source_artifact_sha256 is not None
+            or m7_null_provenance is not None
+        ),
         expected_source_artifact_sha256=expected_source_artifact_sha256,
         findings=findings,
+        m7_null_provenance=m7_null_provenance,
     )
     candidate_ids = [row.candidate_pair_id for row in candidates]
     if len(candidate_ids) != len(set(candidate_ids)):

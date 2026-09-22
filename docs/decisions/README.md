@@ -54,3 +54,4 @@ Decision records preserve durable methodological, data, licensing, architecture,
 - [0020 — Use direct authenticated object trees for production-scale persistence](0020-use-direct-authenticated-object-trees.md)
 - [0021 — Authenticate preserved final-discovery artifacts for recovery](0021-authenticated-final-discovery-recovery.md)
 - [0022 — Owner-authorized operational recovery with a fixed deadline](0022-owner-authorized-operational-recovery.md)
+- [0023 — Authenticate M7 null execution separately from threshold selection](0023-authenticate-m7-null-execution-separately.md)

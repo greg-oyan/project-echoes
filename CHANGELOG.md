@@ -6,6 +6,16 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 ### Changed
 
+- Correct final-discovery's interpretation of the canonical M7 no-qualified-
+  threshold sentinel (ADR 0023). Independently authenticate retained source
+  null execution and exact candidate outcomes, preserve false/infinity values,
+  and pass that proof through calibration and strict validation. Prepare reuse
+  of completed Stages 1–5 under a new code identity without recomputing them or
+  resetting the original recovery deadline. This repair is local and has not
+  yet been deployed. The exact authenticated successor reserves the full
+  original modeled artifact budget plus the unchanged 80-GiB disk floor;
+  fresh and other runs retain the 280-GiB initial-space requirement.
+
 - Prepare authenticated recovery of completed final-discovery Stage 1/2
   artifacts and the previously validated M7 projection (ADR 0021). Reuse
   preserves original completions and artifact provenance, publishes fresh

@@ -193,3 +193,26 @@ def test_timer_and_service_delegate_to_existing_poweroff_without_a_supervisor(
     parsed = ast.parse(script.split("<<'PY'\n", 1)[1].rsplit("\nPY\n", 1)[0])
     assert not any(isinstance(node, ast.While) for node in ast.walk(parsed))
     assert "sleep(" not in script
+
+
+def test_repaired_successor_inherits_original_deadline_without_rewriting_ledger(
+    window: SimpleNamespace,
+) -> None:
+    first = window.api["install"](window.start, window.work)
+    ledger = window.api["LEDGER"]
+    content = ledger.read_bytes()
+    modified = ledger.stat().st_mtime_ns
+    successor = window.api["SUCCESSOR_WORK"]
+    window.clock[0] += timedelta(hours=24)
+    assert window.api["remaining"](successor) == first["remaining_seconds"] - 24 * 3600
+    assert ledger.read_bytes() == content
+    assert ledger.stat().st_mtime_ns == modified
+    with pytest.raises(RuntimeError, match="work directory differs"):
+        window.api["install"](window.start, successor)
+    with pytest.raises(RuntimeError, match="work directory differs"):
+        window.api["remaining"](successor + "-retry")
+    window.clock[0] = datetime(2026, 9, 24, 12, 0, tzinfo=UTC)
+    with pytest.raises(RuntimeError, match="deadline has expired"):
+        window.api["remaining"](successor)
+    assert len(poweroff_calls(window)) == 1
+    assert ledger.read_bytes() == content

@@ -31,6 +31,7 @@ from echoes.final_discovery.config import (
 )
 from echoes.final_discovery.features import candidate_pair_id, evidence_id
 from echoes.final_discovery.knownness import KnownnessIndex, KnownRelationship
+from echoes.final_discovery.m7_null_provenance import M7NullProvenance
 from echoes.final_discovery.models import (
     EvidenceRow,
     FinalCandidate,
@@ -403,6 +404,7 @@ def _validate_evidence_row(
     registrations: Mapping[str, DetectorRegistration],
     expected_source_artifact_sha256: Mapping[str, str] | None,
     collector: _FindingCollector,
+    m7_null_provenance: M7NullProvenance | None = None,
 ) -> None:
     expected_pair_id = candidate_pair_id(row.passage_a_id, row.passage_b_id)
     if row.candidate_pair_id != expected_pair_id:
@@ -492,6 +494,7 @@ def _validate_evidence_row(
                 trace,
                 config=config,
                 findings=local_findings,
+                m7_null_provenance=m7_null_provenance,
             )
         elif row.detector_id in {
             "multilingual_e5_original_language",
@@ -618,6 +621,7 @@ def _ingest_evidence(
     expected_source_artifact_sha256: Mapping[str, str] | None,
     collector: _FindingCollector,
     batch_size: int,
+    m7_null_provenance: M7NullProvenance | None = None,
 ) -> tuple[int, int, int]:
     evidence_rows: list[tuple[object, ...]] = []
     draft_rows: list[tuple[object, ...]] = []
@@ -668,6 +672,7 @@ def _ingest_evidence(
             config=config,
             registrations=registrations,
             expected_source_artifact_sha256=expected_source_artifact_sha256,
+            m7_null_provenance=m7_null_provenance,
             collector=collector,
         )
         evidence_rows.append(
@@ -1764,6 +1769,7 @@ def _run_validation(
     finding_limit: int,
     minimum_temp_free_bytes: int,
     initial_temp_free_bytes: int,
+    m7_null_provenance: M7NullProvenance | None = None,
 ) -> tuple[FinalDiscoveryValidationReport, DiskFinalDiscoveryValidationReceipt]:
     collector = _FindingCollector(limit=finding_limit, findings=[])
     try:
@@ -1783,6 +1789,7 @@ def _run_validation(
             passages=passages,
             config=config,
             expected_source_artifact_sha256=expected_source_artifact_sha256,
+            m7_null_provenance=m7_null_provenance,
             collector=collector,
             batch_size=batch_size,
         )
@@ -1932,6 +1939,7 @@ def validate_final_discovery_disk_backed(
     threads: int = 1,
     batch_size: int = 65_536,
     finding_limit: int = 1_000,
+    m7_null_provenance: M7NullProvenance | None = None,
 ) -> DiskFinalDiscoveryValidationResult:
     """Strictly validate canonical final-discovery ledgers in bounded state.
 
@@ -2032,6 +2040,7 @@ def validate_final_discovery_disk_backed(
             finding_limit=finding_limit,
             minimum_temp_free_bytes=minimum_temp_free_bytes,
             initial_temp_free_bytes=initial_temp_free_bytes,
+            m7_null_provenance=m7_null_provenance,
         )
         _remove_database(database_path, temp_directory)
         if output_directory.exists():

@@ -32,6 +32,7 @@ from echoes.final_discovery.config import (
     final_discovery_config_sha256,
 )
 from echoes.final_discovery.features import candidate_pair_id, canonical_json, evidence_id
+from echoes.final_discovery.m7_null_provenance import M7NullProvenance
 from echoes.final_discovery.models import (
     EvidenceFamily,
     EvidenceRow,
@@ -40,6 +41,8 @@ from echoes.final_discovery.models import (
 )
 from echoes.final_discovery.nulls import (
     DetectorNullCalibrationRow,
+    NullControlError,
+    _validate_m7_source_nulls,
     _vectorized_detector_exceedances,
 )
 from echoes.final_discovery.storage import (
@@ -303,17 +306,15 @@ def _pair_strata_rows(
     yield from values
 
 
-def _validate_m7_trace(row: RawEvidence, config: FinalDiscoveryConfig) -> None:
-    if row.detector_id != "m7_lexical_rrf" or not config.calibration.require_both_m7_null_families:
-        return
+def _validate_m7_trace(
+    row: RawEvidence,
+    config: FinalDiscoveryConfig,
+    m7_null_provenance: M7NullProvenance | None = None,
+) -> None:
     try:
-        trace = json.loads(row.trace_json)
-    except json.JSONDecodeError as exc:
-        raise DiskCalibrationError("M7 evidence has an invalid JSON trace") from exc
-    if not isinstance(trace, dict) or trace.get("m7_both_null_families_present") is not True:
-        raise DiskCalibrationError(
-            "production M7 evidence must authenticate both canonical M7 null families"
-        )
+        _validate_m7_source_nulls(row, config, m7_null_provenance)
+    except NullControlError as exc:
+        raise DiskCalibrationError(str(exc)) from exc
 
 
 def _registration_for_raw(
@@ -528,6 +529,7 @@ def _ingest_raw_evidence(
     *,
     config: FinalDiscoveryConfig,
     batch_size: int,
+    m7_null_provenance: M7NullProvenance | None = None,
 ) -> tuple[tuple[CalibrationInputFileReceipt, ...], int]:
     if not raw_evidence_paths:
         raise DiskCalibrationError("disk calibration requires raw-evidence inputs")
@@ -557,7 +559,7 @@ def _ingest_raw_evidence(
         key=lambda item: (item.candidate_pair_id,),
     ):
         _registration_for_raw(row, registrations)
-        _validate_m7_trace(row, config)
+        _validate_m7_trace(row, config, m7_null_provenance)
         expected_pair_id = candidate_pair_id(row.passage_a_id, row.passage_b_id)
         if row.candidate_pair_id != expected_pair_id:
             raise DiskCalibrationError(
@@ -929,6 +931,7 @@ def _calibrate_detector_strata(
     config: FinalDiscoveryConfig,
     iterations: int,
     batch_size: int,
+    m7_null_provenance: M7NullProvenance | None = None,
 ) -> dict[str, dict[str, object]]:
     registrations = {item.detector_id: item for item in config.detectors}
     provenance: dict[str, dict[str, object]] = {}
@@ -993,7 +996,11 @@ def _calibrate_detector_strata(
         source_null_validation = "not_applicable"
         if detector_id == "m7_lexical_rrf":
             source_null_families = _M7_SOURCE_NULL_FAMILIES
-            source_null_validation = "authenticated_m7_both_null_families_present_trace"
+            source_null_validation = (
+                "authenticated_m7_source_null_provenance"
+                if m7_null_provenance is not None
+                else "authenticated_m7_both_null_families_present_trace"
+            )
         provenance[detector_id] = {
             "detector_id": detector_id,
             "registered_null_family": registration.null_family,
@@ -1006,6 +1013,10 @@ def _calibrate_detector_strata(
             "source_null_families": source_null_families,
             "source_null_validation": source_null_validation,
         }
+        if detector_id == "m7_lexical_rrf" and m7_null_provenance is not None:
+            provenance[detector_id]["source_null_provenance_sha256"] = (
+                m7_null_provenance.provenance_sha256
+            )
     missing_normalization = _first_row(
         connection,
         """
@@ -1673,6 +1684,7 @@ def _run_in_staging(
     threads: int,
     batch_size: int,
     spill_directory: Path,
+    m7_null_provenance: M7NullProvenance | None = None,
 ) -> DiskDetectorCalibrationReceipt:
     with duckdb.connect(str(database_path)) as connection:
         connection.execute(f"SET memory_limit='{memory_limit_bytes}B'")
@@ -1688,6 +1700,7 @@ def _run_in_staging(
                 raw_evidence_paths,
                 config=config,
                 batch_size=batch_size,
+                m7_null_provenance=m7_null_provenance,
             )
             strata_count = _ingest_pair_strata(
                 connection,
@@ -1712,6 +1725,7 @@ def _run_in_staging(
                 config=config,
                 iterations=iterations,
                 batch_size=batch_size,
+                m7_null_provenance=m7_null_provenance,
             )
         except BaseException:
             connection.execute("ROLLBACK")
@@ -1835,6 +1849,7 @@ def calibrate_detector_evidence_disk_backed(
     temp_directory: Path,
     threads: int = 1,
     batch_size: int = 65_536,
+    m7_null_provenance: M7NullProvenance | None = None,
 ) -> DiskDetectorCalibrationResult:
     """Calibrate canonical raw-evidence streams in one atomic output bundle.
 
@@ -1881,6 +1896,7 @@ def calibrate_detector_evidence_disk_backed(
             threads=threads,
             batch_size=batch_size,
             spill_directory=spill_directory,
+            m7_null_provenance=m7_null_provenance,
         )
         if output_directory.exists():
             raise DiskCalibrationError(
@@ -1914,6 +1930,7 @@ def project_anomaly_pair_scores_disk_backed(
     temp_directory: Path,
     threads: int = 1,
     batch_size: int = 65_536,
+    m7_null_provenance: M7NullProvenance | None = None,
 ) -> AnomalyPairProjectionResult:
     """Project exact Stage 3--5 detector percentiles and pair-family maxima.
 
@@ -1959,6 +1976,7 @@ def project_anomaly_pair_scores_disk_backed(
                     raw_evidence_paths,
                     config=config,
                     batch_size=batch_size,
+                    m7_null_provenance=m7_null_provenance,
                 )
             except BaseException:
                 connection.execute("ROLLBACK")

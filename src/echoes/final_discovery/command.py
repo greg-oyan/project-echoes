@@ -44,6 +44,7 @@ from echoes.final_discovery.passages import PassageParquetSources, PassageProjec
 from echoes.final_discovery.pipeline import (
     CampaignRequest,
     InputFileAnchor,
+    _authenticate_source_m7_nulls,
     assert_production_authorized,
 )
 from echoes.final_discovery.semantic import load_offline_sentence_encoder
@@ -709,10 +710,17 @@ def _validate_completed_production_campaign(
     candidates_path: Path,
     full_null_path: Path,
     ablated_null_path: Path,
+    stage_one_root: Path,
 ) -> FinalDiscoveryValidationReport:
     input_paths = (evidence_path, candidates_path, full_null_path, ablated_null_path)
     output_directory = work_directory / _INDEPENDENT_VALIDATION_DIRECTORY_NAME
     if not output_directory.exists():
+        m7_input = next(item for item in config.inputs if item.role == "canonical_m7")
+        if m7_input.expected_manifest_sha256 is None:
+            raise FinalDiscoveryCommandError("canonical M7 input has no pinned manifest")
+        m7_null_provenance = _authenticate_source_m7_nulls(
+            stage_one_root, m7_input.expected_manifest_sha256, work_directory
+        )
         validate_final_discovery_disk_backed(
             evidence_path,
             candidates_path,
@@ -722,6 +730,7 @@ def _validate_completed_production_campaign(
             passages=passages,
             knownness=iter_jsonl(knownness_path, KnownRelationship),
             config=config,
+            m7_null_provenance=m7_null_provenance,
             memory_limit_bytes=_PRODUCTION_VALIDATION_MEMORY_LIMIT_BYTES,
             temp_directory=(work_directory / _INDEPENDENT_VALIDATION_WORK_DIRECTORY_NAME),
             stage_store=store,
@@ -794,6 +803,7 @@ def validate_completed_campaign(
             candidates_path=candidates_path,
             full_null_path=full_null_path,
             ablated_null_path=ablated_null_path,
+            stage_one_root=stage_one,
         )
     evidence = read_jsonl(evidence_path, EvidenceRow)
     candidates = read_jsonl(candidates_path, FinalCandidate)

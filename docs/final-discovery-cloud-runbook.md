@@ -95,7 +95,23 @@ GiB); adding the 17.149-GiB canonical M7 input gives 139,838,254,692 bytes
 above the 80-GiB floor. The modeled minimum initial free space including that
 floor is 225,737,600,612 bytes (210.235 GiB). This estimate excludes source
 text and model downloads by design and is not permission to reduce the launch
-or checkpoint disk gates.
+or checkpoint disk gates. The exact authenticated successor exception below
+is a separately recorded recovery decision under ADR 0023.
+
+For `/srv/project-echoes/final-discovery/work-20260922-m7-null-recovery`
+only, the launcher first authenticates all five imported completed stages,
+their original source completion pins and reuse provenance, and the repaired
+code/configuration identity. It then requires 225,737,600,612 bytes free:
+the **entire** 139,838,254,692-byte model above as additional future reserve,
+plus the unchanged 80-GiB floor. No completed-artifact bytes are subtracted
+from that reserve. This is conservative planning, not a measured peak-space
+guarantee. Existing stage-boundary disk checks and all runtime/memory limits
+still apply. The initial 280-GiB requirement remains for every other launch.
+The launch intent records the effective byte requirement and proof basis.
+The one-off importer must additionally precheck exact independent-copy sizes,
+extra provenance and 1 GiB for filesystem overhead before copying anything.
+An actual capacity failure requires stopping with preserved evidence; no
+deletion, instance upgrade or extra storage is implied.
 
 Schema 2 records the measured process peak RSS against the registered
 `MemoryMax=56G` ceiling; the canonical measurement observed 260,739,072 bytes.

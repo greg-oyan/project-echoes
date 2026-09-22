@@ -267,11 +267,6 @@ install -d -m 0700 -o root -g root "$STATE_ROOT" "$STATE_ROOT/launches" "$LOG_RO
 runuser -u "$ECHOES_SERVICE_USER" -- /usr/bin/test -w "$ECHOES_WORK_DIR" ||
     die "service user cannot write the campaign work directory"
 
-available_bytes="$(df -B1 --output=avail "$ECHOES_WORK_DIR" | tail -n 1 | tr -d ' ')"
-[[ "$available_bytes" =~ ^[0-9]+$ ]] || die "could not measure work-filesystem free space"
-(( available_bytes >= 280 * 1024 * 1024 * 1024 )) ||
-    die "work filesystem has less than the required 280 GiB free at launch"
-
 # No billing API or manual dollar input is required. Record unknown charges
 # explicitly; the runtime ceiling is not a claim about the final bill.
 budget_json="$(python3 - <<'PY'
@@ -311,6 +306,26 @@ observed_config_sha256="$(sha256sum "$config_path" | awk '{print $1}')"
 [[ "$observed_config_sha256" == "$CONFIG_FILE_SHA256" ]] ||
     die "final-discovery-v1 YAML bytes differ from the frozen SHA-256"
 uv_lock_sha256="$(sha256sum "$ECHOES_REPO_ROOT/uv.lock" | awk '{print $1}')"
+
+# All ordinary work paths retain the fresh-run 280 GiB requirement. Only the
+# exact recovery successor can use the full modeled campaign allocation PLUS
+# the untouched 80 GiB floor, after reauthenticating its five imported stages.
+required_launch_free_bytes=$((280 * 1024 * 1024 * 1024))
+launch_capacity_json='{"basis":"fresh_run_280_gib","required_launch_free_bytes":300647710720}'
+if [[ "$ECHOES_WORK_DIR" == /srv/project-echoes/final-discovery/work-20260922-m7-null-recovery ]]; then
+    launch_capacity_json="$(runuser -u "$ECHOES_SERVICE_USER" -- env HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
+        sh -c 'cd -- "$1" && exec "$2" run --frozen --no-sync python cloud/final_discovery_resume_disk.py --project-root "$1" --work-directory "$3" --expected-commit "$4" --prepared-passages "$5" --knownness "$6" --offline-model-root "$7"' \
+        sh "$ECHOES_REPO_ROOT" "$ECHOES_UV_BIN" "$ECHOES_WORK_DIR" "$observed_commit" \
+        "$ECHOES_PREPARED_PASSAGES" "$ECHOES_KNOWNNESS_PATH" "$ECHOES_MODEL_ROOT")" ||
+        die "recovery launch capacity lacks authenticated five-stage import proof"
+    required_launch_free_bytes="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["required_launch_free_bytes"])' "$launch_capacity_json")" ||
+        die "recovery launch capacity proof is malformed"
+    [[ "$required_launch_free_bytes" == 225737600612 ]] || die "recovery launch capacity requirement differs"
+fi
+available_bytes="$(df -B1 --output=avail "$ECHOES_WORK_DIR" | tail -n 1 | tr -d ' ')"
+[[ "$available_bytes" =~ ^[0-9]+$ ]] || die "could not measure work-filesystem free space"
+(( available_bytes >= required_launch_free_bytes )) ||
+    die "work filesystem has less than the authenticated launch requirement ($required_launch_free_bytes bytes)"
 
 # Validate configuration and the exact offline model allowlist before stage 1
 # can spend time materializing the archived M7 tree. Offline flags prevent an
@@ -480,7 +495,7 @@ python3 - "$intent_path" "$launch_id" "$observed_commit" "$git_tree" \
     "$git_archive_sha256" "$observed_config_sha256" "$CONFIG_SEMANTIC_SHA256" \
     "$uv_lock_sha256" "$model_runtime_json" "$output_namespace_json" \
     "$available_bytes" "$budget_json" "$stdout_log" "$stderr_log" \
-    "$RECOVERY_WINDOW_FILE" "$remaining_runtime_seconds" <<'PY'
+    "$RECOVERY_WINDOW_FILE" "$remaining_runtime_seconds" "$launch_capacity_json" <<'PY'
 from __future__ import annotations
 
 import json
@@ -506,6 +521,7 @@ from pathlib import Path
     stderr_log,
     recovery_window_file,
     remaining_runtime_seconds,
+    launch_capacity_json,
 ) = sys.argv[1:]
 
 safe_names = (
@@ -595,7 +611,9 @@ payload = {
         "process_memory_ceiling_gib": 56,
         "duckdb_ceiling_gib": 40,
         "m7_projection_internal_bound": "1 GiB and one thread",
-        "initial_free_disk_gib": 280,
+        "fresh_run_initial_free_disk_gib": 280,
+        "required_launch_free_bytes": json.loads(launch_capacity_json)["required_launch_free_bytes"],
+        "launch_capacity": json.loads(launch_capacity_json),
         "checkpoint_disk_floor_gib": 80,
         "runtime_max_hours": 96,
         "available_bytes_at_launch": int(available_bytes),

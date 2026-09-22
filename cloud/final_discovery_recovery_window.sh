@@ -23,6 +23,7 @@ EXPIRY_NAME = 'echoes-final-discovery-expiry.service'
 POWER_OFF_NAME = 'echoes-final-discovery-poweroff.service'
 REPO = Path('/srv/project-echoes/repo')
 WORK = '/srv/project-echoes/final-discovery/work-20260909T040447Z-e265b59c'
+SUCCESSOR_WORK = '/srv/project-echoes/final-discovery/work-20260922-m7-null-recovery'
 INSTANCE = '2ade35f2-3c65-474f-9ec3-71cd5c9a4ffe'
 SECONDS = 96 * 3600
 
@@ -72,11 +73,15 @@ def record_for(start, work):
 
 
 def read_record(work=WORK):
+    require(work in (WORK, SUCCESSOR_WORK),
+            'recovery work directory differs from the authorized campaign')
     safe_directory(STATE)
     content = owned_file(LEDGER, 0o444)
     value = json.loads(content)
     require(isinstance(value, dict) and 'started_at' in value, 'invalid recovery ledger')
-    expected = record_for(value['started_at'], work)
+    # A repaired-code successor inherits the original ledger; it cannot create
+    # or reset a window. Installation remains restricted to the original WORK.
+    expected = record_for(value['started_at'], WORK)
     require(value == expected and content == canonical(expected), 'recovery ledger binding differs')
     return value
 

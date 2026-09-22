@@ -37,7 +37,8 @@ def test_launcher_has_exact_detached_resource_and_scientific_contract() -> None:
     assert "--setenv=NVIDIA_VISIBLE_DEVICES=void" in script
     assert 'chmod 0400 "$stdout_log" "$stderr_log"' in script
     assert "ECHOES_FINAL_DISCOVERY_DISK_FLOOR_GIB 80" in script
-    assert "available_bytes >= 280 * 1024 * 1024 * 1024" in script
+    assert "required_launch_free_bytes=$((280 * 1024 * 1024 * 1024))" in script
+    assert "available_bytes >= required_launch_free_bytes" in script
     assert '"billing_status": "unknown"' in script
     assert '"dollar_cap_enforced": False' in script
     assert "require_exact ECHOES_AUTHORIZE_PRODUCTION final-discovery-v1" in script
@@ -165,7 +166,7 @@ def test_environment_template_requires_exact_identity_resources_and_secrets() ->
 def test_runbook_has_recovery_launch_status_validation_and_preservation_gates() -> None:
     runbook = _text(RUNBOOK)
 
-    assert "sudo bash /srv/project-echoes/repo/cloud/launch_final_discovery.sh" in runbook
+    assert "sudo bash /srv/project-echoes/repo/cloud/launch_final_discovery_scaleway.sh" in runbook
     assert "sudo bash /srv/project-echoes/repo/cloud/final_discovery_status.sh" in runbook
     assert "sudo bash /srv/project-echoes/repo/cloud/verify_final_discovery_cleanup.sh" in runbook
     assert "echoes validate-final-discovery --all --work-dir" in runbook
