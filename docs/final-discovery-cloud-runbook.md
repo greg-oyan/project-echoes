@@ -1,5 +1,26 @@
 # `final-discovery-v1` recovery cloud runbook
 
+The 2026-09-23 Stage 7 memory repair is governed by
+[ADR 0024](decisions/0024-bounded-calibration-evidence-hydration.md).
+Prepare it locally while the owner keeps the instance off. Its exact successor
+`/srv/project-echoes/final-discovery/work-20260923-calibration-memory` imports
+the six pinned completed stages from the September 22 successor, using immutable
+payload hardlinks and independent new completion/provenance records. Reverify
+source contents after import; do not rewrite or chmod/chown linked payloads.
+Use a fresh B2 prefix and resume Stage 7. Preserve all failed attempts.
+
+After authenticating all six source/current completions and their exact reviewed
+code compatibility, this successor requires 162,204,221,220 free bytes: the
+76,304,875,300-byte remaining persistent-artifact model plus the unchanged
+80-GiB floor. Pre-import preparation also reserves provenance and 1 GiB for
+metadata. The estimate excludes future scratch/review overhead and is not a
+peak guarantee. Hardlinked checkpoint/package payloads do not duplicate storage.
+All other capacity cases retain their existing requirements. Keep DuckDB at
+4 GiB/one thread, service ceilings, sole-worker checks and fixed expiry
+`2026-09-25T02:46:42Z`. A new work directory does not grant a new runtime window.
+The previous Stage 6 passed real-data source authentication; the new Stage 7
+repair must still pass production before final results can be claimed.
+
 Status: existing campaign recovery authorized on 2026-09-20; recovery changes
 are being prepared locally with the instance powered off.
 

@@ -308,19 +308,24 @@ observed_config_sha256="$(sha256sum "$config_path" | awk '{print $1}')"
 uv_lock_sha256="$(sha256sum "$ECHOES_REPO_ROOT/uv.lock" | awk '{print $1}')"
 
 # All ordinary work paths retain the fresh-run 280 GiB requirement. Only the
-# exact recovery successor can use the full modeled campaign allocation PLUS
-# the untouched 80 GiB floor, after reauthenticating its five imported stages.
+# exact recovery successors can use their reviewed remaining allocation PLUS
+# the untouched 80 GiB floor, after reauthenticating all imported stages.
 required_launch_free_bytes=$((280 * 1024 * 1024 * 1024))
 launch_capacity_json='{"basis":"fresh_run_280_gib","required_launch_free_bytes":300647710720}'
-if [[ "$ECHOES_WORK_DIR" == /srv/project-echoes/final-discovery/work-20260922-m7-null-recovery ]]; then
+if [[ "$ECHOES_WORK_DIR" == /srv/project-echoes/final-discovery/work-20260922-m7-null-recovery || \
+      "$ECHOES_WORK_DIR" == /srv/project-echoes/final-discovery/work-20260923-calibration-memory ]]; then
     launch_capacity_json="$(runuser -u "$ECHOES_SERVICE_USER" -- env HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
         sh -c 'cd -- "$1" && exec "$2" run --frozen --no-sync python cloud/final_discovery_resume_disk.py --project-root "$1" --work-directory "$3" --expected-commit "$4" --prepared-passages "$5" --knownness "$6" --offline-model-root "$7"' \
         sh "$ECHOES_REPO_ROOT" "$ECHOES_UV_BIN" "$ECHOES_WORK_DIR" "$observed_commit" \
         "$ECHOES_PREPARED_PASSAGES" "$ECHOES_KNOWNNESS_PATH" "$ECHOES_MODEL_ROOT")" ||
-        die "recovery launch capacity lacks authenticated five-stage import proof"
+        die "recovery launch capacity lacks authenticated imported-stage proof"
     required_launch_free_bytes="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["required_launch_free_bytes"])' "$launch_capacity_json")" ||
         die "recovery launch capacity proof is malformed"
-    [[ "$required_launch_free_bytes" == 225737600612 ]] || die "recovery launch capacity requirement differs"
+    if [[ "$ECHOES_WORK_DIR" == /srv/project-echoes/final-discovery/work-20260923-calibration-memory ]]; then
+        [[ "$required_launch_free_bytes" == 162204221220 ]] || die "six-stage recovery launch capacity requirement differs"
+    else
+        [[ "$required_launch_free_bytes" == 225737600612 ]] || die "five-stage recovery launch capacity requirement differs"
+    fi
 fi
 available_bytes="$(df -B1 --output=avail "$ECHOES_WORK_DIR" | tail -n 1 | tr -d ' ')"
 [[ "$available_bytes" =~ ^[0-9]+$ ]] || die "could not measure work-filesystem free space"

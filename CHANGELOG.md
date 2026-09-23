@@ -6,6 +6,14 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 ### Changed
 
+- Repair final-discovery Stage 7 evidence export by separating narrow calibration
+  joins from bounded hydration of full evidence records (ADR 0024). Preserve
+  scientific outputs, ordering, thresholds and the 4-GiB DuckDB limit. Prepare
+  authenticated reuse of all six completed stages with immutable payload
+  hardlinks, independent completion/provenance records and a fresh namespace.
+  Retain prior failures, the original recovery deadline and the 80-GiB floor.
+  This repair is locally prepared; production completion remains unverified.
+
 - Correct final-discovery's interpretation of the canonical M7 no-qualified-
   threshold sentinel (ADR 0023). Independently authenticate retained source
   null execution and exact candidate outcomes, preserve false/infinity values,

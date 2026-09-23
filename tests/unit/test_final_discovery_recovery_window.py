@@ -195,14 +195,16 @@ def test_timer_and_service_delegate_to_existing_poweroff_without_a_supervisor(
     assert "sleep(" not in script
 
 
+@pytest.mark.parametrize("successor_name", ["SUCCESSOR_WORK", "CALIBRATION_WORK"])
 def test_repaired_successor_inherits_original_deadline_without_rewriting_ledger(
     window: SimpleNamespace,
+    successor_name: str,
 ) -> None:
     first = window.api["install"](window.start, window.work)
     ledger = window.api["LEDGER"]
     content = ledger.read_bytes()
     modified = ledger.stat().st_mtime_ns
-    successor = window.api["SUCCESSOR_WORK"]
+    successor = window.api[successor_name]
     window.clock[0] += timedelta(hours=24)
     assert window.api["remaining"](successor) == first["remaining_seconds"] - 24 * 3600
     assert ledger.read_bytes() == content

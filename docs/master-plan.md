@@ -3061,6 +3061,17 @@ The consolidated campaign has these binding additions:
 
 ### Current final-discovery recovery
 
+ADR 0024 repairs a locally reproduced Stage 7 evidence-export memory failure
+by separating narrow calibration joins from bounded evidence hydration. Frozen
+science, the 4-GiB DuckDB limit and validation remain unchanged. The exact
+six-stage successor may reuse authenticated completed payloads through the
+existing immutable hardlink contract, retaining original provenance and fresh
+ordinary completion records. Its reviewed remaining-artifact reserve plus the
+unchanged 80-GiB floor is 162,204,221,220 bytes after import. Original payload
+bytes remain unchanged; hardlink creation changes link count/change time only.
+The fixed deadline below remains binding. See ADR 0024 for identity, capacity
+and failure-preservation requirements.
+
 ADR 0023 corrects the Stage 6 source-null authentication mismatch: canonical
 M7's false/no-qualified-threshold sentinel remains unchanged, while retained
 null runs and candidate outcomes are authenticated independently. Production
@@ -3071,7 +3082,8 @@ original fixed recovery deadline below applies unchanged to the successor.
 Its narrowly authenticated disk gate reserves the full original modeled
 artifact budget as additional future free space plus the unchanged 80-GiB
 checkpoint floor (225,737,600,612 bytes total), as specified in ADR 0023.
-All other launches retain the 280-GiB initial-space gate. No new resources or
+Except for ADR 0024's six-stage successor, other launches retain the 280-GiB
+initial-space gate. No new resources or
 destructive cleanup are authorized by this recovery exception.
 
 On 2026-09-20 the owner explicitly authorized finishing the existing campaign,
