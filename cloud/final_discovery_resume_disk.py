@@ -26,6 +26,7 @@ from echoes.final_discovery.config import (
     final_discovery_config_sha256,
     load_final_discovery_config,
 )
+from echoes.final_discovery.disk_validation import validation_scratch_reserve_bytes
 from echoes.final_discovery.stages import (
     FINAL_DISCOVERY_STAGE_IDS,
     StageCompletionManifest,
@@ -110,9 +111,35 @@ REVIEW_KNOWN_SOURCE_COMPLETIONS = {
     "structural_narrative_evidence": (
         "16c91689539b39cc66b3891a3b44952cc471f144198c57c577f0e394ee2765d0"
     ),
-    "anomaly_evidence": "c86a74d30c53c7947b2f1fc651626b86cb9f0ca54c2434a4daa84226f15154fa",
+    "anomaly_evidence": ("c86a74d30c53c7947b2f1fc651626b86cb9f0ca54c2434a4daa84226f15154fa"),
     "transparent_final_ensemble": (
         "fcc0e2a4d10d60c423fcdaf5bb743e1ad6ab176331a1f6d9f3fa7a358a33c686"
+    ),
+}
+COMPRESSED_REVIEW_WORK = Path("/srv/project-echoes/final-discovery/work-20260923-review-compressed")
+COMPRESSED_REVIEW_SOURCE_WORK = str(REVIEW_WORK)
+COMPRESSED_REVIEW_SOURCE_COMMIT = "2e551688dc8f2d624d71c65c0381d72f5ebf51dd"
+COMPRESSED_REVIEW_SOURCE_CODE = "e38dac6d403990edf1748331aabe65ad158dca73b5a6f66d15e118aa14c8e784"
+COMPRESSED_REVIEW_PREFIX = "checkpoint-reuse/review-compressed-repair-v1"
+COMPRESSED_REVIEW_KNOWN_SOURCE_COMPLETIONS = {
+    "anomaly_evidence": ("57de4b115116e72d64ce463eae4f1826ecc6bcd034fafeac38beffeffdfeb7fe"),
+    "authenticate_materialize_inputs": (
+        "18975e401a5f38e4a3ffe70a8999a3243d06371c34cc0440f83246485392f355"
+    ),
+    "grammatical_syntactic_evidence": (
+        "bd015a71e9d1d91b22d183271dd0944adf6930792b8dd1af3a813c5bc9ed1a68"
+    ),
+    "semantic_candidate_evidence": (
+        "5d9fea990798a5b4a9068e205a269a6f38a20b8f2c449ca8be68f992c6289363"
+    ),
+    "semantic_representations_indexes": (
+        "3765f0301408715d9e3edb857f4f6b8ff20627354734c4b34617e0e4524aaddf"
+    ),
+    "structural_narrative_evidence": (
+        "7c3b6c8b3bc91751e70a437bc8e97085475cad64ebaceb9eff8119f0b9f46958"
+    ),
+    "transparent_final_ensemble": (
+        "0c71f7cf369ba87e0adbfa4e7bb9584d2f3d5131af0341a9c421d50d4187be57"
     ),
 }
 REVIEW_INDEX_ALLOWANCE_BYTES = 358_384_436
@@ -128,18 +155,20 @@ def _digest(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
-def _review_source_pins(proof_root: Path) -> dict[str, str]:
+def _review_source_pins(
+    proof_root: Path, known_pins: dict[str, str], source_commit: str, source_code: str
+) -> dict[str, str]:
     """Derive Stage 7 only through the independently pinned Stage 8 receipt."""
     content = (proof_root / "transparent_final_ensemble.source-completion.json").read_bytes()
     _require(
-        _digest(content) == REVIEW_KNOWN_SOURCE_COMPLETIONS["transparent_final_ensemble"],
+        _digest(content) == known_pins["transparent_final_ensemble"],
         "review source Stage 8 completion pin differs",
     )
     original = StageCompletionManifest.model_validate_json(content)
     _require(
         original.stage_id == "transparent_final_ensemble"
-        and original.code_commit == REVIEW_SOURCE_COMMIT
-        and original.code_sha256 == REVIEW_SOURCE_CODE
+        and original.code_commit == source_commit
+        and original.code_sha256 == source_code
         and original.config_sha256 == CONFIG_HASH,
         "review source Stage 8 identity differs",
     )
@@ -149,14 +178,13 @@ def _review_source_pins(proof_root: Path) -> dict[str, str]:
     )
     _require(
         all(
-            original.dependency_completion_sha256[stage_id]
-            == REVIEW_KNOWN_SOURCE_COMPLETIONS[stage_id]
+            original.dependency_completion_sha256[stage_id] == known_pins[stage_id]
             for stage_id in FINAL_DISCOVERY_STAGE_IDS[2:6]
         ),
         "review source Stage 8 upstream pins differ",
     )
     resolved = {
-        **REVIEW_KNOWN_SOURCE_COMPLETIONS,
+        **known_pins,
         "empirical_null_controls": original.dependency_completion_sha256["empirical_null_controls"],
     }
     return {stage_id: resolved[stage_id] for stage_id in FINAL_DISCOVERY_STAGE_IDS[:8]}
@@ -172,8 +200,9 @@ def launch_capacity(
 ) -> dict[str, Any]:
     """Authenticate successor lineage before returning its conservative reserve."""
     calibration_successor = work_directory == CALIBRATION_WORK
-    review_successor = work_directory == REVIEW_WORK
-    if work_directory not in (RECOVERY_WORK, CALIBRATION_WORK, REVIEW_WORK):
+    compressed_review_successor = work_directory == COMPRESSED_REVIEW_WORK
+    review_successor = work_directory == REVIEW_WORK or compressed_review_successor
+    if work_directory not in (RECOVERY_WORK, CALIBRATION_WORK, REVIEW_WORK, COMPRESSED_REVIEW_WORK):
         return {"basis": "fresh_run_280_gib", "required_launch_free_bytes": FRESH_FREE_BYTES}
     source_commit = CALIBRATION_SOURCE_COMMIT if calibration_successor else SOURCE_COMMIT
     source_code = CALIBRATION_SOURCE_CODE if calibration_successor else SOURCE_CODE
@@ -190,10 +219,16 @@ def launch_capacity(
     )
     copy_mode = "same_filesystem_hardlink" if calibration_successor else "independent_file_copy"
     if review_successor:
-        source_commit = REVIEW_SOURCE_COMMIT
-        source_code = REVIEW_SOURCE_CODE
-        source_work = REVIEW_SOURCE_WORK
-        prefix = REVIEW_PREFIX
+        source_commit = (
+            COMPRESSED_REVIEW_SOURCE_COMMIT if compressed_review_successor else REVIEW_SOURCE_COMMIT
+        )
+        source_code = (
+            COMPRESSED_REVIEW_SOURCE_CODE if compressed_review_successor else REVIEW_SOURCE_CODE
+        )
+        source_work = (
+            COMPRESSED_REVIEW_SOURCE_WORK if compressed_review_successor else REVIEW_SOURCE_WORK
+        )
+        prefix = COMPRESSED_REVIEW_PREFIX if compressed_review_successor else REVIEW_PREFIX
         operation = "authenticated_unchanged_eight_stage_import"
         copy_mode = "same_filesystem_hardlink"
         stage_count = 8
@@ -244,7 +279,14 @@ def launch_capacity(
             expected_code_commit=commit,
             _cache=cache,
         )
-        source_completions = _review_source_pins(recovery._artifact_root(store, last) / prefix)
+        source_completions = _review_source_pins(
+            recovery._artifact_root(store, last) / prefix,
+            COMPRESSED_REVIEW_KNOWN_SOURCE_COMPLETIONS
+            if compressed_review_successor
+            else REVIEW_KNOWN_SOURCE_COMPLETIONS,
+            source_commit,
+            source_code,
+        )
     expected_stage_inputs = (one, two, *({} for _ in range(stage_count - 2)))
     for stage_id, expected_inputs in zip(source_completions, expected_stage_inputs, strict=True):
         manifest = store.authenticate_completion(
@@ -346,6 +388,11 @@ def launch_capacity(
         )
         completion_hashes[stage_id] = sha256_file(store.completion_path(stage_id))
     if review_successor:
+        validator_scratch_allowance_bytes = (
+            validation_scratch_reserve_bytes(candidate_ledger_bytes)
+            if compressed_review_successor
+            else 0
+        )
         return {
             "basis": "authenticated_eight_stage_import_with_measured_review_materialization_gate",
             "required_launch_free_bytes": (
@@ -353,14 +400,34 @@ def launch_capacity(
                 + candidate_ledger_bytes
                 + REVIEW_INDEX_ALLOWANCE_BYTES
                 + REVIEW_METADATA_ALLOWANCE_BYTES
+                + validator_scratch_allowance_bytes
             ),
             "checkpoint_disk_floor_bytes": FLOOR_BYTES,
             "remaining_tier_ledger_upper_bound_bytes": candidate_ledger_bytes,
             "evidence_index_allowance_bytes": REVIEW_INDEX_ALLOWANCE_BYTES,
             "metadata_allowance_bytes": REVIEW_METADATA_ALLOWANCE_BYTES,
+            **(
+                {
+                    "validator_scratch_allowance_bytes": validator_scratch_allowance_bytes,
+                    "validator_scratch_allowance_basis": (
+                        "max_20_gib_or_6_candidate_ledger_bytes_plus_8_gib"
+                    ),
+                    "validator_scratch_allowance_is_peak_guarantee": False,
+                }
+                if compressed_review_successor
+                else {}
+            ),
             "review_materialization_gate_required": True,
             "review_materialization_gate_basis": (
-                "measured_parquet_then_exact_csv_bytes_plus_tier_ledgers_plus_80_gib_and_metadata"
+                (
+                    "measured_parquet_then_exact_deterministic_gzip_csv_bytes_plus_tier_ledgers_"
+                    "validator_scratch_80_gib_and_metadata"
+                )
+                if compressed_review_successor
+                else (
+                    "measured_parquet_then_exact_csv_bytes_plus_tier_ledgers_"
+                    "plus_80_gib_and_metadata"
+                )
             ),
             "projection_is_not_a_peak_guarantee": True,
             "unmodeled_peak_components": ["compressed_review_spools", "strict_validation_scratch"],

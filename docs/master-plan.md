@@ -3061,6 +3061,17 @@ The consolidated campaign has these binding additions:
 
 ### Current final-discovery recovery
 
+ADR 0026 remedies the measured Stage 9 CSV capacity refusal by storing the
+complete production CSV as deterministic lossless `review.csv.gz`. Its
+decompressed bytes and canonical logical digests remain unchanged. Measure the
+exact compressed allocation and reserve remaining tier outputs, validation
+scratch and the unchanged 80-GiB floor before materialization. Strict
+validation uses typed bounded bulk inserts and phase-boundary space checks;
+all scientific and integrity checks remain mandatory. The exact compressed
+eight-stage successor retains original provenance and resumes at Stage 9.
+Stage 11 retains authenticated object-tree upload and hardlink staging.
+Neither local validation nor successful startup establishes final completion.
+
 ADR 0025 repairs Stage 9's excessive temporary review-export duplication after
 Stages 1-8 completed. Compressed canonical partitions and bounded Parquet-first
 output preserve every review record and exact CSV/logical digest. A measured
@@ -3092,7 +3103,7 @@ original fixed recovery deadline below applies unchanged to the successor.
 Its narrowly authenticated disk gate reserves the full original modeled
 artifact budget as additional future free space plus the unchanged 80-GiB
 checkpoint floor (225,737,600,612 bytes total), as specified in ADR 0023.
-Except for ADR 0024's six-stage and ADR 0025's eight-stage successors,
+Except for ADR 0024's six-stage and ADR 0025/0026's eight-stage successors,
 other launches retain the 280-GiB
 initial-space gate. No new resources or
 destructive cleanup are authorized by this recovery exception.

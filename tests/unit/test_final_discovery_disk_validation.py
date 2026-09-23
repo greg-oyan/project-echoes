@@ -6,9 +6,12 @@ import hashlib
 import random
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 
+import duckdb
 import pytest
 
+from echoes.final_discovery import disk_validation, stages
 from echoes.final_discovery.config import load_final_discovery_config
 from echoes.final_discovery.disk_validation import (
     DiskFinalDiscoveryValidationError,
@@ -298,6 +301,172 @@ def _disk_validate(
 
 def _codes(report: FinalDiscoveryValidationReport) -> set[str]:
     return {finding.code for finding in report.findings}
+
+
+def test_validation_batches_preserve_exact_values_and_all_null_rank(tmp_path: Path) -> None:
+    expected = [
+        (0, "pair-a", 0.12345678901234567, False, None, '{"text":"\u03b1\\n\u05d0"}'),
+        (1, "pair-b", 1.0, True, None, '{"text":"quote\\""}'),
+        (2, "pair-c", 0.0, False, 100, '{"text":"retained"}'),
+    ]
+    with duckdb.connect(str(tmp_path / "typed-batches.duckdb")) as connection:
+        disk_validation._create_tables(connection)
+        first_batch = list(expected[:2])
+        disk_validation._flush_batch(connection, "candidates", first_batch)
+        assert first_batch == []
+        disk_validation._flush_batch(connection, "candidates", [expected[2]])
+        assert connection.execute("SELECT * FROM candidates ORDER BY row_index").fetchall() == (
+            expected
+        )
+        with pytest.raises(duckdb.CatalogException):
+            connection.execute("SELECT * FROM echoes_validation_candidates_batch")
+
+
+def test_validation_batch_failure_is_atomic_and_retains_rows(tmp_path: Path) -> None:
+    rows = [(0, "pair-a", 0.5, False, None, "{}"), (1, None, 0.5, False, None, "{}")]
+    with duckdb.connect(str(tmp_path / "failed-batch.duckdb")) as connection:
+        disk_validation._create_tables(connection)
+        with pytest.raises(duckdb.ConstraintException):
+            disk_validation._flush_batch(connection, "candidates", rows)
+        assert len(rows) == 2
+        assert connection.execute("SELECT count(*) FROM candidates").fetchone() == (0,)
+        with pytest.raises(duckdb.CatalogException):
+            connection.execute("SELECT * FROM echoes_validation_candidates_batch")
+
+
+def test_wide_validation_payloads_are_hydrated_in_bounded_key_ranges(tmp_path: Path) -> None:
+    size = 6 * 1024**2
+    expected = [(key, key * size) for key in "abcd"]
+    with duckdb.connect(str(tmp_path / "wide-payloads.duckdb")) as connection:
+        connection.execute("SET memory_limit='256MiB'")
+        connection.execute("CREATE TABLE payloads (pair_id VARCHAR, payload VARCHAR)")
+        for row in expected:
+            connection.execute("INSERT INTO payloads VALUES (?,?)", row)
+        batches = list(
+            disk_validation._bounded_payload_batches(
+                connection,
+                key_query="SELECT pair_id,length(payload),1 FROM payloads ORDER BY pair_id",
+                payload_query=(
+                    "SELECT pair_id,payload FROM payloads "
+                    "WHERE pair_id BETWEEN ? AND ? ORDER BY pair_id"
+                ),
+                batch_size=4096,
+            )
+        )
+    assert [row for batch in batches for row in batch] == expected
+    assert [len(batch) for batch in batches] == [2, 2]
+    assert all(sum(len(row[1]) for row in batch) <= 16 * 1024**2 for batch in batches)
+
+
+def test_validation_scratch_reserve_accounts_for_large_candidate_ledgers() -> None:
+    assert disk_validation.validation_scratch_reserve_bytes(0) == 20 * 1024**3
+    assert disk_validation.validation_scratch_reserve_bytes(3_422_679_888) == 29_126_013_920
+    with pytest.raises(ValueError, match="nonnegative"):
+        disk_validation.validation_scratch_reserve_bytes(-1)
+
+
+def test_bounded_payload_ranges_preserve_duplicate_key_multiplicity(tmp_path: Path) -> None:
+    with duckdb.connect(str(tmp_path / "duplicate-payloads.duckdb")) as connection:
+        connection.execute(
+            "CREATE TABLE payloads AS "
+            "SELECT * FROM (VALUES ('a','first'),('a','second'),('b','third')) t(pair_id,payload)"
+        )
+        batches = disk_validation._bounded_payload_batches(
+            connection,
+            key_query=(
+                "SELECT pair_id,sum(length(payload)),count(*) FROM payloads "
+                "GROUP BY pair_id ORDER BY pair_id"
+            ),
+            payload_query=(
+                "SELECT pair_id,payload FROM payloads "
+                "WHERE pair_id BETWEEN ? AND ? ORDER BY pair_id,payload"
+            ),
+            batch_size=1,
+        )
+        assert [row for batch in batches for row in batch] == [
+            ("a", "first"),
+            ("a", "second"),
+            ("b", "third"),
+        ]
+
+
+def test_partial_stage_validation_hashes_once_per_call_and_rejects_later_corruption(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = stages.StageStore(tmp_path / "stages")
+    artifact_paths: list[Path] = []
+
+    def producer(root: Path) -> None:
+        (root / "proof.txt").write_text("authenticated\n", encoding="ascii")
+
+    for stage_id in stages.FINAL_DISCOVERY_STAGE_IDS[:9]:
+        result = store.run_stage(
+            stage_id,
+            input_hashes={"source": "a" * 64},
+            config_sha256="b" * 64,
+            code_sha256="c" * 64,
+            code_commit="d" * 40,
+            producer=producer,
+        )
+        artifact_paths.append(
+            store.completion_path(stage_id).parent / result.manifest.artifacts_root / "proof.txt"
+        )
+    inventoried: list[Path] = []
+    original_inventory = stages._inventory_stage_artifacts
+
+    def inventory(root: Path) -> tuple[stages.StageArtifact, ...]:
+        inventoried.append(root)
+        return original_inventory(root)
+
+    monkeypatch.setattr(stages, "_inventory_stage_artifacts", inventory)
+    collector = disk_validation._FindingCollector(limit=10, findings=[])
+    assert disk_validation._authenticate_stages(store, 9, collector) == 9
+    assert len(inventoried) == len(set(inventoried)) == 9
+    assert collector.total_count == 0
+
+    # A cache is scoped to one validation call and cannot hide a later change.
+    artifact_paths[0].write_text("changed\n", encoding="ascii")
+    assert disk_validation._authenticate_stages(store, 9, collector) == 0
+    assert "stage-count" in {finding.code for finding in collector.findings}
+
+
+def test_validation_stops_after_phase_if_remaining_space_floor_is_breached(
+    tmp_path: Path,
+    fixture: _Fixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = _write_paths(tmp_path / "inputs", fixture)
+    free_bytes = iter((1024**3, 1024**3, 1))
+    monkeypatch.setattr(
+        disk_validation.shutil,
+        "disk_usage",
+        lambda path: SimpleNamespace(free=next(free_bytes)),
+    )
+
+    def forbidden_candidate_ingestion(*args: object, **kwargs: object) -> None:
+        pytest.fail("candidate ingestion began after the storage floor was breached")
+
+    monkeypatch.setattr(disk_validation, "_ingest_candidates", forbidden_candidate_ingestion)
+    output = tmp_path / "validated"
+    with pytest.raises(DiskFinalDiscoveryValidationError, match="remaining free-space floor"):
+        validate_final_discovery_disk_backed(
+            paths.evidence,
+            paths.candidates,
+            paths.full_null,
+            paths.ablated_null,
+            output,
+            passages=fixture.passages,
+            knownness=KnownnessIndex(()),
+            config=CONFIG,
+            memory_limit_bytes=MEMORY_LIMIT,
+            temp_directory=tmp_path / "spill",
+            minimum_temp_free_bytes=256 * 1024**2,
+            minimum_remaining_free_bytes=256 * 1024**2,
+            batch_size=17,
+        )
+    assert not output.exists()
+    assert list((tmp_path / "spill").glob("*.duckdb*"))
+    assert list(tmp_path.glob(".validated.*.tmp"))
 
 
 def test_disk_validator_exactly_matches_valid_oracle_and_receipts(

@@ -1,5 +1,22 @@
 # `final-discovery-v1` recovery cloud runbook
 
+The current recovery is governed by
+[ADR 0026](decisions/0026-compress-review-csv-and-bound-final-validation.md).
+The plain CSV allocation exceeded available capacity by 13.97 GiB. Production
+now emits deterministic `review.csv.gz` whose decompression reproduces the
+complete exact CSV, together with Parquet. Stage 9 measures full compressed
+size and reserves tier outputs, validation scratch and the 80-GiB floor.
+The new exact successor `work-20260923-review-compressed` reuses eight
+authenticated stages from `work-20260923-review-disk` with fresh provenance and
+B2 prefix. Strict validation uses bounded bulk inserts and phase-boundary
+capacity checks. Stages 10 and post-11 validation run sequentially; packaging
+and checkpoints use same-filesystem hardlinks. Full remote verification and
+all final receipts remain mandatory. Long setup/import runs detached; use its
+one-shot status command and never launch a duplicate worker. The original
+`2026-09-25T02:46:42Z` deadline and preservation rules remain unchanged.
+
+The earlier ADR 0025 path below remains historical provenance.
+
 The current Stage 9 disk repair is governed by
 [ADR 0025](decisions/0025-bound-review-export-disk.md). Stages 1-8 completed;
 Stage 9 failed with ENOSPC. Prepare locally before restarting. The successor

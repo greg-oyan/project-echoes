@@ -316,7 +316,8 @@ required_launch_free_bytes=$((280 * 1024 * 1024 * 1024))
 launch_capacity_json='{"basis":"fresh_run_280_gib","required_launch_free_bytes":300647710720}'
 if [[ "$ECHOES_WORK_DIR" == /srv/project-echoes/final-discovery/work-20260922-m7-null-recovery || \
       "$ECHOES_WORK_DIR" == /srv/project-echoes/final-discovery/work-20260923-calibration-memory || \
-      "$ECHOES_WORK_DIR" == /srv/project-echoes/final-discovery/work-20260923-review-disk ]]; then
+      "$ECHOES_WORK_DIR" == /srv/project-echoes/final-discovery/work-20260923-review-disk || \
+      "$ECHOES_WORK_DIR" == /srv/project-echoes/final-discovery/work-20260923-review-compressed ]]; then
     launch_capacity_json="$(runuser -u "$ECHOES_SERVICE_USER" -- env HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
         sh -c 'cd -- "$1" && exec "$2" run --frozen --no-sync python cloud/final_discovery_resume_disk.py --project-root "$1" --work-directory "$3" --expected-commit "$4" --prepared-passages "$5" --knownness "$6" --offline-model-root "$7"' \
         sh "$ECHOES_REPO_ROOT" "$ECHOES_UV_BIN" "$ECHOES_WORK_DIR" "$observed_commit" \
@@ -324,8 +325,9 @@ if [[ "$ECHOES_WORK_DIR" == /srv/project-echoes/final-discovery/work-20260922-m7
         die "recovery launch capacity lacks authenticated imported-stage proof"
     required_launch_free_bytes="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["required_launch_free_bytes"])' "$launch_capacity_json")" ||
         die "recovery launch capacity proof is malformed"
-    if [[ "$ECHOES_WORK_DIR" == /srv/project-echoes/final-discovery/work-20260923-review-disk ]]; then
-        python3 - "$launch_capacity_json" <<'PY' || die "eight-stage recovery launch capacity requirement differs"
+    if [[ "$ECHOES_WORK_DIR" == /srv/project-echoes/final-discovery/work-20260923-review-disk || \
+      "$ECHOES_WORK_DIR" == /srv/project-echoes/final-discovery/work-20260923-review-compressed ]]; then
+        python3 - "$launch_capacity_json" "$ECHOES_WORK_DIR" <<'PY' || die "eight-stage recovery launch capacity requirement differs"
 import json, sys
 proof = json.loads(sys.argv[1])
 assert proof['basis'] == 'authenticated_eight_stage_import_with_measured_review_materialization_gate'
@@ -335,8 +337,15 @@ assert proof['evidence_index_allowance_bytes'] == 358384436
 assert proof['metadata_allowance_bytes'] == 1024**3
 assert isinstance(proof['remaining_tier_ledger_upper_bound_bytes'], int)
 assert proof['remaining_tier_ledger_upper_bound_bytes'] > 0
+scratch = 0
+if sys.argv[2] == '/srv/project-echoes/final-discovery/work-20260923-review-compressed':
+    scratch = max(20 * 1024**3, 6 * proof['remaining_tier_ledger_upper_bound_bytes'] + 8 * 1024**3)
+    assert proof['validator_scratch_allowance_bytes'] == scratch
+    assert proof['validator_scratch_allowance_is_peak_guarantee'] is False
+    assert proof['validator_scratch_allowance_basis'] == 'max_20_gib_or_6_candidate_ledger_bytes_plus_8_gib'
+    assert proof['review_materialization_gate_basis'] == 'measured_parquet_then_exact_deterministic_gzip_csv_bytes_plus_tier_ledgers_validator_scratch_80_gib_and_metadata'
 assert proof['required_launch_free_bytes'] == (
-    80 * 1024**3 + proof['remaining_tier_ledger_upper_bound_bytes'] + 358384436 + 1024**3)
+    80 * 1024**3 + proof['remaining_tier_ledger_upper_bound_bytes'] + 358384436 + 1024**3 + scratch)
 PY
     elif [[ "$ECHOES_WORK_DIR" == /srv/project-echoes/final-discovery/work-20260923-calibration-memory ]]; then
         [[ "$required_launch_free_bytes" == 162204221220 ]] || die "six-stage recovery launch capacity requirement differs"

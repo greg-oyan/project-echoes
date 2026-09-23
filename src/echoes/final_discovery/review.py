@@ -20,11 +20,11 @@ import sqlite3
 import tempfile
 import uuid
 from collections import Counter
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Buffer, Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import BinaryIO, Final
 
 import polars as pl
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
@@ -1020,6 +1020,7 @@ def _iter_output_j_lines(
     rejection_categories: Mapping[str, int],
     threshold_report: EnsembleNullThresholdReport | None,
     tier_a_dossier_limit: int,
+    csv_filename: str = "review.csv",
 ) -> Iterator[str]:
     selection_count = tier_a_dossier_count + tier_b_dossier_count
     yield from (
@@ -1051,7 +1052,7 @@ def _iter_output_j_lines(
         "independence, original-language, knownness, ablation, and quality gates. Dossiers and "
         f"Output J rows are restricted to its first {tier_a_dossier_limit} candidates in the "
         "authenticated ensemble-score-descending, candidate-ID-ascending order. Tier A candidates "
-        "outside that bound remain in `review.csv`, `review.parquet`, and the Tier A ledger.",
+        f"outside that bound remain in `{csv_filename}`, `review.parquet`, and the Tier A ledger.",
         "",
         "Tier B is the distinct configured top-100 exploratory unknown set after basic "
         "exclusions. Every Tier B row is selected for a dossier; its rank never implies "
@@ -1087,7 +1088,7 @@ def _iter_output_j_lines(
         "",
         f"The complete {review_ledger_count}-row decision ledger, including "
         f"{retained_excluded_count} retained/excluded rows and any Tier A candidates beyond the "
-        "dossier cap, is preserved in `review.csv` and `review.parquet`.",
+        f"dossier cap, is preserved in `{csv_filename}` and `review.parquet`.",
         "",
         "## Human-review dispositions — bounded selection only",
         "",
@@ -1232,6 +1233,79 @@ def _csv_bytes(records: Sequence[ReviewRecord]) -> bytes:
     return stream.getvalue().encode("utf-8")
 
 
+@dataclass(frozen=True, slots=True)
+class _CompressedCsvReceipt:
+    stored_size_bytes: int
+    stored_sha256: str
+    uncompressed_size_bytes: int
+    uncompressed_sha256: str
+
+
+class _HashingSink(io.RawIOBase):
+    """Hash/count writes without retaining payload; optionally forward to a file."""
+
+    def __init__(self, destination: BinaryIO | None = None) -> None:
+        super().__init__()
+        self.destination = destination
+        self.size_bytes = 0
+        self.digest = hashlib.sha256()
+
+    def writable(self) -> bool:
+        return True
+
+    def write(self, buffer: Buffer, /) -> int:
+        data = bytes(buffer)
+        if self.destination is not None and self.destination.write(data) != len(data):
+            raise ReviewOutputError("incomplete compressed review CSV write")
+        self.size_bytes += len(data)
+        self.digest.update(data)
+        return len(data)
+
+
+class _CompressedCsvWriter:
+    """One-record UTF-8 serialization with deterministic, bounded gzip output."""
+
+    def __init__(self, destination: BinaryIO | None = None) -> None:
+        self.sink = _HashingSink(destination)
+        self.compressed = gzip.GzipFile(
+            filename="", fileobj=self.sink, mode="wb", compresslevel=1, mtime=0
+        )
+        self.buffer = io.StringIO(newline="")
+        self.writer = csv.DictWriter(
+            self.buffer, fieldnames=REVIEW_COLUMNS, extrasaction="raise", lineterminator="\n"
+        )
+        self.uncompressed_size_bytes = 0
+        self.uncompressed_digest = hashlib.sha256()
+        self.writer.writeheader()
+        self._drain()
+
+    def _drain(self) -> None:
+        data = self.buffer.getvalue().encode("utf-8")
+        self.uncompressed_size_bytes += len(data)
+        self.uncompressed_digest.update(data)
+        self.compressed.write(data)
+        self.buffer.seek(0)
+        self.buffer.truncate(0)
+
+    def write_row(self, row: Mapping[str, object]) -> None:
+        self.writer.writerow(row)
+        self._drain()
+
+    def close(self) -> None:
+        self.compressed.close()
+        self.buffer.close()
+
+    def receipt(self) -> _CompressedCsvReceipt:
+        if not self.compressed.closed:
+            raise ReviewOutputError("compressed CSV receipt requested before its integrity footer")
+        return _CompressedCsvReceipt(
+            stored_size_bytes=self.sink.size_bytes,
+            stored_sha256=self.sink.digest.hexdigest(),
+            uncompressed_size_bytes=self.uncompressed_size_bytes,
+            uncompressed_sha256=self.uncompressed_digest.hexdigest(),
+        )
+
+
 def _write_parquet_atomically(path: Path, records: Sequence[ReviewRecord]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.writing-{uuid.uuid4().hex}")
@@ -1255,6 +1329,7 @@ def _write_parquet_from_model_partitions_atomically(
     partitions: Sequence[Path],
     *,
     row_group_size: int,
+    csv_measurement: _CompressedCsvWriter | None = None,
 ) -> None:
     """Write Parquet before allocating the CSV, using bounded canonical batches."""
 
@@ -1286,7 +1361,10 @@ def _write_parquet_from_model_partitions_atomically(
                             pending.clear()
                             pending_bytes = 0
                         record = ReviewRecord.model_validate_json(line)
-                        pending.append(record.model_dump(mode="json"))
+                        row = record.model_dump(mode="json")
+                        pending.append(row)
+                        if csv_measurement is not None:
+                            csv_measurement.write_row(row)
                         pending_bytes += len(line)
             if pending:
                 frame = pl.DataFrame(pending, schema=_REVIEW_SCHEMA).select(REVIEW_COLUMNS)
@@ -1338,6 +1416,33 @@ def _write_csv_from_model_partitions(partitions: Sequence[Path], output_path: Pa
             partition.unlink()
         output.flush()
         os.fsync(output.fileno())
+    return digest.hexdigest()
+
+
+def _write_compressed_csv_from_model_partitions(
+    partitions: Sequence[Path], output_path: Path, *, expected: _CompressedCsvReceipt
+) -> str:
+    """Consume private partitions into the exact measured gzip CSV and logical hash."""
+
+    if output_path.exists():
+        raise ReviewOutputError(f"refusing to replace streamed CSV: {output_path}")
+    digest = hashlib.sha256()
+    with output_path.open("xb") as output:
+        writer = _CompressedCsvWriter(output)
+        try:
+            for partition in partitions:
+                with gzip.open(partition, "rb") as source:
+                    for line in source:
+                        record = ReviewRecord.model_validate_json(line)
+                        digest.update(line)
+                        writer.write_row(record.model_dump(mode="json"))
+                partition.unlink()
+        finally:
+            writer.close()
+        output.flush()
+        os.fsync(output.fileno())
+    if writer.receipt() != expected or output_path.stat().st_size != expected.stored_size_bytes:
+        raise ReviewOutputError("compressed review CSV disagrees with its exact preflight receipt")
     return digest.hexdigest()
 
 
@@ -1625,6 +1730,7 @@ def _write_streaming_manifest(
     tier_b_size: int,
     maximum_evidence_rows_per_candidate: int,
     source_artifacts: Sequence[tuple[str, str]],
+    compressed_csv_receipt: _CompressedCsvReceipt | None = None,
 ) -> None:
     """Atomically stream the canonical manifest from bounded values and SQLite cursors."""
 
@@ -1681,6 +1787,19 @@ def _write_streaming_manifest(
             "applies_basic_exclusions": True,
         },
     }
+    if compressed_csv_receipt is not None:
+        fields["csv_encoding"] = {
+            "relative_path": "review.csv.gz",
+            "compression": "gzip",
+            "compression_level": 1,
+            "gzip_mtime": 0,
+            "gzip_filename": "",
+            "text_encoding": "utf-8",
+            "stored_size_bytes": compressed_csv_receipt.stored_size_bytes,
+            "stored_sha256": compressed_csv_receipt.stored_sha256,
+            "uncompressed_size_bytes": compressed_csv_receipt.uncompressed_size_bytes,
+            "uncompressed_sha256": compressed_csv_receipt.uncompressed_sha256,
+        }
     dynamic_rows: dict[str, Callable[[], Iterable[object]]] = {
         "artifacts": lambda: _manifest_artifact_rows(connection),
         "dossiers": lambda: _manifest_dossier_rows(connection),
@@ -1753,6 +1872,7 @@ def write_review_bundle_streaming(
     tier_a_dossier_limit: int = 100,
     parquet_row_group_size: int = 10_000,
     maximum_source_artifacts: int = 1_024,
+    compress_csv: bool = False,
     minimum_free_disk_bytes: int = 0,
     reserved_tail_bytes: int = 0,
     overwrite: bool = False,
@@ -1774,10 +1894,11 @@ def write_review_bundle_streaming(
     lookup callback. ``expected_candidate_ledger_sha256`` binds that stream to
     the canonical Stage-8 ledger bytes.
 
-    Parquet is written first from compressed canonical rows. The exact CSV
-    byte count must then fit alongside ``reserved_tail_bytes`` for remaining
-    artifacts and the unchanged ``minimum_free_disk_bytes`` floor before the
-    uncompressed CSV is allocated.
+    Parquet is written first from compressed canonical rows. With ``compress_csv``
+    enabled, that pass also measures deterministic gzip CSV bytes without storing
+    them. The exact physical CSV allocation must fit alongside ``reserved_tail_bytes``
+    and the unchanged ``minimum_free_disk_bytes`` floor. The final gzip is verified
+    against its measured compressed and uncompressed byte counts and SHA-256 values.
     """
 
     if tuple(ReviewRecord.model_fields) != REVIEW_COLUMNS:
@@ -2044,25 +2165,53 @@ def write_review_bundle_streaming(
             raise ReviewTraceabilityError(
                 "candidate stream SHA-256 disagrees with the authenticated Stage-8 receipt"
             )
-        _write_parquet_from_model_partitions_atomically(
-            staging / "review.parquet",
-            model_partitions,
-            row_group_size=parquet_row_group_size,
+        compressed_csv_receipt: _CompressedCsvReceipt | None = None
+        if compress_csv:
+            measurement = _CompressedCsvWriter()
+            try:
+                _write_parquet_from_model_partitions_atomically(
+                    staging / "review.parquet",
+                    model_partitions,
+                    row_group_size=parquet_row_group_size,
+                    csv_measurement=measurement,
+                )
+            finally:
+                measurement.close()
+            compressed_csv_receipt = measurement.receipt()
+            if compressed_csv_receipt.uncompressed_size_bytes != csv_size_bytes:
+                raise ReviewOutputError("review CSV size disagrees with its exact preflight count")
+        else:
+            _write_parquet_from_model_partitions_atomically(
+                staging / "review.parquet",
+                model_partitions,
+                row_group_size=parquet_row_group_size,
+            )
+        allocated_csv_bytes = (
+            compressed_csv_receipt.stored_size_bytes
+            if compressed_csv_receipt is not None
+            else csv_size_bytes
         )
         free_disk_bytes = shutil.disk_usage(staging).free
-        required_free_bytes = csv_size_bytes + reserved_tail_bytes + minimum_free_disk_bytes
+        required_free_bytes = allocated_csv_bytes + reserved_tail_bytes + minimum_free_disk_bytes
         if free_disk_bytes < required_free_bytes:
             raise ReviewOutputError(
                 "insufficient disk for exact review CSV after Parquet: "
                 f"{free_disk_bytes} bytes free; {required_free_bytes} required "
-                f"(CSV {csv_size_bytes}, remaining outputs {reserved_tail_bytes}, "
+                f"(CSV allocation {allocated_csv_bytes}, decoded CSV {csv_size_bytes}, "
+                f"remaining outputs {reserved_tail_bytes}, "
                 f"free-space floor {minimum_free_disk_bytes})"
             )
-        review_stream_sha256 = _write_csv_from_model_partitions(
-            model_partitions, staging / "review.csv"
-        )
-        if (staging / "review.csv").stat().st_size != csv_size_bytes:
-            raise ReviewOutputError("review CSV size disagrees with its exact preflight count")
+        csv_filename = "review.csv.gz" if compress_csv else "review.csv"
+        if compressed_csv_receipt is not None:
+            review_stream_sha256 = _write_compressed_csv_from_model_partitions(
+                model_partitions, staging / csv_filename, expected=compressed_csv_receipt
+            )
+        else:
+            review_stream_sha256 = _write_csv_from_model_partitions(
+                model_partitions, staging / csv_filename
+            )
+            if (staging / csv_filename).stat().st_size != csv_size_bytes:
+                raise ReviewOutputError("review CSV size disagrees with its exact preflight count")
         summary = StreamingReviewSummary(
             candidate_count=candidate_count,
             evidence_count=evidence_count,
@@ -2091,6 +2240,7 @@ def write_review_bundle_streaming(
                 rejection_categories=rejection_categories,
                 threshold_report=threshold_report,
                 tier_a_dossier_limit=tier_a_dossier_limit,
+                csv_filename=csv_filename,
             ),
         )
 
@@ -2114,6 +2264,7 @@ def write_review_bundle_streaming(
             tier_b_size=tier_b_size,
             maximum_evidence_rows_per_candidate=maximum_evidence_rows_per_candidate,
             source_artifacts=tuple(sorted(source_artifacts)),
+            compressed_csv_receipt=compressed_csv_receipt,
         )
         identity_connection.close()
         identity_connection = None
@@ -2130,7 +2281,7 @@ def write_review_bundle_streaming(
 
     return StreamingReviewArtifacts(
         output_directory=target,
-        csv_path=target / "review.csv",
+        csv_path=target / csv_filename,
         parquet_path=target / "review.parquet",
         manifest_path=target / "review-manifest.json",
         output_j_path=target / "output-j-template.md",

@@ -629,7 +629,7 @@ def test_production_uses_authenticated_m7_adapter_without_cloud(
     monkeypatch.setattr(
         campaign_pipeline.shutil,
         "disk_usage",
-        lambda _path: SimpleNamespace(free=100 * 1024**3),
+        lambda _path: SimpleNamespace(free=120 * 1024**3),
     )
     monkeypatch.setenv("ECHOES_AUTHORIZE_PRODUCTION", "final-discovery-v1")
     request = replace(
@@ -666,6 +666,13 @@ def test_production_uses_authenticated_m7_adapter_without_cloud(
         ).read_text()
     )
     assert review_summary["m7_hydration_disk_backed_lookup"] is True
+    review_root = (
+        campaign_pipeline._artifact_root(request.stage_store, result.stage_results[8].manifest)
+        / "review"
+    )
+    assert (review_root / "review.csv.gz").is_file()
+    assert not (review_root / "review.csv").exists()
+    assert (review_root / "review.parquet").is_file()
     assert review_summary["m7_hydration_selection_batch_size"] == 1_024
     assert review_summary["m7_hydration_maximum_selection_batch_rows_observed"] <= 1_024
     assert bounded_selection_limits == [config.review.tier_a_dossier_limit]

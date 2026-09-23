@@ -6,6 +6,14 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 ### Changed
 
+- ADR 0026 stores the complete production review CSV as deterministic lossless
+  gzip, preserving exact decompressed CSV bytes and canonical logical hashes.
+  Stage 9 measures the compressed size and reserves validation scratch before
+  allocation. Strict validation uses bounded typed Arrow inserts, shared
+  per-invocation upstream authentication and phase-boundary disk checks.
+  The exact eight-stage successor preserves prior artifacts and the fixed
+  recovery deadline; packaging remains hardlink based with exact B2 verification.
+
 - Bound Stage 9 review export disk use after its production ENOSPC failure
   (ADR 0025): compressed temporary partitions, bounded Parquet-first output,
   and an exact CSV allocation check retaining the 80-GiB reserve. Keep all

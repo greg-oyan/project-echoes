@@ -387,6 +387,8 @@ def test_production_validation_streams_ledgers_and_authenticates_restart(
     assert captured["output_directory"] == expected_output
     assert captured["knownness_rows"] == ()
     assert captured["memory_limit_bytes"] == 4 * 1024**3
+    assert captured["minimum_temp_free_bytes"] >= 100 * 1024**3
+    assert captured["minimum_remaining_free_bytes"] == 80 * 1024**3
     assert captured["threads"] == 1
     assert captured["expected_authenticated_stage_count"] == 11
     assert captured["stage_store"] is store

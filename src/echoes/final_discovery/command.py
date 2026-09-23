@@ -29,6 +29,7 @@ from echoes.final_discovery.disk_validation import (
     DiskFinalDiscoveryValidationReceipt,
     DiskFinalDiscoveryValidationResult,
     validate_final_discovery_disk_backed,
+    validation_scratch_reserve_bytes,
 )
 from echoes.final_discovery.inputs import (
     InputExpectation,
@@ -733,6 +734,10 @@ def _validate_completed_production_campaign(
             m7_null_provenance=m7_null_provenance,
             memory_limit_bytes=_PRODUCTION_VALIDATION_MEMORY_LIMIT_BYTES,
             temp_directory=(work_directory / _INDEPENDENT_VALIDATION_WORK_DIRECTORY_NAME),
+            minimum_temp_free_bytes=(
+                80 * 1024**3 + validation_scratch_reserve_bytes(candidates_path.stat().st_size)
+            ),
+            minimum_remaining_free_bytes=80 * 1024**3,
             stage_store=store,
             expected_authenticated_stage_count=11,
             threads=_PRODUCTION_VALIDATION_THREADS,

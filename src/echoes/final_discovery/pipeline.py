@@ -65,6 +65,7 @@ from echoes.final_discovery.disk_validation import (
     DiskFinalDiscoveryValidationReceipt,
     DiskFinalDiscoveryValidationResult,
     validate_final_discovery_disk_backed,
+    validation_scratch_reserve_bytes,
 )
 from echoes.final_discovery.ensemble import (
     build_final_candidates,
@@ -2493,10 +2494,14 @@ def _produce_stage_nine(
                     threshold_report=threshold_report,
                     tier_a_dossier_limit=request.config.review.tier_a_dossier_limit,
                     minimum_free_disk_bytes=request.minimum_free_disk_bytes or 0,
-                    # The three tier ledgers partition the already authenticated
-                    # candidate ledger. Reserve its entire byte size and metadata
-                    # before the review exporter materializes its measured CSV.
-                    reserved_tail_bytes=candidates_path.stat().st_size + 1024**3,
+                    compress_csv=True,
+                    # Reserve the three tier ledgers, metadata, and the sequential
+                    # validation workspace before allocating the measured gzip CSV.
+                    reserved_tail_bytes=(
+                        candidates_path.stat().st_size
+                        + 1024**3
+                        + validation_scratch_reserve_bytes(candidates_path.stat().st_size)
+                    ),
                 )
                 if hydrated_m7_lookup.lookup_count != hydration_receipt.row_count:
                     raise FinalDiscoveryCampaignError(
@@ -2650,9 +2655,10 @@ def _produce_stage_ten(
     if request.execution_mode == "production":
         if m7_null_provenance is None:
             raise FinalDiscoveryCampaignError("Stage 10 requires authenticated M7 source nulls")
+        candidates_path = stage_eight_root / "candidates.jsonl"
         result = validate_final_discovery_disk_backed(
             stage_seven_root / "evidence.jsonl",
-            stage_eight_root / "candidates.jsonl",
+            candidates_path,
             stage_seven_root / "ensemble-null-full.jsonl",
             stage_seven_root / "ensemble-null-remove-all-english.jsonl",
             root / "disk-validation",
@@ -2662,6 +2668,11 @@ def _produce_stage_ten(
             m7_null_provenance=m7_null_provenance,
             memory_limit_bytes=_FINAL_DISCOVERY_DUCKDB_MEMORY_LIMIT_BYTES,
             temp_directory=root / "disk-validation-duckdb-temp",
+            minimum_temp_free_bytes=(
+                (request.minimum_free_disk_bytes or 0)
+                + validation_scratch_reserve_bytes(candidates_path.stat().st_size)
+            ),
+            minimum_remaining_free_bytes=request.minimum_free_disk_bytes or 0,
             expected_source_artifact_sha256=_expected_evidence_source_hashes(
                 request,
                 stage_one_root,
@@ -2794,6 +2805,11 @@ def _run_or_authenticate_all_stage_disk_validation(
             temp_directory=(
                 output_directory.parent / "campaign-validation-work" / output_directory.name
             ),
+            minimum_temp_free_bytes=(
+                (request.minimum_free_disk_bytes or 0)
+                + validation_scratch_reserve_bytes(candidates_path.stat().st_size)
+            ),
+            minimum_remaining_free_bytes=request.minimum_free_disk_bytes or 0,
             expected_source_artifact_sha256=expected_source_artifact_sha256,
             stage_store=request.stage_store,
             expected_authenticated_stage_count=11,

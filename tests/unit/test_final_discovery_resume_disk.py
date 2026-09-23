@@ -33,8 +33,11 @@ def _fixture(
     *,
     six: bool = False,
     eight: bool = False,
+    compressed: bool = False,
 ) -> tuple[ModuleType, dict[str, Any]]:
     module = _module()
+    if compressed:
+        eight = True
     root, work = tmp_path / "repo", tmp_path / "successor"
     root.mkdir()
     work.mkdir()
@@ -43,21 +46,39 @@ def _fixture(
     target_code = module.recovery._tree_hash(target_tree)
     commit = "d" * 40
     one, two = {"prepared": "a" * 64}, {"model": "b" * 64}
-    work_name = "REVIEW_WORK" if eight else "CALIBRATION_WORK" if six else "RECOVERY_WORK"
+    work_name = (
+        "COMPRESSED_REVIEW_WORK"
+        if compressed
+        else "REVIEW_WORK"
+        if eight
+        else "CALIBRATION_WORK"
+        if six
+        else "RECOVERY_WORK"
+    )
     code_name = (
-        "REVIEW_SOURCE_CODE" if eight else "CALIBRATION_SOURCE_CODE" if six else "SOURCE_CODE"
+        "COMPRESSED_REVIEW_SOURCE_CODE"
+        if compressed
+        else "REVIEW_SOURCE_CODE"
+        if eight
+        else "CALIBRATION_SOURCE_CODE"
+        if six
+        else "SOURCE_CODE"
     )
     monkeypatch.setattr(module, work_name, work)
     monkeypatch.setattr(module, code_name, source_code)
     source_commit = (
-        module.REVIEW_SOURCE_COMMIT
+        module.COMPRESSED_REVIEW_SOURCE_COMMIT
+        if compressed
+        else module.REVIEW_SOURCE_COMMIT
         if eight
         else module.CALIBRATION_SOURCE_COMMIT
         if six
         else module.SOURCE_COMMIT
     )
     source_work = (
-        module.REVIEW_SOURCE_WORK
+        module.COMPRESSED_REVIEW_SOURCE_WORK
+        if compressed
+        else module.REVIEW_SOURCE_WORK
         if eight
         else module.CALIBRATION_SOURCE_WORK
         if six
@@ -66,7 +87,15 @@ def _fixture(
     source_completions = module.CALIBRATION_SOURCE_COMPLETIONS if six else module.SOURCE_COMPLETIONS
     if eight:
         source_completions = dict.fromkeys(module.FINAL_DISCOVERY_STAGE_IDS[:8], "0" * 64)
-    prefix = module.REVIEW_PREFIX if eight else module.CALIBRATION_PREFIX if six else module.PREFIX
+    prefix = (
+        module.COMPRESSED_REVIEW_PREFIX
+        if compressed
+        else module.REVIEW_PREFIX
+        if eight
+        else module.CALIBRATION_PREFIX
+        if six
+        else module.PREFIX
+    )
     input_sets = (one, two, *({} for _ in range(len(source_completions) - 2)))
     monkeypatch.setattr(module, "authenticate_clean_git_tree", lambda _: (commit, target_code))
     monkeypatch.setattr(module.recovery, "_current_inputs", lambda *_: (one, two, {}))
@@ -104,7 +133,9 @@ def _fixture(
     if eight:
         monkeypatch.setattr(
             module,
-            "REVIEW_KNOWN_SOURCE_COMPLETIONS",
+            "COMPRESSED_REVIEW_KNOWN_SOURCE_COMPLETIONS"
+            if compressed
+            else "REVIEW_KNOWN_SOURCE_COMPLETIONS",
             {key: value for key, value in pins.items() if key != "empirical_null_controls"},
         )
     else:
@@ -319,10 +350,11 @@ def test_six_stage_successor_rejects_missing_sixth_stage_and_altered_proof(
         module.launch_capacity(**arguments)
 
 
+@pytest.mark.parametrize("compressed", [False, True])
 def test_eight_stage_successor_binds_exact_candidate_bytes_and_requires_measured_review_gate(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, compressed: bool
 ) -> None:
-    module, arguments = _fixture(tmp_path, monkeypatch, "none", eight=True)
+    module, arguments = _fixture(tmp_path, monkeypatch, "none", eight=True, compressed=compressed)
     result = module.launch_capacity(**arguments)
     benchmark = json.loads(
         (ROOT / "outputs/reports/final-discovery-preproduction-benchmark.json").read_bytes()
@@ -330,13 +362,21 @@ def test_eight_stage_successor_binds_exact_candidate_bytes_and_requires_measured
     assert result["evidence_index_allowance_bytes"] == benchmark["evidence_offset_index_bytes"]
     assert result["remaining_tier_ledger_upper_bound_bytes"] == len(b"unchanged")
     assert result["required_launch_free_bytes"] == (
-        80 * 1024**3 + len(b"unchanged") + 358_384_436 + 1024**3
+        80 * 1024**3
+        + len(b"unchanged")
+        + 358_384_436
+        + 1024**3
+        + (20 * 1024**3 if compressed else 0)
     )
     assert result["checkpoint_disk_floor_bytes"] == 80 * 1024**3
     assert result["review_materialization_gate_required"] is True
     assert result["projection_is_not_a_peak_guarantee"] is True
     assert result["checkpoint_and_package_payloads_use_hardlinks"] is True
     assert len(result["authenticated_completion_sha256"]) == 8
+    if compressed:
+        assert "deterministic_gzip_csv" in result["review_materialization_gate_basis"]
+        assert result["validator_scratch_allowance_bytes"] == 20 * 1024**3
+        assert result["validator_scratch_allowance_is_peak_guarantee"] is False
     assert "empirical_null_controls" not in module.REVIEW_KNOWN_SOURCE_COMPLETIONS
 
 
@@ -358,10 +398,13 @@ def test_eight_stage_successor_binds_exact_candidate_bytes_and_requires_measured
         "missing_candidate_ledger",
     ],
 )
+@pytest.mark.parametrize("compressed", [False, True])
 def test_eight_stage_successor_rejects_unbound_or_altered_source_and_target_evidence(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, corruption: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, corruption: str, compressed: bool
 ) -> None:
-    module, arguments = _fixture(tmp_path, monkeypatch, corruption, eight=True)
+    module, arguments = _fixture(
+        tmp_path, monkeypatch, corruption, eight=True, compressed=compressed
+    )
     with pytest.raises((module.recovery.RecoveryError, StageStoreError)):
         module.launch_capacity(**arguments)
 
