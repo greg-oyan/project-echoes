@@ -195,7 +195,7 @@ def test_timer_and_service_delegate_to_existing_poweroff_without_a_supervisor(
     assert "sleep(" not in script
 
 
-@pytest.mark.parametrize("successor_name", ["SUCCESSOR_WORK", "CALIBRATION_WORK"])
+@pytest.mark.parametrize("successor_name", ["SUCCESSOR_WORK", "CALIBRATION_WORK", "REVIEW_WORK"])
 def test_repaired_successor_inherits_original_deadline_without_rewriting_ledger(
     window: SimpleNamespace,
     successor_name: str,

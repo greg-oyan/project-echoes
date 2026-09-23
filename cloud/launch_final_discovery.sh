@@ -310,10 +310,13 @@ uv_lock_sha256="$(sha256sum "$ECHOES_REPO_ROOT/uv.lock" | awk '{print $1}')"
 # All ordinary work paths retain the fresh-run 280 GiB requirement. Only the
 # exact recovery successors can use their reviewed remaining allocation PLUS
 # the untouched 80 GiB floor, after reauthenticating all imported stages.
+# The eight-stage successor also requires the measured review materialization
+# gate inside Stage 9; launch capacity alone does not guarantee that review fits.
 required_launch_free_bytes=$((280 * 1024 * 1024 * 1024))
 launch_capacity_json='{"basis":"fresh_run_280_gib","required_launch_free_bytes":300647710720}'
 if [[ "$ECHOES_WORK_DIR" == /srv/project-echoes/final-discovery/work-20260922-m7-null-recovery || \
-      "$ECHOES_WORK_DIR" == /srv/project-echoes/final-discovery/work-20260923-calibration-memory ]]; then
+      "$ECHOES_WORK_DIR" == /srv/project-echoes/final-discovery/work-20260923-calibration-memory || \
+      "$ECHOES_WORK_DIR" == /srv/project-echoes/final-discovery/work-20260923-review-disk ]]; then
     launch_capacity_json="$(runuser -u "$ECHOES_SERVICE_USER" -- env HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
         sh -c 'cd -- "$1" && exec "$2" run --frozen --no-sync python cloud/final_discovery_resume_disk.py --project-root "$1" --work-directory "$3" --expected-commit "$4" --prepared-passages "$5" --knownness "$6" --offline-model-root "$7"' \
         sh "$ECHOES_REPO_ROOT" "$ECHOES_UV_BIN" "$ECHOES_WORK_DIR" "$observed_commit" \
@@ -321,7 +324,21 @@ if [[ "$ECHOES_WORK_DIR" == /srv/project-echoes/final-discovery/work-20260922-m7
         die "recovery launch capacity lacks authenticated imported-stage proof"
     required_launch_free_bytes="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["required_launch_free_bytes"])' "$launch_capacity_json")" ||
         die "recovery launch capacity proof is malformed"
-    if [[ "$ECHOES_WORK_DIR" == /srv/project-echoes/final-discovery/work-20260923-calibration-memory ]]; then
+    if [[ "$ECHOES_WORK_DIR" == /srv/project-echoes/final-discovery/work-20260923-review-disk ]]; then
+        python3 - "$launch_capacity_json" <<'PY' || die "eight-stage recovery launch capacity requirement differs"
+import json, sys
+proof = json.loads(sys.argv[1])
+assert proof['basis'] == 'authenticated_eight_stage_import_with_measured_review_materialization_gate'
+assert proof['review_materialization_gate_required'] is True
+assert proof['checkpoint_disk_floor_bytes'] == 80 * 1024**3
+assert proof['evidence_index_allowance_bytes'] == 358384436
+assert proof['metadata_allowance_bytes'] == 1024**3
+assert isinstance(proof['remaining_tier_ledger_upper_bound_bytes'], int)
+assert proof['remaining_tier_ledger_upper_bound_bytes'] > 0
+assert proof['required_launch_free_bytes'] == (
+    80 * 1024**3 + proof['remaining_tier_ledger_upper_bound_bytes'] + 358384436 + 1024**3)
+PY
+    elif [[ "$ECHOES_WORK_DIR" == /srv/project-echoes/final-discovery/work-20260923-calibration-memory ]]; then
         [[ "$required_launch_free_bytes" == 162204221220 ]] || die "six-stage recovery launch capacity requirement differs"
     else
         [[ "$required_launch_free_bytes" == 225737600612 ]] || die "five-stage recovery launch capacity requirement differs"

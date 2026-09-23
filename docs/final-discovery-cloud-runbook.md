@@ -1,5 +1,28 @@
 # `final-discovery-v1` recovery cloud runbook
 
+The current Stage 9 disk repair is governed by
+[ADR 0025](decisions/0025-bound-review-export-disk.md). Stages 1-8 completed;
+Stage 9 failed with ENOSPC. Prepare locally before restarting. The successor
+`/srv/project-echoes/final-discovery/work-20260923-review-disk` reuses all eight
+authenticated completions from `work-20260923-calibration-memory` through the
+same immutable-payload hardlink contract and independent new provenance.
+Use a fresh B2 prefix and resume Stage 9, preserving all prior work.
+
+The review writer replaces simultaneous full CSV/JSONL temporary copies with
+compressed canonical partitions. It writes bounded Parquet first, measures the
+exact CSV allocation, and requires that allocation plus the remaining tier
+ledgers, metadata and unchanged 80-GiB reserve before writing the CSV. All
+records, scientific decisions, CSV bytes and logical digests are retained;
+Parquet physical encoding may differ. The eight-stage launch gate authenticates
+all reuse provenance and reserves the known remaining ledger/index allocation
+plus the floor. It does not claim to predict the full review size. A measured
+capacity failure must report its byte counts without deleting evidence or
+expanding resources. No final result is established by this local repair.
+
+Before deploying, inspect the actual service and refuse a second worker.
+The original expiry remains `2026-09-25T02:46:42Z`; no new window is installed.
+The earlier recovery descriptions below remain provenance for existing paths.
+
 The 2026-09-23 Stage 7 memory repair is governed by
 [ADR 0024](decisions/0024-bounded-calibration-evidence-hydration.md).
 Prepare it locally while the owner keeps the instance off. Its exact successor

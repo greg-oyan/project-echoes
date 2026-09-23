@@ -6,6 +6,13 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 ### Changed
 
+- Bound Stage 9 review export disk use after its production ENOSPC failure
+  (ADR 0025): compressed temporary partitions, bounded Parquet-first output,
+  and an exact CSV allocation check retaining the 80-GiB reserve. Keep all
+  review rows, CSV bytes, logical digests and scientific decisions. Prepare
+  authenticated reuse of eight completed stages under the original deadline.
+  The repair is locally prepared; final production results remain unverified.
+
 - Repair final-discovery Stage 7 evidence export by separating narrow calibration
   joins from bounded hydration of full evidence records (ADR 0024). Preserve
   scientific outputs, ordering, thresholds and the 4-GiB DuckDB limit. Prepare

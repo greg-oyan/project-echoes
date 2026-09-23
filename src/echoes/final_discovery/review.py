@@ -9,6 +9,7 @@ evidence visibly supplemental in every machine-readable record.
 from __future__ import annotations
 
 import csv
+import gzip
 import hashlib
 import io
 import json
@@ -26,6 +27,7 @@ from pathlib import Path
 from typing import Final
 
 import polars as pl
+import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
 from echoes.final_discovery.models import (
     EvidenceRow,
@@ -1248,31 +1250,47 @@ def _write_parquet_atomically(path: Path, records: Sequence[ReviewRecord]) -> No
         raise
 
 
-def _write_parquet_from_csv_atomically(
+def _write_parquet_from_model_partitions_atomically(
     path: Path,
-    csv_path: Path,
+    partitions: Sequence[Path],
     *,
     row_group_size: int,
 ) -> None:
-    """Write bounded-memory Parquet from the already ordered review CSV."""
+    """Write Parquet before allocating the CSV, using bounded canonical batches."""
 
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.writing-{uuid.uuid4().hex}")
+    maximum_batch_rows = min(row_group_size, 10_000)
     try:
-        frame = pl.scan_csv(
-            csv_path,
-            schema=_REVIEW_SCHEMA,
-            missing_utf8_is_empty_string=True,
-            low_memory=True,
-        ).select(REVIEW_COLUMNS)
-        frame.sink_parquet(
+        schema = pl.DataFrame(schema=_REVIEW_SCHEMA).select(REVIEW_COLUMNS).to_arrow().schema
+        with pq.ParquetWriter(
             temporary,
+            schema,
             compression="zstd",
             compression_level=3,
-            statistics=True,
-            row_group_size=row_group_size,
-            maintain_order=True,
-        )
+            write_statistics=True,
+        ) as writer:
+            pending: list[dict[str, object]] = []
+            pending_bytes = 0
+            for partition in partitions:
+                with gzip.open(partition, "rb") as source:
+                    for line in source:
+                        if pending and (
+                            len(pending) >= maximum_batch_rows
+                            or pending_bytes + len(line) > 16 * 1024**2
+                        ):
+                            frame = pl.DataFrame(pending, schema=_REVIEW_SCHEMA).select(
+                                REVIEW_COLUMNS
+                            )
+                            writer.write_table(frame.to_arrow(), row_group_size=maximum_batch_rows)
+                            pending.clear()
+                            pending_bytes = 0
+                        record = ReviewRecord.model_validate_json(line)
+                        pending.append(record.model_dump(mode="json"))
+                        pending_bytes += len(line)
+            if pending:
+                frame = pl.DataFrame(pending, schema=_REVIEW_SCHEMA).select(REVIEW_COLUMNS)
+                writer.write_table(frame.to_arrow(), row_group_size=maximum_batch_rows)
         temporary.replace(path)
     except Exception:
         temporary.unlink(missing_ok=True)
@@ -1292,26 +1310,34 @@ def _canonical_model_line(row: FinalCandidate | EvidenceRow | ReviewRecord) -> b
     )
 
 
-def _combine_review_csv(partitions: Sequence[Path], output_path: Path) -> None:
-    """Join headerless tier partitions into the legacy deterministic CSV order."""
+def _write_csv_from_model_partitions(partitions: Sequence[Path], output_path: Path) -> str:
+    """Consume compressed canonical tier rows into the exact CSV and stream hash.
+
+    Keep only one compressed copy until the final CSV is written. After Parquet
+    conversion, each consumed private scratch partition is removed; no
+    published artifact or preserved checkpoint is removed.
+    """
 
     if output_path.exists():
         raise ReviewOutputError(f"refusing to replace streamed CSV: {output_path}")
-    with output_path.open("xb") as output:
-        output.write(_csv_bytes(()))
+    digest = hashlib.sha256()
+    with output_path.open("x", encoding="utf-8", newline="") as output:
+        writer = csv.DictWriter(
+            output,
+            fieldnames=REVIEW_COLUMNS,
+            extrasaction="raise",
+            lineterminator="\n",
+        )
+        writer.writeheader()
         for partition in partitions:
-            with partition.open("rb") as source:
-                shutil.copyfileobj(source, output, length=1024 * 1024)
+            with gzip.open(partition, "rb") as source:
+                for line in source:
+                    record = ReviewRecord.model_validate_json(line)
+                    digest.update(line)
+                    writer.writerow(record.model_dump(mode="json"))
+            partition.unlink()
         output.flush()
         os.fsync(output.fileno())
-
-
-def _hash_partition_stream(partitions: Sequence[Path]) -> str:
-    digest = hashlib.sha256()
-    for partition in partitions:
-        with partition.open("rb") as handle:
-            for block in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(block)
     return digest.hexdigest()
 
 
@@ -1727,6 +1753,8 @@ def write_review_bundle_streaming(
     tier_a_dossier_limit: int = 100,
     parquet_row_group_size: int = 10_000,
     maximum_source_artifacts: int = 1_024,
+    minimum_free_disk_bytes: int = 0,
+    reserved_tail_bytes: int = 0,
     overwrite: bool = False,
 ) -> StreamingReviewArtifacts:
     """Publish the exact review population with bounded candidate/evidence memory.
@@ -1745,6 +1773,11 @@ def write_review_bundle_streaming(
     receipt are required so an upstream orphan row cannot be hidden by a
     lookup callback. ``expected_candidate_ledger_sha256`` binds that stream to
     the canonical Stage-8 ledger bytes.
+
+    Parquet is written first from compressed canonical rows. The exact CSV
+    byte count must then fit alongside ``reserved_tail_bytes`` for remaining
+    artifacts and the unchanged ``minimum_free_disk_bytes`` floor before the
+    uncompressed CSV is allocated.
     """
 
     if tuple(ReviewRecord.model_fields) != REVIEW_COLUMNS:
@@ -1765,6 +1798,8 @@ def write_review_bundle_streaming(
         raise ValueError("parquet_row_group_size must be positive")
     if maximum_source_artifacts < 1:
         raise ValueError("maximum_source_artifacts must be positive")
+    if minimum_free_disk_bytes < 0 or reserved_tail_bytes < 0:
+        raise ValueError("review disk reserves must be nonnegative")
     if output_directory.is_symlink():
         raise ReviewOutputError(f"refusing to replace symlinked review output: {output_directory}")
     target = output_directory.resolve()
@@ -1776,8 +1811,9 @@ def write_review_bundle_streaming(
     staging = Path(tempfile.mkdtemp(prefix=f".{target.name}.writing-", dir=target.parent))
 
     partition_names = ("tier-a", "tier-b", "retained")
-    csv_partitions = tuple(staging / f".{name}.review-rows.csv" for name in partition_names)
-    model_partitions = tuple(staging / f".{name}.review-models.jsonl" for name in partition_names)
+    model_partitions = tuple(
+        staging / f".{name}.review-models.jsonl.gz" for name in partition_names
+    )
     identity_path = staging / ".review-identities.sqlite3"
     identity_connection: sqlite3.Connection | None = None
     try:
@@ -1799,21 +1835,22 @@ def write_review_bundle_streaming(
         source_artifacts: set[tuple[str, str]] = set()
         classifications: Counter[str] = Counter()
         rejection_categories: Counter[str] = Counter()
+        csv_size_bytes = len(_csv_bytes(()))
+        csv_row_buffer = io.StringIO(newline="")
+        csv_size_writer = csv.DictWriter(
+            csv_row_buffer,
+            fieldnames=REVIEW_COLUMNS,
+            extrasaction="raise",
+            lineterminator="\n",
+        )
 
         with ExitStack() as stack:
-            csv_handles = [
-                stack.enter_context(path.open("x", encoding="utf-8", newline=""))
-                for path in csv_partitions
-            ]
-            model_handles = [stack.enter_context(path.open("xb")) for path in model_partitions]
-            csv_writers = [
-                csv.DictWriter(
-                    handle,
-                    fieldnames=REVIEW_COLUMNS,
-                    extrasaction="raise",
-                    lineterminator="\n",
+            partition_handles = [stack.enter_context(path.open("xb")) for path in model_partitions]
+            model_handles = [
+                stack.enter_context(
+                    gzip.GzipFile(filename="", fileobj=handle, mode="wb", compresslevel=1, mtime=0)
                 )
-                for handle in csv_handles
+                for handle in partition_handles
             ]
 
             for candidate in candidates:
@@ -1939,8 +1976,11 @@ def write_review_bundle_streaming(
                 else:
                     partition_index = 2
                     retained_count += 1
-                csv_writers[partition_index].writerow(record.model_dump(mode="json"))
                 model_handles[partition_index].write(_canonical_model_line(record))
+                csv_size_writer.writerow(record.model_dump(mode="json"))
+                csv_size_bytes += len(csv_row_buffer.getvalue().encode("utf-8"))
+                csv_row_buffer.seek(0)
+                csv_row_buffer.truncate(0)
 
                 if selected_for_dossier:
                     classifications[record.reviewer_classification.value] += 1
@@ -1961,7 +2001,10 @@ def write_review_bundle_streaming(
                 if candidate_count % 10_000 == 0:
                     identity_connection.commit()
 
-            for handle in (*csv_handles, *model_handles):
+            # Finish compression (including its integrity footer) before fsync.
+            for model_handle in model_handles:
+                model_handle.close()
+            for handle in partition_handles:
                 handle.flush()
                 os.fsync(handle.fileno())
 
@@ -1996,12 +2039,30 @@ def write_review_bundle_streaming(
         if database_candidate_count != candidate_count or database_evidence_count != evidence_count:
             raise ReviewTraceabilityError("disk-backed identity index counts disagree")
 
-        review_stream_sha256 = _hash_partition_stream(model_partitions)
         candidate_stream_sha256 = candidate_digest.hexdigest()
         if candidate_stream_sha256 != expected_candidate_ledger_sha256:
             raise ReviewTraceabilityError(
                 "candidate stream SHA-256 disagrees with the authenticated Stage-8 receipt"
             )
+        _write_parquet_from_model_partitions_atomically(
+            staging / "review.parquet",
+            model_partitions,
+            row_group_size=parquet_row_group_size,
+        )
+        free_disk_bytes = shutil.disk_usage(staging).free
+        required_free_bytes = csv_size_bytes + reserved_tail_bytes + minimum_free_disk_bytes
+        if free_disk_bytes < required_free_bytes:
+            raise ReviewOutputError(
+                "insufficient disk for exact review CSV after Parquet: "
+                f"{free_disk_bytes} bytes free; {required_free_bytes} required "
+                f"(CSV {csv_size_bytes}, remaining outputs {reserved_tail_bytes}, "
+                f"free-space floor {minimum_free_disk_bytes})"
+            )
+        review_stream_sha256 = _write_csv_from_model_partitions(
+            model_partitions, staging / "review.csv"
+        )
+        if (staging / "review.csv").stat().st_size != csv_size_bytes:
+            raise ReviewOutputError("review CSV size disagrees with its exact preflight count")
         summary = StreamingReviewSummary(
             candidate_count=candidate_count,
             evidence_count=evidence_count,
@@ -2014,12 +2075,6 @@ def write_review_bundle_streaming(
             candidate_stream_sha256=candidate_stream_sha256,
             evidence_stream_sha256=evidence_digest.hexdigest(),
             review_stream_sha256=review_stream_sha256,
-        )
-        _combine_review_csv(csv_partitions, staging / "review.csv")
-        _write_parquet_from_csv_atomically(
-            staging / "review.parquet",
-            staging / "review.csv",
-            row_group_size=parquet_row_group_size,
         )
         _atomic_write_text_lines(
             staging / "output-j-template.md",
@@ -2044,7 +2099,6 @@ def write_review_bundle_streaming(
             identity_path.with_name(identity_path.name + "-journal"),
             identity_path.with_name(identity_path.name + "-shm"),
             identity_path.with_name(identity_path.name + "-wal"),
-            *csv_partitions,
             *model_partitions,
         )
         _index_streaming_artifacts(
@@ -2066,8 +2120,6 @@ def write_review_bundle_streaming(
         identity_path.unlink()
         for suffix in ("-journal", "-shm", "-wal"):
             identity_path.with_name(identity_path.name + suffix).unlink(missing_ok=True)
-        for path in (*csv_partitions, *model_partitions):
-            path.unlink()
         _publish_directory(staging, target, overwrite=overwrite)
     except Exception:
         if identity_connection is not None:

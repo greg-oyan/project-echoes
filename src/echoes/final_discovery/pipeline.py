@@ -2492,6 +2492,11 @@ def _produce_stage_nine(
                     prepare_selected_evidence=prepare_selected_evidence,
                     threshold_report=threshold_report,
                     tier_a_dossier_limit=request.config.review.tier_a_dossier_limit,
+                    minimum_free_disk_bytes=request.minimum_free_disk_bytes or 0,
+                    # The three tier ledgers partition the already authenticated
+                    # candidate ledger. Reserve its entire byte size and metadata
+                    # before the review exporter materializes its measured CSV.
+                    reserved_tail_bytes=candidates_path.stat().st_size + 1024**3,
                 )
                 if hydrated_m7_lookup.lookup_count != hydration_receipt.row_count:
                     raise FinalDiscoveryCampaignError(

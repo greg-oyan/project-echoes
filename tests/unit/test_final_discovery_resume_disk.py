@@ -27,7 +27,12 @@ def _module() -> ModuleType:
 
 
 def _fixture(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, corruption: str, *, six: bool = False
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    corruption: str,
+    *,
+    six: bool = False,
+    eight: bool = False,
 ) -> tuple[ModuleType, dict[str, Any]]:
     module = _module()
     root, work = tmp_path / "repo", tmp_path / "successor"
@@ -38,12 +43,30 @@ def _fixture(
     target_code = module.recovery._tree_hash(target_tree)
     commit = "d" * 40
     one, two = {"prepared": "a" * 64}, {"model": "b" * 64}
-    monkeypatch.setattr(module, "CALIBRATION_WORK" if six else "RECOVERY_WORK", work)
-    monkeypatch.setattr(module, "CALIBRATION_SOURCE_CODE" if six else "SOURCE_CODE", source_code)
-    source_commit = module.CALIBRATION_SOURCE_COMMIT if six else module.SOURCE_COMMIT
-    source_work = module.CALIBRATION_SOURCE_WORK if six else module.SOURCE_WORK
+    work_name = "REVIEW_WORK" if eight else "CALIBRATION_WORK" if six else "RECOVERY_WORK"
+    code_name = (
+        "REVIEW_SOURCE_CODE" if eight else "CALIBRATION_SOURCE_CODE" if six else "SOURCE_CODE"
+    )
+    monkeypatch.setattr(module, work_name, work)
+    monkeypatch.setattr(module, code_name, source_code)
+    source_commit = (
+        module.REVIEW_SOURCE_COMMIT
+        if eight
+        else module.CALIBRATION_SOURCE_COMMIT
+        if six
+        else module.SOURCE_COMMIT
+    )
+    source_work = (
+        module.REVIEW_SOURCE_WORK
+        if eight
+        else module.CALIBRATION_SOURCE_WORK
+        if six
+        else module.SOURCE_WORK
+    )
     source_completions = module.CALIBRATION_SOURCE_COMPLETIONS if six else module.SOURCE_COMPLETIONS
-    prefix = module.CALIBRATION_PREFIX if six else module.PREFIX
+    if eight:
+        source_completions = dict.fromkeys(module.FINAL_DISCOVERY_STAGE_IDS[:8], "0" * 64)
+    prefix = module.REVIEW_PREFIX if eight else module.CALIBRATION_PREFIX if six else module.PREFIX
     input_sets = (one, two, *({} for _ in range(len(source_completions) - 2)))
     monkeypatch.setattr(module, "authenticate_clean_git_tree", lambda _: (commit, target_code))
     monkeypatch.setattr(module.recovery, "_current_inputs", lambda *_: (one, two, {}))
@@ -58,20 +81,36 @@ def _fixture(
     originals = {}
     manifests = {}
     for stage_id, inputs in zip(source_completions, input_sets, strict=True):
+        artifact_name = (
+            "candidates.jsonl"
+            if eight
+            and stage_id == "transparent_final_ensemble"
+            and corruption != "missing_candidate_ledger"
+            else "artifact.json"
+        )
         result = source_store.run_stage(
             stage_id,
             input_hashes=inputs,
             config_sha256=module.CONFIG_HASH,
             code_sha256=source_code,
             code_commit=source_commit,
-            producer=lambda destination: (destination / "artifact.json").write_text("unchanged"),
+            producer=lambda destination, name=artifact_name: (destination / name).write_text(
+                "unchanged"
+            ),
         )
         originals[stage_id] = source_store.completion_path(stage_id).read_bytes()
         manifests[stage_id] = result.manifest
     pins = {name: hashlib.sha256(content).hexdigest() for name, content in originals.items()}
-    monkeypatch.setattr(
-        module, "CALIBRATION_SOURCE_COMPLETIONS" if six else "SOURCE_COMPLETIONS", pins
-    )
+    if eight:
+        monkeypatch.setattr(
+            module,
+            "REVIEW_KNOWN_SOURCE_COMPLETIONS",
+            {key: value for key, value in pins.items() if key != "empirical_null_controls"},
+        )
+    else:
+        monkeypatch.setattr(
+            module, "CALIBRATION_SOURCE_COMPLETIONS" if six else "SOURCE_COMPLETIONS", pins
+        )
     compatibility = {
         "schema_version": 1,
         "source_code_commit": source_commit,
@@ -96,7 +135,9 @@ def _fixture(
         provenance = {
             "schema_version": 1,
             "operation": (
-                "authenticated_unchanged_six_stage_import"
+                "authenticated_unchanged_eight_stage_import"
+                if eight
+                else "authenticated_unchanged_six_stage_import"
                 if six
                 else "authenticated_unchanged_five_stage_import"
             ),
@@ -110,10 +151,10 @@ def _fixture(
             "revalidation_code_sha256": target_code,
             "compatibility_manifest_sha256": hashlib.sha256(compatibility_bytes).hexdigest(),
             "config_sha256": module.CONFIG_HASH,
-            "copy_mode": "same_filesystem_hardlink" if six else "independent_file_copy",
+            "copy_mode": "same_filesystem_hardlink" if six or eight else "independent_file_copy",
             "original_receipts_preserved": True,
         }
-        if six:
+        if six or eight:
             provenance.update(
                 source_metadata_preserved=[
                     "device",
@@ -126,24 +167,40 @@ def _fixture(
                 ],
                 hardlink_metadata_side_effects=["link_count", "ctime"],
             )
+        if eight:
+            provenance["source_pin_derivation"] = {
+                "empirical_null_controls": {
+                    "from_stage": "transparent_final_ensemble",
+                    "pinned_completion_sha256": pins["transparent_final_ensemble"],
+                    "field": "dependency_completion_sha256.empirical_null_controls",
+                }
+            }
         if corruption in {
             "operation",
             "source_code_commit",
             "copy_mode",
             "source_metadata_preserved",
             "hardlink_metadata_side_effects",
+            "source_pin_derivation",
         }:
             provenance[corruption] = "tampered"
 
-        def produce(destination: Path, provenance: dict[str, Any] = provenance) -> None:
-            (destination / "artifact.json").write_text(
+        def produce(
+            destination: Path,
+            provenance: dict[str, Any] = provenance,
+            artifact_name: str = original.artifacts[0].path,
+        ) -> None:
+            (destination / artifact_name).write_text(
                 "changed" if corruption == "artifact" else "unchanged"
             )
             proof = destination / prefix
             proof.mkdir(parents=True)
             for name, content in originals.items():
                 (proof / f"{name}.source-completion.json").write_bytes(
-                    content + b" " if corruption == "source_completion" else content
+                    content + b" "
+                    if corruption == "source_completion"
+                    or (corruption == "derived_stage7" and name == "empirical_null_controls")
+                    else content
                 )
             (proof / "compatibility-manifest.json").write_bytes(compatibility_bytes)
             (proof / "reuse-provenance.json").write_text(json.dumps(provenance))
@@ -262,6 +319,53 @@ def test_six_stage_successor_rejects_missing_sixth_stage_and_altered_proof(
         module.launch_capacity(**arguments)
 
 
+def test_eight_stage_successor_binds_exact_candidate_bytes_and_requires_measured_review_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module, arguments = _fixture(tmp_path, monkeypatch, "none", eight=True)
+    result = module.launch_capacity(**arguments)
+    benchmark = json.loads(
+        (ROOT / "outputs/reports/final-discovery-preproduction-benchmark.json").read_bytes()
+    )["production_extrapolation"]["persistent_disk_bytes"]
+    assert result["evidence_index_allowance_bytes"] == benchmark["evidence_offset_index_bytes"]
+    assert result["remaining_tier_ledger_upper_bound_bytes"] == len(b"unchanged")
+    assert result["required_launch_free_bytes"] == (
+        80 * 1024**3 + len(b"unchanged") + 358_384_436 + 1024**3
+    )
+    assert result["checkpoint_disk_floor_bytes"] == 80 * 1024**3
+    assert result["review_materialization_gate_required"] is True
+    assert result["projection_is_not_a_peak_guarantee"] is True
+    assert result["checkpoint_and_package_payloads_use_hardlinks"] is True
+    assert len(result["authenticated_completion_sha256"]) == 8
+    assert "empirical_null_controls" not in module.REVIEW_KNOWN_SOURCE_COMPLETIONS
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    [
+        "missing_final",
+        "artifact",
+        "source_completion",
+        "derived_stage7",
+        "compatibility",
+        "operation",
+        "source_code_commit",
+        "copy_mode",
+        "source_metadata_preserved",
+        "hardlink_metadata_side_effects",
+        "source_pin_derivation",
+        "current_code",
+        "missing_candidate_ledger",
+    ],
+)
+def test_eight_stage_successor_rejects_unbound_or_altered_source_and_target_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, corruption: str
+) -> None:
+    module, arguments = _fixture(tmp_path, monkeypatch, corruption, eight=True)
+    with pytest.raises((module.recovery.RecoveryError, StageStoreError)):
+        module.launch_capacity(**arguments)
+
+
 def test_launcher_records_effective_requirement_and_fails_closed() -> None:
     script = (ROOT / "cloud/launch_final_discovery.sh").read_text()
     assert '"fresh_run_initial_free_disk_gib": 280' in script
@@ -284,3 +388,9 @@ def test_launcher_records_effective_requirement_and_fails_closed() -> None:
     )
     assert '[[ "$required_launch_free_bytes" == 162204221220 ]]' in script
     assert '[[ "$required_launch_free_bytes" == 225737600612 ]]' in script
+    assert (
+        '"$ECHOES_WORK_DIR" == /srv/project-echoes/final-discovery/work-20260923-review-disk'
+        in script
+    )
+    assert "assert proof['review_materialization_gate_required'] is True" in script
+    assert "proof['remaining_tier_ledger_upper_bound_bytes'] + 358384436 + 1024**3" in script

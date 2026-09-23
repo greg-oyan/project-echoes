@@ -3061,6 +3061,16 @@ The consolidated campaign has these binding additions:
 
 ### Current final-discovery recovery
 
+ADR 0025 repairs Stage 9's excessive temporary review-export duplication after
+Stages 1-8 completed. Compressed canonical partitions and bounded Parquet-first
+output preserve every review record and exact CSV/logical digest. A measured
+CSV allocation check includes the remaining tier ledgers and unchanged 80-GiB
+floor. The exact eight-stage successor may reuse authenticated immutable
+payloads with original provenance and fresh ordinary completion records.
+Its launch reserve covers known remaining allocations; full export capacity
+is measured during Stage 9, not inferred from a compression ratio. The existing
+fixed deadline and scientific acceptance gates remain binding.
+
 ADR 0024 repairs a locally reproduced Stage 7 evidence-export memory failure
 by separating narrow calibration joins from bounded evidence hydration. Frozen
 science, the 4-GiB DuckDB limit and validation remain unchanged. The exact
@@ -3082,7 +3092,8 @@ original fixed recovery deadline below applies unchanged to the successor.
 Its narrowly authenticated disk gate reserves the full original modeled
 artifact budget as additional future free space plus the unchanged 80-GiB
 checkpoint floor (225,737,600,612 bytes total), as specified in ADR 0023.
-Except for ADR 0024's six-stage successor, other launches retain the 280-GiB
+Except for ADR 0024's six-stage and ADR 0025's eight-stage successors,
+other launches retain the 280-GiB
 initial-space gate. No new resources or
 destructive cleanup are authorized by this recovery exception.
 

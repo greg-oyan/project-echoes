@@ -25,6 +25,7 @@ REPO = Path('/srv/project-echoes/repo')
 WORK = '/srv/project-echoes/final-discovery/work-20260909T040447Z-e265b59c'
 SUCCESSOR_WORK = '/srv/project-echoes/final-discovery/work-20260922-m7-null-recovery'
 CALIBRATION_WORK = '/srv/project-echoes/final-discovery/work-20260923-calibration-memory'
+REVIEW_WORK = '/srv/project-echoes/final-discovery/work-20260923-review-disk'
 INSTANCE = '2ade35f2-3c65-474f-9ec3-71cd5c9a4ffe'
 SECONDS = 96 * 3600
 
@@ -74,7 +75,7 @@ def record_for(start, work):
 
 
 def read_record(work=WORK):
-    require(work in (WORK, SUCCESSOR_WORK, CALIBRATION_WORK),
+    require(work in (WORK, SUCCESSOR_WORK, CALIBRATION_WORK, REVIEW_WORK),
             'recovery work directory differs from the authorized campaign')
     safe_directory(STATE)
     content = owned_file(LEDGER, 0o444)
