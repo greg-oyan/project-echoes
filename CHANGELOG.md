@@ -13,7 +13,8 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
   human-review completion remain unconfirmed. Record the owner's confirmation
   that the instance is stopped and scope current synchronization to GitHub/B2.
   This is a documentation handoff only and changes no scientific or implementation
-  policy.
+  policy. Restore identical thin AGENTS/CLAUDE summaries and the detached-running
+  rules; the scoped recovery details remain in the master plan and ADR 0022.
 
 - ADR 0026 stores the complete production review CSV as deterministic lossless
   gzip, preserving exact decompressed CSV bytes and canonical logical hashes.
