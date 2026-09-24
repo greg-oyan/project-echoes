@@ -3,7 +3,7 @@
   "experiment_id": "final-discovery-v1",
   "run_id": "20260923-review-compressed-e426b189",
   "code_commit": "b0fe9ac8982f12f580a0ea6e37e3ee60c03164a0",
-  "last_verified_snapshot_at_utc": "2026-09-24T05:43Z",
+  "last_verified_snapshot_at_utc": "2026-09-24T16:25:29.649743Z",
   "snapshot_scope": "sanitized_aggregate_status_and_proof_hashes",
   "live_status_feed": false,
   "computational_stages": {
@@ -29,7 +29,8 @@
       "count": 100,
       "classification": "exploratory_not_statistically_accepted"
     },
-    "human_review_completion": "unconfirmed",
+    "human_review_completion": "not_complete",
+    "human_reviewed_candidate_count": 0,
     "additional_milestone_acceptance_claimed": false
   },
   "final_package_transfer": {
@@ -40,12 +41,56 @@
   "finalization": {
     "campaign_seal_sha256": "ea7c996eb71837d56f504c2d48db6c65257faed0c1fa56410622e649597fc7c8",
     "stage_11_completion_manifest_sha256": "7235259cf4c27539556c7b55ec1d8088579c898dbd17853818d335714b43b76d",
-    "receipt_state_at_snapshot": "absent",
-    "subsequent_ssh_check": "unreachable",
-    "current_status": "unconfirmed",
-    "complete_delivery_status": "unconfirmed",
+    "receipt_state_at_snapshot": "authenticated",
+    "receipt_sha256": "27fef6b79af4337705bbd543ad20d62d0fe3f9467461c6748fef8a482c802f15",
+    "current_status": "verified",
+    "terminal_checkpoint": {
+      "production_content_verification_bound_by_receipt": true,
+      "object_count": 689,
+      "total_size_bytes": 92540069172,
+      "matching_local_and_remote_inventory_sha256": "a05d402ea8bac808086edc94dfa3612c388e6591c289cacc922d996d83128cf7"
+    },
+    "bounded_remote_inventory_and_proof_recheck": "passed",
+    "destructive_cleanup_gate": "not_established",
+    "deletion_authorized": false,
     "current_instance_power_state": "stopped",
-    "power_state_confirmation_basis": "owner_confirmation_after_snapshot"
+    "power_state_confirmation_basis": "authenticated_exact_instance_provider_API",
+    "power_state_verified_at_utc": "2026-09-24T16:25:29.649743Z",
+    "power_state_verification_receipt_sha256": "2cc84136fa26777469d836cb7a7dfb104d72afaf42bc868f3868357dc90f9050",
+    "post_retrieval_shutdown_confirmation": "verified"
+  },
+  "remote_handoff_reverification": {
+    "passed": true,
+    "verified_at_utc": "2026-09-24T16:24:13.255169Z",
+    "receipt_sha256": "2454f5b6d5d32c1b0311fc32f62e17e8c621322af16ac83ac03ba7450e0c740d",
+    "scope": "complete_remote_path_size_inventories_and_six_critical_proof_files",
+    "final_package_inventory_sha256": "c1ffd4f00c34dd13863944757fb4889f564dd5fdbd6e64415193075204952a5c",
+    "terminal_checkpoint_inventory_sha256": "a05d402ea8bac808086edc94dfa3612c388e6591c289cacc922d996d83128cf7",
+    "critical_remote_proof_file_count": 6,
+    "critical_remote_proof_bytes_matched": true,
+    "initial_full_content_verification_retained": true,
+    "full_local_artifact_rehash_performed": false,
+    "new_remote_full_content_check_performed": false,
+    "cleanup_deletion_gate_satisfied": false,
+    "scientific_pipeline_started": false
+  },
+  "private_delivery": {
+    "status": "selected_review_and_final_receipts_verified",
+    "verified_at_utc": "2026-09-24T16:21:43.333735Z",
+    "verification_receipt_sha256": "14d89ec41ec85fcc2693216763a5eb4859908754287d044d6142e562d674ea64",
+    "transport_manifest_sha256": "e472404783fe99137dbb9c921f37ce030315e7ed4aa265beeea25be9ea23704b",
+    "file_count_excluding_transport_manifest": 217,
+    "total_size_bytes_excluding_transport_manifest": 23897594,
+    "selected_review_file_count": 206,
+    "selected_review_dossier_count": 200,
+    "selected_review_bytes_match_stage_09_inventory": true,
+    "stage_09_completion_manifest_sha256": "2dc380c25e9cb5bf7c9b4b296897a0cadec38cd4480d2610156e060347600d5b",
+    "collection_inventory_sha256": "0c6011f85bfd821ce631f28ee681a08b7378902595f56e437b4f592a05c8f74c",
+    "original_operational_records_retained": true,
+    "full_artifact_package_copied_locally": false,
+    "full_artifact_package_location": "private_b2",
+    "independent_remote_content_reverification_performed_by_delivery_check": false,
+    "provider_shutdown_verified_by_delivery_check": false
   },
   "storage_policy": {
     "current_sync_destinations": [
@@ -71,10 +116,7 @@
     }
   },
   "remaining_handoff": [
-    "authenticate_finalization_and_checkpoint_receipts",
-    "independently_verify_finalization_checkpoint_and_supplemental_proofs",
-    "preserve_operational_records_and_owner_stopped_state_confirmation",
-    "collect_and_authenticate_private_review_bundle",
+    "preserve_delivered_records_and_all_existing_worker_and_remote_evidence",
     "complete_governed_human_review_including_all_tier_b_candidates",
     "keep_current_sync_scoped_to_github_and_b2",
     "plan_any_archive_migration_separately"
