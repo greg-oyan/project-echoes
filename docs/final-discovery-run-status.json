@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "experiment_id": "final-discovery-v1",
+  "run_id": "20260923-review-compressed-e426b189",
+  "code_commit": "b0fe9ac8982f12f580a0ea6e37e3ee60c03164a0",
+  "last_verified_snapshot_at_utc": "2026-09-24T05:43Z",
+  "snapshot_scope": "sanitized_aggregate_status_and_proof_hashes",
+  "live_status_feed": false,
+  "computational_stages": {
+    "registered_count": 11,
+    "completed_count": 11
+  },
+  "final_all_stage_validation": {
+    "passed": true,
+    "authenticated_stage_count": 11,
+    "error_count": 0,
+    "report_sha256": "a4e3e7be5a8113b6d7a2109218e69ad9dd4b9e51432c4ebcde670c385bb33b7f",
+    "receipt_sha256": "f92ad9982951b56ea900e7525e8fe38436d830460de68d2f9cef6c30f47f8c34"
+  },
+  "results": {
+    "evidence_row_count": 5962874,
+    "candidate_pair_count": 1748143,
+    "tier_a": {
+      "count": 1960,
+      "classification": "statistically_eligible_candidates",
+      "eligibility_establishes_discovery": false
+    },
+    "tier_b": {
+      "count": 100,
+      "classification": "exploratory_not_statistically_accepted"
+    },
+    "human_review_completion": "unconfirmed",
+    "additional_milestone_acceptance_claimed": false
+  },
+  "final_package_transfer": {
+    "initial_upload_verified": true,
+    "total_size_bytes": 92539897055,
+    "object_count": 682
+  },
+  "finalization": {
+    "campaign_seal_sha256": "ea7c996eb71837d56f504c2d48db6c65257faed0c1fa56410622e649597fc7c8",
+    "stage_11_completion_manifest_sha256": "7235259cf4c27539556c7b55ec1d8088579c898dbd17853818d335714b43b76d",
+    "receipt_state_at_snapshot": "absent",
+    "subsequent_ssh_check": "unreachable",
+    "current_status": "unconfirmed",
+    "complete_delivery_status": "unconfirmed",
+    "current_instance_power_state": "stopped",
+    "power_state_confirmation_basis": "owner_confirmation_after_snapshot"
+  },
+  "storage_policy": {
+    "current_sync_destinations": [
+      "github",
+      "private_b2"
+    ],
+    "github_scope": [
+      "reviewed_code_and_tests",
+      "governance_documentation",
+      "sanitized_aggregate_status_and_proof_hashes"
+    ],
+    "private_storage_scope": [
+      "complete_review_ledgers_and_dossiers",
+      "candidate_and_evidence_ledgers",
+      "source_bearing_artifacts_and_databases",
+      "operational_records_and_original_receipts"
+    ],
+    "archive_migration": {
+      "retain_current_archive": true,
+      "verify_destination_inventory_and_sha256": true,
+      "preserve_access_licensing_attribution_and_proofs": true,
+      "deletion_requires_separate_explicit_decision": true
+    }
+  },
+  "remaining_handoff": [
+    "authenticate_finalization_and_checkpoint_receipts",
+    "independently_verify_finalization_checkpoint_and_supplemental_proofs",
+    "preserve_operational_records_and_owner_stopped_state_confirmation",
+    "collect_and_authenticate_private_review_bundle",
+    "complete_governed_human_review_including_all_tier_b_candidates",
+    "keep_current_sync_scoped_to_github_and_b2",
+    "plan_any_archive_migration_separately"
+  ]
+}

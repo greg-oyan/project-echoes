@@ -6,6 +6,15 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 ### Changed
 
+- Record the sanitized 2026-09-24 final-discovery handoff snapshot in readable
+  and machine-readable run-status files, with aggregate counts and retained
+  proof hashes. Update the README's stale milestone summary. All 11 stages
+  and passing all-stage validation are recorded; finalization, delivery, and
+  human-review completion remain unconfirmed. Record the owner's confirmation
+  that the instance is stopped and scope current synchronization to GitHub/B2.
+  This is a documentation handoff only and changes no scientific or implementation
+  policy.
+
 - ADR 0026 stores the complete production review CSV as deterministic lossless
   gzip, preserving exact decompressed CSV bytes and canonical logical hashes.
   Stage 9 measures the compressed size and reserves validation scratch before
