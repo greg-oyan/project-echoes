@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import csv
+import gzip
 import hashlib
+import io
 import json
+from collections.abc import Buffer
 from pathlib import Path
+from types import SimpleNamespace
 
 import polars as pl
+import pyarrow.parquet as pq
 import pytest
 
 import echoes.final_discovery.review as review_module
@@ -521,11 +526,20 @@ def test_prior_review_cannot_silently_move_to_changed_candidate_identity() -> No
         )
 
 
+@pytest.mark.parametrize("compress_csv", [False, True])
 def test_streaming_review_is_deterministic_and_semantically_matches_legacy_bundle(
     tmp_path: Path,
+    compress_csv: bool,
 ) -> None:
     candidates, evidence = _fixture_rows()
-    initial = build_review_records(candidates, evidence, passages=_passages())
+    passages = _passages()
+    passages["a-1"] = passages["a-1"].model_copy(
+        update={
+            "original_text": '\u03bb\u03cc\u03b3\u03bf\u03c2, "\u05d0\u05d5\u05e8"\nsecond line',
+            "english_gloss": 'quoted, "gloss"\r\nnext line',
+        }
+    )
+    initial = build_review_records(candidates, evidence, passages=passages)
     rejected = next(row for row in initial if row.candidate_pair_id == "candidate-c").model_copy(
         update={
             "reviewer_classification": ReviewClassification.FORMAL_COINCIDENCE,
@@ -560,14 +574,14 @@ def test_streaming_review_is_deterministic_and_semantically_matches_legacy_bundl
         tmp_path / "legacy",
         candidates,
         evidence,
-        passages=_passages(),
+        passages=passages,
         prior_reviews=(rejected,),
     )
     first = write_review_bundle_streaming(
         tmp_path / "stream-one",
         iter(candidates),
         evidence_for_candidate=lookup,
-        passages=_passages(),
+        passages=passages,
         expected_candidate_count=3,
         expected_evidence_count=4,
         tier_b_size=100,
@@ -578,6 +592,7 @@ def test_streaming_review_is_deterministic_and_semantically_matches_legacy_bundl
             rejected if candidate.candidate_pair_id == "candidate-c" else None
         ),
         parquet_row_group_size=2,
+        compress_csv=compress_csv,
     )
     prepared_after_first = tuple(prepared)
     prepared.clear()
@@ -585,7 +600,7 @@ def test_streaming_review_is_deterministic_and_semantically_matches_legacy_bundl
         tmp_path / "stream-two",
         candidates,
         evidence_for_candidate=lookup,
-        passages=_passages(),
+        passages=passages,
         expected_candidate_count=3,
         expected_evidence_count=4,
         tier_b_size=100,
@@ -596,13 +611,22 @@ def test_streaming_review_is_deterministic_and_semantically_matches_legacy_bundl
             rejected if candidate.candidate_pair_id == "candidate-c" else None
         ),
         parquet_row_group_size=2,
+        compress_csv=compress_csv,
     )
 
     assert prepared_after_first == ("candidate-a", "candidate-b")
     assert tuple(prepared) == prepared_after_first
     assert _tree_bytes(first.output_directory) == _tree_bytes(second.output_directory)
-    assert first.csv_path.read_bytes() == legacy.csv_path.read_bytes()
-    assert first.output_j_path.read_bytes() == legacy.output_j_path.read_bytes()
+    csv_payload = first.csv_path.read_bytes()
+    decoded_csv = gzip.decompress(csv_payload) if compress_csv else csv_payload
+    assert decoded_csv == legacy.csv_path.read_bytes()
+    expected_output_j = legacy.output_j_path.read_bytes()
+    if compress_csv:
+        assert first.csv_path.name == "review.csv.gz"
+        assert not (first.output_directory / "review.csv").exists()
+        assert csv_payload[:8] == b"\x1f\x8b\x08\x00\x00\x00\x00\x00"
+        expected_output_j = expected_output_j.replace(b"`review.csv`", b"`review.csv.gz`")
+    assert first.output_j_path.read_bytes() == expected_output_j
     assert _tree_bytes(first.dossier_directory) == _tree_bytes(legacy.output_directory / "dossiers")
     assert pl.read_parquet(first.parquet_path).equals(pl.read_parquet(legacy.parquet_path))
     assert first.summary.candidate_count == 3
@@ -612,6 +636,17 @@ def test_streaming_review_is_deterministic_and_semantically_matches_legacy_bundl
     assert first.summary.tier_a_dossier_count == 1
     assert first.summary.tier_b_dossier_count == 1
     assert first.summary.actual_reviewed_count == 0
+    assert (
+        first.summary.review_stream_sha256
+        == hashlib.sha256(
+            b"".join(
+                review_module._canonical_model_line(record)
+                for record in build_review_records(
+                    candidates, evidence, passages=passages, prior_reviews=(rejected,)
+                )
+            )
+        ).hexdigest()
+    )
     assert first.summary.retained_excluded_count == 1
 
     manifest = json.loads(first.manifest_path.read_text(encoding="utf-8"))
@@ -621,10 +656,340 @@ def test_streaming_review_is_deterministic_and_semantically_matches_legacy_bundl
     assert manifest["candidate_stream_sha256"] == first.summary.candidate_stream_sha256
     assert manifest["evidence_stream_sha256"] == first.summary.evidence_stream_sha256
     assert manifest["review_stream_sha256"] == first.summary.review_stream_sha256
+    if compress_csv:
+        assert manifest["csv_encoding"] == {
+            "relative_path": "review.csv.gz",
+            "compression": "gzip",
+            "compression_level": 1,
+            "gzip_mtime": 0,
+            "gzip_filename": "",
+            "text_encoding": "utf-8",
+            "stored_size_bytes": len(csv_payload),
+            "stored_sha256": hashlib.sha256(csv_payload).hexdigest(),
+            "uncompressed_size_bytes": len(decoded_csv),
+            "uncompressed_sha256": hashlib.sha256(decoded_csv).hexdigest(),
+        }
     for artifact in manifest["artifacts"]:
         path = first.output_directory / artifact["relative_path"]
         assert path.stat().st_size == artifact["size_bytes"]
         assert hashlib.sha256(path.read_bytes()).hexdigest() == artifact["sha256"]
+
+
+def test_streaming_review_keeps_only_compressed_partitions_before_parquet(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    candidates, evidence = _fixture_rows()
+    evidence = tuple(
+        row.model_copy(update={"trace_json": json.dumps({"actual": "trace detail " * 20_000})})
+        for row in evidence
+    )
+    evidence_by_pair = {
+        candidate.candidate_pair_id: tuple(
+            row for row in evidence if row.candidate_pair_id == candidate.candidate_pair_id
+        )
+        for candidate in candidates
+    }
+    expected_records = build_review_records(candidates, evidence, passages=_passages())
+    expected_csv = review_module._csv_bytes(expected_records)
+    expected_models = b"".join(
+        review_module._canonical_model_line(record) for record in expected_records
+    )
+    _, ledger_sha256 = write_jsonl_atomic(tmp_path / "candidates.jsonl", candidates, sort_key=None)
+    original_parquet = review_module._write_parquet_from_model_partitions_atomically
+    original_csv = review_module._write_csv_from_model_partitions
+    observations: list[str] = []
+
+    def inspect_parquet(path: Path, partitions: object, *, row_group_size: int) -> None:
+        assert isinstance(partitions, tuple)
+        assert len(partitions) == 3
+        assert not (path.parent / "review.csv").exists()
+        assert not tuple(path.parent.glob("*.review-rows.csv"))
+        assert not tuple(path.parent.glob("*.review-models.jsonl"))
+        recovered = b"".join(gzip.decompress(partition.read_bytes()) for partition in partitions)
+        assert recovered == expected_models
+        assert sum(partition.stat().st_size for partition in partitions) < len(recovered) // 10
+        observations.append("compressed-only")
+        original_parquet(path, partitions, row_group_size=row_group_size)
+
+    def inspect_csv(partitions: object, path: Path) -> str:
+        assert isinstance(partitions, tuple)
+        assert (path.parent / "review.parquet").is_file()
+        result = original_csv(partitions, path)
+        assert all(not partition.exists() for partition in partitions)
+        observations.append("partitions-consumed")
+        return result
+
+    monkeypatch.setattr(
+        review_module, "_write_parquet_from_model_partitions_atomically", inspect_parquet
+    )
+    monkeypatch.setattr(review_module, "_write_csv_from_model_partitions", inspect_csv)
+    artifacts = write_review_bundle_streaming(
+        tmp_path / "compressed-review",
+        candidates,
+        evidence_for_candidate=lambda candidate: evidence_by_pair[candidate.candidate_pair_id],
+        passages=_passages(),
+        expected_candidate_count=3,
+        expected_evidence_count=4,
+        tier_b_size=100,
+        maximum_evidence_rows_per_candidate=2,
+        expected_candidate_ledger_sha256=ledger_sha256,
+        parquet_row_group_size=2,
+    )
+    assert observations == ["compressed-only", "partitions-consumed"]
+    assert artifacts.csv_path.read_bytes() == expected_csv
+    assert artifacts.summary.review_stream_sha256 == hashlib.sha256(expected_models).hexdigest()
+    expected_frame = pl.DataFrame(
+        [record.model_dump(mode="json") for record in expected_records],
+        schema=review_module._REVIEW_SCHEMA,
+    ).select(REVIEW_COLUMNS)
+    assert pl.read_parquet(artifacts.parquet_path).equals(expected_frame)
+
+
+@pytest.mark.parametrize("free_adjustment", [-1, 0])
+@pytest.mark.parametrize("compress_csv", [False, True])
+def test_streaming_review_requires_exact_csv_capacity_after_parquet(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, free_adjustment: int, compress_csv: bool
+) -> None:
+    candidates, evidence = _fixture_rows()
+    evidence_by_pair = {
+        candidate.candidate_pair_id: tuple(
+            row for row in evidence if row.candidate_pair_id == candidate.candidate_pair_id
+        )
+        for candidate in candidates
+    }
+    passages = _passages()
+    passages["a-1"] = passages["a-1"].model_copy(
+        update={
+            "original_text": '\u03bb\u03cc\u03b3\u03bf\u03c2, "\u05d0\u05d5\u05e8"\nsecond line',
+            "english_gloss": 'quoted, "gloss"\r\nnext line',
+        }
+    )
+    records = build_review_records(candidates, evidence, passages=passages)
+    csv_bytes = review_module._csv_bytes(records)
+    csv_size = len(csv_bytes)
+    assert csv_size > len(csv_bytes.decode("utf-8"))
+    compressed_buffer = io.BytesIO()
+    with gzip.GzipFile(
+        filename="", fileobj=compressed_buffer, mode="wb", compresslevel=1, mtime=0
+    ) as compressed:
+        compressed.write(csv_bytes)
+    allocation_size = len(compressed_buffer.getvalue()) if compress_csv else csv_size
+    if compress_csv:
+        assert allocation_size < csv_size
+    _, ledger_sha256 = write_jsonl_atomic(tmp_path / "candidates.jsonl", candidates, sort_key=None)
+    target = tmp_path / "review"
+    write_review_bundle(target, candidates, evidence, passages=passages)
+    before = _tree_bytes(target)
+    observed_capacity_checks: list[Path] = []
+
+    def disk_usage(path: Path) -> SimpleNamespace:
+        assert (path / "review.parquet").is_file()
+        assert not (path / "review.csv").exists()
+        assert not (path / "review.csv.gz").exists()
+        observed_capacity_checks.append(path)
+        return SimpleNamespace(free=allocation_size + 2000 + 1000 + free_adjustment)
+
+    monkeypatch.setattr(review_module.shutil, "disk_usage", disk_usage)
+
+    def write() -> object:
+        return write_review_bundle_streaming(
+            target,
+            candidates,
+            evidence_for_candidate=lambda candidate: evidence_by_pair[candidate.candidate_pair_id],
+            passages=passages,
+            expected_candidate_count=3,
+            expected_evidence_count=4,
+            tier_b_size=100,
+            maximum_evidence_rows_per_candidate=2,
+            expected_candidate_ledger_sha256=ledger_sha256,
+            minimum_free_disk_bytes=2000,
+            reserved_tail_bytes=1000,
+            compress_csv=compress_csv,
+            overwrite=True,
+        )
+
+    if free_adjustment < 0:
+        with pytest.raises(review_module.ReviewOutputError, match="insufficient disk for exact"):
+            write()
+        assert _tree_bytes(target) == before
+    else:
+        write()
+        if compress_csv:
+            payload = (target / "review.csv.gz").read_bytes()
+            assert len(payload) == allocation_size
+            assert gzip.decompress(payload) == csv_bytes
+        else:
+            assert (target / "review.csv").stat().st_size == csv_size
+    assert len(observed_capacity_checks) == 1
+    assert not tuple(tmp_path.glob(".review.writing-*"))
+
+
+def test_streaming_review_preserves_target_when_parquet_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    candidates, evidence = _fixture_rows()
+    evidence_by_pair = {
+        candidate.candidate_pair_id: tuple(
+            row for row in evidence if row.candidate_pair_id == candidate.candidate_pair_id
+        )
+        for candidate in candidates
+    }
+    _, ledger_sha256 = write_jsonl_atomic(tmp_path / "candidates.jsonl", candidates, sort_key=None)
+    target = tmp_path / "review"
+    write_review_bundle(target, candidates, evidence, passages=_passages())
+    before = _tree_bytes(target)
+
+    def fail_parquet(path: Path, partitions: object, *, row_group_size: int) -> None:
+        assert isinstance(partitions, tuple)
+        assert all(partition.is_file() for partition in partitions)
+        assert not (path.parent / "review.csv").exists()
+        raise OSError("simulated parquet disk exhaustion")
+
+    monkeypatch.setattr(
+        review_module, "_write_parquet_from_model_partitions_atomically", fail_parquet
+    )
+    with pytest.raises(OSError, match="simulated parquet disk exhaustion"):
+        write_review_bundle_streaming(
+            target,
+            candidates,
+            evidence_for_candidate=lambda candidate: evidence_by_pair[candidate.candidate_pair_id],
+            passages=_passages(),
+            expected_candidate_count=3,
+            expected_evidence_count=4,
+            tier_b_size=100,
+            maximum_evidence_rows_per_candidate=2,
+            expected_candidate_ledger_sha256=ledger_sha256,
+            overwrite=True,
+        )
+    assert _tree_bytes(target) == before
+    assert not tuple(tmp_path.glob(".review.writing-*"))
+
+
+def test_parquet_model_stream_bounds_payload_and_keeps_oversized_record(tmp_path: Path) -> None:
+    candidates, evidence = _fixture_rows()
+    base = build_review_records(candidates, evidence, passages=_passages())[0]
+    sizes = (6, 6, 6, 6, 17, 6, 6)
+    partition = tmp_path / "models.jsonl.gz"
+    expected_notes = []
+    with gzip.open(partition, "wb", compresslevel=1) as handle:
+        for index, size in enumerate(sizes):
+            notes = str(index) * (size * 1024**2)
+            expected_notes.append(notes)
+            record = base.model_copy(update={"reviewer_notes": notes})
+            handle.write(review_module._canonical_model_line(record))
+    target = tmp_path / "review.parquet"
+    measurement = review_module._CompressedCsvWriter()
+    try:
+        review_module._write_parquet_from_model_partitions_atomically(
+            target, (partition,), row_group_size=10_000, csv_measurement=measurement
+        )
+    finally:
+        measurement.close()
+    metadata = pq.read_metadata(target)
+    assert [metadata.row_group(index).num_rows for index in range(metadata.num_row_groups)] == [
+        2,
+        2,
+        1,
+        2,
+    ]
+    assert pl.read_parquet(target)["reviewer_notes"].to_list() == expected_notes
+    assert partition.is_file()  # Preserved until the later CSV/digest pass.
+    assert measurement.sink.seekable() is False
+    assert measurement.receipt().uncompressed_size_bytes > 53 * 1024**2
+    assert measurement.receipt().stored_size_bytes < 1024**2
+
+
+@pytest.mark.parametrize("failure", ["partition-integrity", "receipt-mismatch"])
+def test_compressed_csv_failure_preserves_published_bundle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    candidates, evidence = _fixture_rows()
+    evidence_by_pair = {
+        candidate.candidate_pair_id: tuple(
+            row for row in evidence if row.candidate_pair_id == candidate.candidate_pair_id
+        )
+        for candidate in candidates
+    }
+    _, ledger_sha256 = write_jsonl_atomic(tmp_path / "candidates.jsonl", candidates, sort_key=None)
+    target = tmp_path / "review"
+    write_review_bundle(target, candidates, evidence, passages=_passages())
+    before = _tree_bytes(target)
+    original_csv = review_module._write_compressed_csv_from_model_partitions
+
+    def fail_csv(
+        partitions: tuple[Path, ...],
+        path: Path,
+        *,
+        expected: review_module._CompressedCsvReceipt,
+    ) -> str:
+        assert not (path.parent / "review.csv").exists()
+        if failure == "partition-integrity":
+            partition = partitions[0]
+            partition.write_bytes(partition.read_bytes()[:-8])
+        else:
+            expected = review_module._CompressedCsvReceipt(
+                stored_size_bytes=expected.stored_size_bytes,
+                stored_sha256="0" * 64,
+                uncompressed_size_bytes=expected.uncompressed_size_bytes,
+                uncompressed_sha256=expected.uncompressed_sha256,
+            )
+        return original_csv(partitions, path, expected=expected)
+
+    monkeypatch.setattr(review_module, "_write_compressed_csv_from_model_partitions", fail_csv)
+    expected_error = (
+        EOFError if failure == "partition-integrity" else review_module.ReviewOutputError
+    )
+    with pytest.raises(expected_error):
+        write_review_bundle_streaming(
+            target,
+            candidates,
+            evidence_for_candidate=lambda candidate: evidence_by_pair[candidate.candidate_pair_id],
+            passages=_passages(),
+            expected_candidate_count=3,
+            expected_evidence_count=4,
+            tier_b_size=100,
+            maximum_evidence_rows_per_candidate=2,
+            expected_candidate_ledger_sha256=ledger_sha256,
+            compress_csv=True,
+            overwrite=True,
+        )
+    assert _tree_bytes(target) == before
+    assert not tuple(tmp_path.glob(".review.writing-*"))
+
+
+def test_compressed_csv_hashing_sink_rejects_short_write_without_accepting_digest() -> None:
+    class ShortWriter(io.BytesIO):
+        def write(self, buffer: Buffer, /) -> int:
+            payload = bytes(buffer)
+            return super().write(payload if self.tell() == 0 else payload[:-1])
+
+    destination = ShortWriter()
+    sink = review_module._HashingSink(destination)
+    assert sink.write(b"accepted") == 8
+    with pytest.raises(review_module.ReviewOutputError, match="incomplete compressed review CSV"):
+        sink.write(b"incomplete")
+    assert destination.getvalue() == b"acceptedincomplet"
+    assert sink.size_bytes == 8
+    assert sink.digest.hexdigest() == hashlib.sha256(b"accepted").hexdigest()
+
+
+def test_parquet_model_stream_rejects_truncated_partition_without_replacing_target(
+    tmp_path: Path,
+) -> None:
+    candidates, evidence = _fixture_rows()
+    record = build_review_records(candidates, evidence, passages=_passages())[0]
+    partition = tmp_path / "truncated.jsonl.gz"
+    truncated = gzip.compress(review_module._canonical_model_line(record))[:-8]
+    partition.write_bytes(truncated)
+    target = tmp_path / "review.parquet"
+    target.write_bytes(b"preserved prior artifact")
+    with pytest.raises(EOFError):
+        review_module._write_parquet_from_model_partitions_atomically(
+            target, (partition,), row_group_size=2
+        )
+    assert target.read_bytes() == b"preserved prior artifact"
+    assert partition.read_bytes() == truncated
+    assert not tuple(tmp_path.glob(".review.parquet.writing-*"))
 
 
 def test_streaming_review_fails_closed_on_order_rank_and_population_errors(

@@ -455,7 +455,7 @@ def test_production_uses_authenticated_m7_adapter_without_cloud(
             ]
         }
     )
-    calls = {"authenticate": 0, "project": 0, "iterate": 0}
+    calls = {"authenticate": 0, "project": 0, "iterate": 0, "null_source": 0}
     bounded_selection_limits: list[int] = []
     exporter_limits: list[int] = []
     fixture_stage_one = campaign_pipeline._produce_stage_one
@@ -491,6 +491,28 @@ def test_production_uses_authenticated_m7_adapter_without_cloud(
         output_path.write_bytes(b"fixture projection\n")
         return output_path
 
+    class FakeNullProvenance:
+        provenance_sha256 = "f" * 64
+        validated_trace_count = 0
+
+        @property
+        def receipt(self) -> dict[str, bool]:
+            return {"synthetic_test_proof": True}
+
+        def validate_trace(self, trace, source_hash):  # type: ignore[no-untyped-def]
+            assert source_hash == expected_hash
+            assert trace["m7_both_null_families_present"] is True
+            self.validated_trace_count += 1
+
+    source_nulls = FakeNullProvenance()
+
+    def fake_source_nulls(stage_one_root, manifest_hash, temporary_parent):  # type: ignore[no-untyped-def]
+        assert (stage_one_root / "m7").is_dir()
+        assert manifest_hash == expected_hash
+        assert temporary_parent == base_request.stage_store.root.parent
+        calls["null_source"] += 1
+        return source_nulls
+
     def fake_iter(*args, **kwargs):  # type: ignore[no-untyped-def]
         del args, kwargs
         calls["iterate"] += 1
@@ -508,6 +530,8 @@ def test_production_uses_authenticated_m7_adapter_without_cloud(
             trace_json=canonical_json(
                 {
                     "adapter": True,
+                    "rrf_score": 0.95,
+                    "m7_passage_references": {"g-001": "G1", "h-001": "H1"},
                     "representation": "canonical_m7_reciprocal_rank_fusion",
                     "m7_both_null_families_present": True,
                     "m7_openbible_relationship_ids": [],
@@ -575,6 +599,7 @@ def test_production_uses_authenticated_m7_adapter_without_cloud(
         )
 
     monkeypatch.setattr(campaign_pipeline, "authenticate_m7_input", fake_authenticate)
+    monkeypatch.setattr(campaign_pipeline, "_authenticate_source_m7_nulls", fake_source_nulls)
     monkeypatch.setattr(campaign_pipeline, "build_m7_lexical_projection", fake_projection)
     monkeypatch.setattr(campaign_pipeline, "iter_m7_raw_evidence", fake_iter)
     monkeypatch.setattr(
@@ -604,7 +629,7 @@ def test_production_uses_authenticated_m7_adapter_without_cloud(
     monkeypatch.setattr(
         campaign_pipeline.shutil,
         "disk_usage",
-        lambda _path: SimpleNamespace(free=100 * 1024**3),
+        lambda _path: SimpleNamespace(free=120 * 1024**3),
     )
     monkeypatch.setenv("ECHOES_AUTHORIZE_PRODUCTION", "final-discovery-v1")
     request = replace(
@@ -618,7 +643,14 @@ def test_production_uses_authenticated_m7_adapter_without_cloud(
     result = run_final_discovery_campaign(request)
 
     assert len(result.stage_results) == 11
-    assert calls == {"authenticate": 1, "project": 1, "iterate": 2}
+    assert calls == {"authenticate": 1, "project": 1, "iterate": 2, "null_source": 1}
+    assert source_nulls.validated_trace_count >= 4
+    stage_six_root = campaign_pipeline._artifact_root(
+        request.stage_store, result.stage_results[5].manifest
+    )
+    assert (
+        json.loads((stage_six_root / "m7-null-provenance.json").read_text()) == source_nulls.receipt
+    )
     summary = json.loads(
         (
             campaign_pipeline._artifact_root(request.stage_store, result.stage_results[2].manifest)
@@ -634,6 +666,13 @@ def test_production_uses_authenticated_m7_adapter_without_cloud(
         ).read_text()
     )
     assert review_summary["m7_hydration_disk_backed_lookup"] is True
+    review_root = (
+        campaign_pipeline._artifact_root(request.stage_store, result.stage_results[8].manifest)
+        / "review"
+    )
+    assert (review_root / "review.csv.gz").is_file()
+    assert not (review_root / "review.csv").exists()
+    assert (review_root / "review.parquet").is_file()
     assert review_summary["m7_hydration_selection_batch_size"] == 1_024
     assert review_summary["m7_hydration_maximum_selection_batch_rows_observed"] <= 1_024
     assert bounded_selection_limits == [config.review.tier_a_dossier_limit]

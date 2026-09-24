@@ -345,6 +345,13 @@ def test_production_validation_streams_ledgers_and_authenticates_restart(
 
     captured: dict[str, Any] = {}
 
+    source_nulls = object()
+    null_auth_calls: list[tuple[Path, str, Path]] = []
+
+    def authenticate_nulls(root: Path, manifest: str, temporary_parent: Path) -> object:
+        null_auth_calls.append((root, manifest, temporary_parent))
+        return source_nulls
+
     def disk_validator(
         evidence_path: Path,
         candidates_path: Path,
@@ -365,6 +372,7 @@ def test_production_validation_streams_ledgers_and_authenticates_restart(
         return _publish_validation(output_directory, observed_paths)
 
     monkeypatch.setattr(command, "read_jsonl", guarded_read_jsonl)
+    monkeypatch.setattr(command, "_authenticate_source_m7_nulls", authenticate_nulls)
     monkeypatch.setattr(command, "validate_final_discovery_disk_backed", disk_validator)
 
     first = command.validate_completed_campaign(
@@ -379,9 +387,14 @@ def test_production_validation_streams_ledgers_and_authenticates_restart(
     assert captured["output_directory"] == expected_output
     assert captured["knownness_rows"] == ()
     assert captured["memory_limit_bytes"] == 4 * 1024**3
+    assert captured["minimum_temp_free_bytes"] >= 100 * 1024**3
+    assert captured["minimum_remaining_free_bytes"] == 80 * 1024**3
     assert captured["threads"] == 1
     assert captured["expected_authenticated_stage_count"] == 11
     assert captured["stage_store"] is store
+    assert captured["m7_null_provenance"] is source_nulls
+    assert len(null_auth_calls) == 1
+    assert null_auth_calls[0][0] == store.artifact_root("authenticate_materialize_inputs")
     assert captured["temp_directory"] == (work_directory.resolve() / "independent-validation-work")
 
     monkeypatch.setattr(
@@ -394,6 +407,7 @@ def test_production_validation_streams_ledgers_and_authenticates_restart(
         config_path=CONFIG_PATH,
     )
     assert restarted == first
+    assert len(null_auth_calls) == 1
     assert store.authenticate_all_count == 4
 
     paths[2].write_bytes(b"{}\n")
@@ -424,6 +438,7 @@ def test_production_validation_rejects_a_published_scientific_failure(
         return _publish_validation(output_directory, paths, passed=False)
 
     monkeypatch.setattr(command, "validate_final_discovery_disk_backed", failed_validator)
+    monkeypatch.setattr(command, "_authenticate_source_m7_nulls", lambda *_args: object())
 
     with pytest.raises(command.FinalDiscoveryCommandError, match="authenticated pass"):
         command.validate_completed_campaign(

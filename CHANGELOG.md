@@ -6,6 +6,68 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 ### Changed
 
+- Record the sanitized 2026-09-24 final-discovery handoff snapshot in readable
+  and machine-readable run-status files, with aggregate counts and retained
+  proof hashes. Update the README's stale milestone summary. All 11 stages
+  and passing all-stage validation are recorded; finalization, delivery, and
+  human-review completion remain unconfirmed. Record the owner's confirmation
+  that the instance is stopped and scope current synchronization to GitHub/B2.
+  This is a documentation handoff only and changes no scientific or implementation
+  policy. Restore identical thin AGENTS/CLAUDE summaries and the detached-running
+  rules; the scoped recovery details remain in the master plan and ADR 0022.
+
+- ADR 0026 stores the complete production review CSV as deterministic lossless
+  gzip, preserving exact decompressed CSV bytes and canonical logical hashes.
+  Stage 9 measures the compressed size and reserves validation scratch before
+  allocation. Strict validation uses bounded typed Arrow inserts, shared
+  per-invocation upstream authentication and phase-boundary disk checks.
+  The exact eight-stage successor preserves prior artifacts and the fixed
+  recovery deadline; packaging remains hardlink based with exact B2 verification.
+
+- Bound Stage 9 review export disk use after its production ENOSPC failure
+  (ADR 0025): compressed temporary partitions, bounded Parquet-first output,
+  and an exact CSV allocation check retaining the 80-GiB reserve. Keep all
+  review rows, CSV bytes, logical digests and scientific decisions. Prepare
+  authenticated reuse of eight completed stages under the original deadline.
+  The repair is locally prepared; final production results remain unverified.
+
+- Repair final-discovery Stage 7 evidence export by separating narrow calibration
+  joins from bounded hydration of full evidence records (ADR 0024). Preserve
+  scientific outputs, ordering, thresholds and the 4-GiB DuckDB limit. Prepare
+  authenticated reuse of all six completed stages with immutable payload
+  hardlinks, independent completion/provenance records and a fresh namespace.
+  Retain prior failures, the original recovery deadline and the 80-GiB floor.
+  This repair is locally prepared; production completion remains unverified.
+
+- Correct final-discovery's interpretation of the canonical M7 no-qualified-
+  threshold sentinel (ADR 0023). Independently authenticate retained source
+  null execution and exact candidate outcomes, preserve false/infinity values,
+  and pass that proof through calibration and strict validation. Prepare reuse
+  of completed Stages 1–5 under a new code identity without recomputing them or
+  resetting the original recovery deadline. This repair is local and has not
+  yet been deployed. The exact authenticated successor reserves the full
+  original modeled artifact budget plus the unchanged 80-GiB disk floor;
+  fresh and other runs retain the 280-GiB initial-space requirement.
+
+- Prepare authenticated recovery of completed final-discovery Stage 1/2
+  artifacts and the previously validated M7 projection (ADR 0021). Reuse
+  preserves original completions and artifact provenance, publishes fresh
+  authenticated completion records, and retains all scientific validators,
+  frozen thresholds, resource limits, and shutdown safeguards. This local
+  recovery change has not yet been deployed.
+
+- Record the owner's 2026-09-20 operational recovery authorization (ADR 0022):
+  remove dollar ceilings, manual verified-cost inputs, and billing-API
+  prerequisites; allow monitoring and necessary recovery through verified
+  delivery without startup-only or repeated approval stops. Replace the
+  resettable per-launch 96-hour allowance with one persistent overall
+  96-hour recovery deadline, from the recorded first boot at
+  `2026-09-21T02:46:42Z` through `2026-09-25T02:46:42Z`, including downtime
+  and all retries. Exact-target
+  success/terminal-failure/expiry poweroff preserves evidence; scientific
+  acceptance, frozen policy, actual provider permissions, and data protection
+  remain unchanged. The historical M7 contract remains recorded separately.
+
 - `final-discovery-v1` documentation now fixes the active UBS role to its
   24-row reference-only CC BY-SA 4.0 adaptation, with exact attribution,
   modification, and ShareAlike boundaries while keeping upstream biblical text

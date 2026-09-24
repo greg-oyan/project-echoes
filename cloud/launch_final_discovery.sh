@@ -9,6 +9,7 @@ readonly CONFIG_RELATIVE_PATH="config/experiments/final-discovery-v1.yaml"
 readonly CONFIG_FILE_SHA256="a38c2f6d1c3d84264c7b81a8a62c3a84cae8b993894f6634e339958cdc1f76b0"
 readonly CONFIG_SEMANTIC_SHA256="7b5c511fed3be041576f9c2ea784d71e028a0f539d7642d84ddcf61eccd22627"
 readonly M7_MANIFEST_SHA256="e56a1d3ee4f9707c17e7a25dc6b3d82ad5ec9a9bb28234762d58179142ebf6b6"
+readonly RECOVERY_WINDOW_FILE="$STATE_ROOT/recovery-window.json"
 
 usage() {
     cat <<'EOF'
@@ -17,7 +18,7 @@ Usage:
   sudo bash /srv/project-echoes/repo/cloud/launch_final_discovery.sh
 
 Fail-closed owner launcher for the single final-discovery-v1 production
-worker. Preflight performs every local, budget, model, M7 identity, credential,
+worker. Preflight performs every local, model, M7 identity, credential,
 and output-namespace check but never creates a service or launch record. Launch
 starts one detached systemd service, takes one startup snapshot, and exits. The
 script never provisions, purchases, stops, deletes, or polls a cloud resource.
@@ -133,13 +134,6 @@ required_names=(
     ECHOES_FINAL_DISCOVERY_INITIAL_FREE_DISK_GIB
     ECHOES_FINAL_DISCOVERY_DISK_FLOOR_GIB
     ECHOES_FINAL_DISCOVERY_RUNTIME_HOURS
-    ECHOES_HARD_BUDGET_USD
-    ECHOES_VERIFIED_RATE_USD_PER_HOUR
-    ECHOES_RATE_VERIFIED_AT_UTC
-    ECHOES_SERVER_CREATED_AT_UTC
-    ECHOES_ACCRUED_INFRASTRUCTURE_USD
-    ECHOES_ACCRUED_COST_VERIFIED_AT_UTC
-    ECHOES_B2_COST_RESERVE_USD
 )
 declare -A required_name_set=()
 for name in "${required_names[@]}"; do
@@ -147,10 +141,25 @@ for name in "${required_names[@]}"; do
     require_value "$name"
     [[ "${!name}" != *OWNER_SET* ]] || die "$name still contains an OWNER_SET placeholder"
 done
+# Accept legacy billing keys so existing protected environment files need no
+# fabricated replacement values. They are optional, ignored, and not exported
+# or recorded by this launcher. The owner explicitly removed dollar controls
+# for recovery; actual charges remain unknown.
+for name in ECHOES_HARD_BUDGET_USD ECHOES_VERIFIED_RATE_USD_PER_HOUR \
+    ECHOES_RATE_VERIFIED_AT_UTC ECHOES_SERVER_CREATED_AT_UTC \
+    ECHOES_ACCRUED_INFRASTRUCTURE_USD ECHOES_ACCRUED_COST_VERIFIED_AT_UTC \
+    ECHOES_B2_COST_RESERVE_USD; do
+    required_name_set["$name"]=1
+done
 for name in "${!environment_names[@]}"; do
-    [[ -n "${required_name_set[$name]+present}" ]] ||
+    [[ -n "${required_name_set[$name]+present}" || "$name" == ECHOES_M7_PROJECTION_RECEIPT_SHA256 ]] ||
         die "service environment contains an unexpected variable: $name"
 done
+if [[ -n "${environment_names[ECHOES_M7_PROJECTION_RECEIPT_SHA256]+present}" ]]; then
+    [[ "$ECHOES_M7_PROJECTION_RECEIPT_SHA256" =~ ^[a-f0-9]{64}$ ]] ||
+        die "cached M7 projection receipt SHA-256 is invalid"
+    export ECHOES_M7_PROJECTION_RECEIPT_SHA256
+fi
 
 # Only nonsecret fields needed by the metadata writer are exported locally.
 # B2 credentials reach the worker exclusively through systemd EnvironmentFile.
@@ -164,8 +173,6 @@ metadata_environment_names=(
     ECHOES_FINAL_DISCOVERY_DUCKDB_MEMORY_LIMIT_GIB
     ECHOES_FINAL_DISCOVERY_INITIAL_FREE_DISK_GIB
     ECHOES_FINAL_DISCOVERY_DISK_FLOOR_GIB ECHOES_FINAL_DISCOVERY_RUNTIME_HOURS
-    ECHOES_HARD_BUDGET_USD ECHOES_ACCRUED_INFRASTRUCTURE_USD
-    ECHOES_ACCRUED_COST_VERIFIED_AT_UTC
 )
 for name in "${metadata_environment_names[@]}"; do
     export "$name"
@@ -183,7 +190,6 @@ require_exact ECHOES_FINAL_DISCOVERY_DUCKDB_MEMORY_LIMIT_GIB 40
 require_exact ECHOES_FINAL_DISCOVERY_INITIAL_FREE_DISK_GIB 280
 require_exact ECHOES_FINAL_DISCOVERY_DISK_FLOOR_GIB 80
 require_exact ECHOES_FINAL_DISCOVERY_RUNTIME_HOURS 96
-require_exact ECHOES_HARD_BUDGET_USD 75.00
 
 for name in ECHOES_REPO_ROOT ECHOES_WORK_DIR ECHOES_PREPARED_PASSAGES \
     ECHOES_KNOWNNESS_PATH ECHOES_MODEL_ROOT ECHOES_UV_BIN; do
@@ -244,6 +250,15 @@ case "$work_resolved/" in
     "$repo_resolved"/*) die "work directory must remain outside the Git repository" ;;
 esac
 
+# A fixed, root-owned recovery deadline includes preparation and all retries.
+# The separate native systemd expiry timer also covers time between workers.
+recovery_window_helper="$ECHOES_REPO_ROOT/cloud/final_discovery_recovery_window.sh"
+[[ -f "$recovery_window_helper" && ! -L "$recovery_window_helper" ]] ||
+    die "fixed recovery window helper is missing or unsafe"
+remaining_runtime_seconds="$(bash "$recovery_window_helper" --remaining "$ECHOES_WORK_DIR")" ||
+    die "fixed recovery deadline is expired or its shutdown timer is not authenticated"
+[[ "$remaining_runtime_seconds" =~ ^[1-9][0-9]*$ ]] || die "invalid remaining recovery runtime"
+
 install -d -m 0700 -o "$ECHOES_SERVICE_USER" -g "$ECHOES_SERVICE_GROUP" \
     "$ECHOES_WORK_DIR" "$ECHOES_WORK_DIR/tmp" "$ECHOES_WORK_DIR/duckdb-spill"
 install -d -m 0700 -o root -g root "$STATE_ROOT" "$STATE_ROOT/launches" "$LOG_ROOT"
@@ -252,87 +267,30 @@ install -d -m 0700 -o root -g root "$STATE_ROOT" "$STATE_ROOT/launches" "$LOG_RO
 runuser -u "$ECHOES_SERVICE_USER" -- /usr/bin/test -w "$ECHOES_WORK_DIR" ||
     die "service user cannot write the campaign work directory"
 
-available_bytes="$(df -B1 --output=avail "$ECHOES_WORK_DIR" | tail -n 1 | tr -d ' ')"
-[[ "$available_bytes" =~ ^[0-9]+$ ]] || die "could not measure work-filesystem free space"
-(( available_bytes >= 280 * 1024 * 1024 * 1024 )) ||
-    die "work filesystem has less than the required 280 GiB free at launch"
-
-budget_json="$(python3 - \
-    "$ECHOES_VERIFIED_RATE_USD_PER_HOUR" \
-    "$ECHOES_RATE_VERIFIED_AT_UTC" \
-    "$ECHOES_SERVER_CREATED_AT_UTC" \
-    "$ECHOES_ACCRUED_INFRASTRUCTURE_USD" \
-    "$ECHOES_ACCRUED_COST_VERIFIED_AT_UTC" \
-    "$ECHOES_B2_COST_RESERVE_USD" \
-    "$ECHOES_HARD_BUDGET_USD" <<'PY'
-from __future__ import annotations
-
+# No billing API or manual dollar input is required. Record unknown charges
+# explicitly; the runtime ceiling is not a claim about the final bill.
+budget_json="$(python3 - <<'PY'
 import json
-import sys
-from datetime import UTC, datetime, timedelta
-from decimal import Decimal, InvalidOperation
-
-
-def timestamp(value: str, label: str) -> datetime:
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError as exc:
-        raise SystemExit(f"{label} must be an ISO-8601 UTC timestamp") from exc
-    if parsed.tzinfo is None or parsed.utcoffset() != timedelta(0):
-        raise SystemExit(f"{label} must include the UTC offset")
-    return parsed.astimezone(UTC)
-
-
-try:
-    rate = Decimal(sys.argv[1])
-    accrued = Decimal(sys.argv[4])
-    reserve = Decimal(sys.argv[6])
-    cap = Decimal(sys.argv[7])
-except InvalidOperation as exc:
-    raise SystemExit("rate, accrued cost, B2 reserve, and budget must be decimals") from exc
-if rate <= 0 or accrued < 0 or reserve < 0 or cap != Decimal("75.00"):
-    raise SystemExit("invalid rate, accrued cost, B2 reserve, or frozen budget")
-
-now = datetime.now(UTC)
-rate_verified_at = timestamp(sys.argv[2], "rate verification")
-created_at = timestamp(sys.argv[3], "server creation")
-accrued_verified_at = timestamp(sys.argv[5], "accrued-cost verification")
-for verified_at, label in (
-    (rate_verified_at, "all-in hourly rate"),
-    (accrued_verified_at, "accrued infrastructure cost"),
-):
-    if verified_at > now + timedelta(minutes=5) or now - verified_at > timedelta(hours=24):
-        raise SystemExit(f"the owner must reverify the {label} within 24 hours of launch")
-if created_at > now + timedelta(minutes=5):
-    raise SystemExit("server creation time cannot be in the future")
-
-worker_hours = Decimal("96")
-projected_future_infrastructure = worker_hours * rate
-projected_all_in = accrued + projected_future_infrastructure + reserve
-if projected_all_in > cap:
-    raise SystemExit("verified accrued cost plus worker window and B2 reserve exceeds $75")
 print(
     json.dumps(
         {
-            "verified_rate_usd_per_hour": str(rate),
-            "rate_verified_at_utc": rate_verified_at.isoformat(),
-            "server_created_at_utc": created_at.isoformat(),
-            "verified_accrued_infrastructure_usd": str(accrued),
-            "accrued_cost_verified_at_utc": accrued_verified_at.isoformat(),
+            "billing_status": "unknown",
+            "manual_billing_inputs_required": False,
+            "dollar_cap_enforced": False,
+            "verified_rate_usd_per_hour": None,
+            "verified_accrued_infrastructure_usd": None,
             "maximum_worker_hours": 96,
-            "projected_future_infrastructure_usd": str(
-                projected_future_infrastructure.quantize(Decimal("0.001"))
-            ),
-            "b2_cost_reserve_usd": str(reserve),
-            "projected_all_in_usd": str(projected_all_in.quantize(Decimal("0.001"))),
-            "hard_cap_usd": str(cap),
+            "projected_future_infrastructure_usd": None,
+            "b2_cost_reserve_usd": None,
+            "projected_all_in_usd": None,
+            "hard_cap_usd": None,
         },
         sort_keys=True,
         separators=(",", ":"),
     )
 )
 PY
-)" || die "current owner-verified pricing does not fit the frozen $75 all-in cap"
+)" || die "could not record unknown billing status"
 
 git_as_service=(runuser -u "$ECHOES_SERVICE_USER" -- git -C "$ECHOES_REPO_ROOT")
 observed_commit="$("${git_as_service[@]}" rev-parse --verify HEAD)"
@@ -348,6 +306,57 @@ observed_config_sha256="$(sha256sum "$config_path" | awk '{print $1}')"
 [[ "$observed_config_sha256" == "$CONFIG_FILE_SHA256" ]] ||
     die "final-discovery-v1 YAML bytes differ from the frozen SHA-256"
 uv_lock_sha256="$(sha256sum "$ECHOES_REPO_ROOT/uv.lock" | awk '{print $1}')"
+
+# All ordinary work paths retain the fresh-run 280 GiB requirement. Only the
+# exact recovery successors can use their reviewed remaining allocation PLUS
+# the untouched 80 GiB floor, after reauthenticating all imported stages.
+# The eight-stage successor also requires the measured review materialization
+# gate inside Stage 9; launch capacity alone does not guarantee that review fits.
+required_launch_free_bytes=$((280 * 1024 * 1024 * 1024))
+launch_capacity_json='{"basis":"fresh_run_280_gib","required_launch_free_bytes":300647710720}'
+if [[ "$ECHOES_WORK_DIR" == /srv/project-echoes/final-discovery/work-20260922-m7-null-recovery || \
+      "$ECHOES_WORK_DIR" == /srv/project-echoes/final-discovery/work-20260923-calibration-memory || \
+      "$ECHOES_WORK_DIR" == /srv/project-echoes/final-discovery/work-20260923-review-disk || \
+      "$ECHOES_WORK_DIR" == /srv/project-echoes/final-discovery/work-20260923-review-compressed ]]; then
+    launch_capacity_json="$(runuser -u "$ECHOES_SERVICE_USER" -- env HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
+        sh -c 'cd -- "$1" && exec "$2" run --frozen --no-sync python cloud/final_discovery_resume_disk.py --project-root "$1" --work-directory "$3" --expected-commit "$4" --prepared-passages "$5" --knownness "$6" --offline-model-root "$7"' \
+        sh "$ECHOES_REPO_ROOT" "$ECHOES_UV_BIN" "$ECHOES_WORK_DIR" "$observed_commit" \
+        "$ECHOES_PREPARED_PASSAGES" "$ECHOES_KNOWNNESS_PATH" "$ECHOES_MODEL_ROOT")" ||
+        die "recovery launch capacity lacks authenticated imported-stage proof"
+    required_launch_free_bytes="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["required_launch_free_bytes"])' "$launch_capacity_json")" ||
+        die "recovery launch capacity proof is malformed"
+    if [[ "$ECHOES_WORK_DIR" == /srv/project-echoes/final-discovery/work-20260923-review-disk || \
+      "$ECHOES_WORK_DIR" == /srv/project-echoes/final-discovery/work-20260923-review-compressed ]]; then
+        python3 - "$launch_capacity_json" "$ECHOES_WORK_DIR" <<'PY' || die "eight-stage recovery launch capacity requirement differs"
+import json, sys
+proof = json.loads(sys.argv[1])
+assert proof['basis'] == 'authenticated_eight_stage_import_with_measured_review_materialization_gate'
+assert proof['review_materialization_gate_required'] is True
+assert proof['checkpoint_disk_floor_bytes'] == 80 * 1024**3
+assert proof['evidence_index_allowance_bytes'] == 358384436
+assert proof['metadata_allowance_bytes'] == 1024**3
+assert isinstance(proof['remaining_tier_ledger_upper_bound_bytes'], int)
+assert proof['remaining_tier_ledger_upper_bound_bytes'] > 0
+scratch = 0
+if sys.argv[2] == '/srv/project-echoes/final-discovery/work-20260923-review-compressed':
+    scratch = max(20 * 1024**3, 6 * proof['remaining_tier_ledger_upper_bound_bytes'] + 8 * 1024**3)
+    assert proof['validator_scratch_allowance_bytes'] == scratch
+    assert proof['validator_scratch_allowance_is_peak_guarantee'] is False
+    assert proof['validator_scratch_allowance_basis'] == 'max_20_gib_or_6_candidate_ledger_bytes_plus_8_gib'
+    assert proof['review_materialization_gate_basis'] == 'measured_parquet_then_exact_deterministic_gzip_csv_bytes_plus_tier_ledgers_validator_scratch_80_gib_and_metadata'
+assert proof['required_launch_free_bytes'] == (
+    80 * 1024**3 + proof['remaining_tier_ledger_upper_bound_bytes'] + 358384436 + 1024**3 + scratch)
+PY
+    elif [[ "$ECHOES_WORK_DIR" == /srv/project-echoes/final-discovery/work-20260923-calibration-memory ]]; then
+        [[ "$required_launch_free_bytes" == 162204221220 ]] || die "six-stage recovery launch capacity requirement differs"
+    else
+        [[ "$required_launch_free_bytes" == 225737600612 ]] || die "five-stage recovery launch capacity requirement differs"
+    fi
+fi
+available_bytes="$(df -B1 --output=avail "$ECHOES_WORK_DIR" | tail -n 1 | tr -d ' ')"
+[[ "$available_bytes" =~ ^[0-9]+$ ]] || die "could not measure work-filesystem free space"
+(( available_bytes >= required_launch_free_bytes )) ||
+    die "work filesystem has less than the authenticated launch requirement ($required_launch_free_bytes bytes)"
 
 # Validate configuration and the exact offline model allowlist before stage 1
 # can spend time materializing the archived M7 tree. Offline flags prevent an
@@ -494,6 +503,9 @@ PY
     exit 0
 fi
 
+remaining_runtime_seconds="$(bash "$recovery_window_helper" --remaining "$ECHOES_WORK_DIR")" ||
+    die "fixed recovery deadline expired during preflight"
+
 launch_id="$(date -u +%Y%m%dT%H%M%SZ)-${observed_commit:0:12}"
 intent_path="$STATE_ROOT/launches/$launch_id.intent.json"
 startup_path="$STATE_ROOT/launches/$launch_id.startup.json"
@@ -513,7 +525,8 @@ trap seal_logs EXIT
 python3 - "$intent_path" "$launch_id" "$observed_commit" "$git_tree" \
     "$git_archive_sha256" "$observed_config_sha256" "$CONFIG_SEMANTIC_SHA256" \
     "$uv_lock_sha256" "$model_runtime_json" "$output_namespace_json" \
-    "$available_bytes" "$budget_json" "$stdout_log" "$stderr_log" <<'PY'
+    "$available_bytes" "$budget_json" "$stdout_log" "$stderr_log" \
+    "$RECOVERY_WINDOW_FILE" "$remaining_runtime_seconds" "$launch_capacity_json" <<'PY'
 from __future__ import annotations
 
 import json
@@ -537,6 +550,9 @@ from pathlib import Path
     budget_json,
     stdout_log,
     stderr_log,
+    recovery_window_file,
+    remaining_runtime_seconds,
+    launch_capacity_json,
 ) = sys.argv[1:]
 
 safe_names = (
@@ -563,7 +579,6 @@ safe_names = (
     "ECHOES_FINAL_DISCOVERY_INITIAL_FREE_DISK_GIB",
     "ECHOES_FINAL_DISCOVERY_DISK_FLOOR_GIB",
     "ECHOES_FINAL_DISCOVERY_RUNTIME_HOURS",
-    "ECHOES_HARD_BUDGET_USD",
 )
 command = [
     os.environ["ECHOES_UV_BIN"],
@@ -598,6 +613,11 @@ payload = {
     "service_unit": "echoes-final-discovery.service",
     "command": command,
     "environment": {name: os.environ[name] for name in safe_names},
+    "recovery": {
+        "m7_projection_receipt_sha256": os.environ.get("ECHOES_M7_PROJECTION_RECEIPT_SHA256"),
+        "window": json.loads(Path(recovery_window_file).read_text(encoding="utf-8")),
+        "remaining_seconds_at_intent": int(remaining_runtime_seconds),
+    },
     "secret_environment": {
         "B2_APPLICATION_KEY_ID": "present_not_recorded",
         "B2_APPLICATION_KEY": "present_not_recorded",
@@ -622,7 +642,9 @@ payload = {
         "process_memory_ceiling_gib": 56,
         "duckdb_ceiling_gib": 40,
         "m7_projection_internal_bound": "1 GiB and one thread",
-        "initial_free_disk_gib": 280,
+        "fresh_run_initial_free_disk_gib": 280,
+        "required_launch_free_bytes": json.loads(launch_capacity_json)["required_launch_free_bytes"],
+        "launch_capacity": json.loads(launch_capacity_json),
         "checkpoint_disk_floor_gib": 80,
         "runtime_max_hours": 96,
         "available_bytes_at_launch": int(available_bytes),
@@ -648,6 +670,9 @@ chmod 0440 "$intent_path"
 intent_sha256="$(sha256sum "$intent_path" | awk '{print $1}')"
 [[ "$intent_sha256" =~ ^[a-f0-9]{64}$ ]] || die "could not authenticate launch intent"
 
+# Recheck immediately before worker creation; retries never receive a new 96h.
+remaining_runtime_seconds="$(bash "$recovery_window_helper" --remaining "$ECHOES_WORK_DIR")" ||
+    die "fixed recovery deadline expired before worker creation"
 systemd-run \
     --unit="$UNIT_NAME" \
     --description="Project Echoes final-discovery-v1 canonical campaign" \
@@ -657,7 +682,7 @@ systemd-run \
     --property="WorkingDirectory=$ECHOES_REPO_ROOT" \
     --property="EnvironmentFile=$ENV_FILE" \
     --property=Restart=no \
-    --property=RuntimeMaxSec=96h \
+    --property="RuntimeMaxSec=${remaining_runtime_seconds}s" \
     --property=TimeoutStopSec=5min \
     --property=KillMode=control-group \
     --property=OOMPolicy=stop \

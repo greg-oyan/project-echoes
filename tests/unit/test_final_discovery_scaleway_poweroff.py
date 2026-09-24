@@ -89,25 +89,22 @@ def test_installer_only_installs_and_verifies_guard() -> None:
     assert "--poweroff" not in operational
 
 
-def test_preflight_always_requests_provider_poweroff_and_preserves_result() -> None:
+def test_preflight_returns_result_without_service_or_return_control_poweroff() -> None:
     script = PREFLIGHT.read_text(encoding="utf-8")
 
-    assert 'bash "$ADAPTER" --preflight-only || preflight_status=$?' in script
-    assert 'bash "$POWER_OFF_GUARD" --poweroff || poweroff_status=$?' in script
-    assert "SCALEWAY_PREFLIGHT_POWERDOWN_REQUESTED" in script
-    assert 'exit "$preflight_status"' in script
+    assert script.rstrip().endswith('bash "$ADAPTER" --preflight-only')
+    assert "--poweroff" not in script
     assert "systemd-run" not in script
 
 
-def test_scaleway_adapter_binds_every_poweroff_boundary_once() -> None:
+def test_scaleway_adapter_powers_off_on_success_without_recoverable_failure_traps() -> None:
     script = ADAPTER.read_text(encoding="utf-8")
 
     assert "scaleway_poweroff_guard.sh" in script
     assert 'bash "$POWER_OFF_GUARD" --verify-only' in script
     assert script.count("--property=OnSuccess=echoes-final-discovery-poweroff.service") == 1
-    assert script.count("--property=OnFailure=echoes-final-discovery-poweroff.service") == 1
-    assert script.count('bash "$POWER_OFF_GUARD" --poweroff') == 1
+    assert "--property=OnFailure=" not in script
+    assert 'bash "$POWER_OFF_GUARD" --poweroff' not in script
     assert script.count('bash "$adapter" "$@"') == 1
-    assert "poweroff_if_unsuccessful=true" in script
-    assert "poweroff_if_unsuccessful=false" in script
+    assert "poweroff_if_unsuccessful" not in script
     assert "trap cleanup EXIT" in script

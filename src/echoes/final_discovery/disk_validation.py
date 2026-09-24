@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Literal, Self, cast
 
 import duckdb
+import pyarrow as pa  # type: ignore[import-untyped]
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from echoes.final_discovery import validation as memory_validation
@@ -31,6 +32,7 @@ from echoes.final_discovery.config import (
 )
 from echoes.final_discovery.features import candidate_pair_id, evidence_id
 from echoes.final_discovery.knownness import KnownnessIndex, KnownRelationship
+from echoes.final_discovery.m7_null_provenance import M7NullProvenance
 from echoes.final_discovery.models import (
     EvidenceRow,
     FinalCandidate,
@@ -41,6 +43,7 @@ from echoes.final_discovery.models import (
 from echoes.final_discovery.nulls import EnsembleNullCalibrationRow
 from echoes.final_discovery.stages import (
     FINAL_DISCOVERY_STAGE_IDS,
+    StageCompletionManifest,
     StageRegistrationLike,
     StageStore,
     StageStoreError,
@@ -62,6 +65,16 @@ _MINIMUM_TEMP_FREE_BYTES = 256 * 1024**2
 _MAXIMUM_DECODED_FETCH_ROWS = 4_096
 _REPORT_FILE_NAME = "validation-report.json"
 _RECEIPT_FILE_NAME = "validation-receipt.json"
+_INSERT_TABLE_WIDTHS = {
+    "evidence_identity": 5,
+    "drafts": 18,
+    "candidates": 6,
+    "full_null": 20,
+    "ablated_null": 20,
+    "known_relationships": 5,
+    "expected_base": 6,
+    "expected_candidates": 2,
+}
 
 
 class DiskFinalDiscoveryValidationError(ValueError):
@@ -93,6 +106,7 @@ class DiskValidationResourceReceipt(_FrozenModel):
     maximum_decoded_rows_per_fetch: int = Field(ge=1, le=_MAXIMUM_DECODED_FETCH_ROWS)
     finding_limit: int = Field(ge=1)
     minimum_temp_free_bytes: int = Field(ge=_MINIMUM_TEMP_FREE_BYTES)
+    minimum_remaining_free_bytes: int = Field(default=0, ge=0)
     initial_temp_free_bytes: int = Field(ge=0)
     duckdb_database_peak_bytes: int = Field(ge=0)
     maximum_evidence_rows_retained_per_pair: int = Field(ge=0)
@@ -230,12 +244,38 @@ def _sha256_rows(rows: Iterable[object]) -> tuple[int, str]:
 
 def _flush_batch(
     connection: duckdb.DuckDBPyConnection,
-    statement: str,
+    table_name: str,
     rows: list[tuple[object, ...]],
 ) -> None:
-    if rows:
-        connection.executemany(statement, rows)
-        rows.clear()
+    """Insert one bounded, schema-typed Arrow batch in one transaction.
+
+    Row-wise executemany against the durable database commits every row and
+    makes whole-corpus strict validation impractically slow. The database's
+    own schema also ensures an all-null rank batch remains nullable BIGINT.
+    """
+
+    if not rows:
+        return
+    width = _INSERT_TABLE_WIDTHS.get(table_name)
+    if width is None or any(len(row) != width for row in rows):
+        raise DiskFinalDiscoveryValidationError("invalid validation insertion table or row width")
+    schema = connection.execute(f"SELECT * FROM {table_name} LIMIT 0").to_arrow_table().schema
+    if len(schema) != width:
+        raise DiskFinalDiscoveryValidationError("validation insertion schema width differs")
+    batch = pa.Table.from_arrays(
+        [
+            pa.array([row[index] for row in rows], type=field.type)
+            for index, field in enumerate(schema)
+        ],
+        schema=schema,
+    )
+    batch_name = f"echoes_validation_{table_name}_batch"
+    connection.register(batch_name, batch)
+    try:
+        connection.execute(f"INSERT INTO {table_name} SELECT * FROM {batch_name}")
+    finally:
+        connection.unregister(batch_name)
+    rows.clear()
 
 
 def _first_row(
@@ -245,6 +285,62 @@ def _first_row(
 ) -> tuple[object, ...] | None:
     row = connection.execute(query, parameters or []).fetchone()
     return cast(tuple[object, ...] | None, row)
+
+
+def _bounded_payload_batches(
+    connection: duckdb.DuckDBPyConnection,
+    *,
+    key_query: str,
+    payload_query: str,
+    batch_size: int,
+) -> Iterator[list[tuple[Any, ...]]]:
+    """Globally sort only keys/sizes; hydrate at most 16 MiB per key range.
+
+    Fetching a wide global join in small Python batches does not bound DuckDB's
+    materialized join/sort. Both wide sides must be filtered before joining.
+    Key queries return one row per distinct key with its bytes and multiplicity.
+    A single indivisible record may exceed the byte target.
+    """
+
+    fetch_size = min(batch_size, _MAXIMUM_DECODED_FETCH_ROWS)
+    payload_limit = _MINIMUM_MEMORY_BYTES // 16
+    reader = connection.cursor()
+    payload_reader = connection.cursor()
+    pending: list[str] = []
+    pending_bytes = 0
+    pending_rows = 0
+
+    def hydrate() -> Iterator[list[tuple[Any, ...]]]:
+        payload_reader.execute(payload_query, [pending[0], pending[-1]])
+        observed_count = 0
+        while batch := payload_reader.fetchmany(fetch_size):
+            observed_count += len(batch)
+            yield batch
+        if observed_count != pending_rows:
+            raise DiskFinalDiscoveryValidationError(
+                "bounded validation payload projection lost or repeated rows"
+            )
+
+    try:
+        reader.execute(key_query)
+        while keys := reader.fetchmany(fetch_size):
+            for pair_id, payload_bytes, row_count in keys:
+                if pending and (
+                    pending_rows + int(row_count) > fetch_size
+                    or pending_bytes + int(payload_bytes) > payload_limit
+                ):
+                    yield from hydrate()
+                    pending.clear()
+                    pending_bytes = 0
+                    pending_rows = 0
+                pending.append(str(pair_id))
+                pending_bytes += int(payload_bytes)
+                pending_rows += int(row_count)
+        if pending:
+            yield from hydrate()
+    finally:
+        reader.close()
+        payload_reader.close()
 
 
 def _close(left: float, right: float, *, tolerance: float = 1e-12) -> bool:
@@ -403,6 +499,7 @@ def _validate_evidence_row(
     registrations: Mapping[str, DetectorRegistration],
     expected_source_artifact_sha256: Mapping[str, str] | None,
     collector: _FindingCollector,
+    m7_null_provenance: M7NullProvenance | None = None,
 ) -> None:
     expected_pair_id = candidate_pair_id(row.passage_a_id, row.passage_b_id)
     if row.candidate_pair_id != expected_pair_id:
@@ -492,6 +589,7 @@ def _validate_evidence_row(
                 trace,
                 config=config,
                 findings=local_findings,
+                m7_null_provenance=m7_null_provenance,
             )
         elif row.detector_id in {
             "multilingual_e5_original_language",
@@ -618,6 +716,7 @@ def _ingest_evidence(
     expected_source_artifact_sha256: Mapping[str, str] | None,
     collector: _FindingCollector,
     batch_size: int,
+    m7_null_provenance: M7NullProvenance | None = None,
 ) -> tuple[int, int, int]:
     evidence_rows: list[tuple[object, ...]] = []
     draft_rows: list[tuple[object, ...]] = []
@@ -647,7 +746,7 @@ def _ingest_evidence(
             if len(draft_rows) >= batch_size:
                 _flush_batch(
                     connection,
-                    "INSERT INTO drafts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "drafts",
                     draft_rows,
                 )
 
@@ -668,6 +767,7 @@ def _ingest_evidence(
             config=config,
             registrations=registrations,
             expected_source_artifact_sha256=expected_source_artifact_sha256,
+            m7_null_provenance=m7_null_provenance,
             collector=collector,
         )
         evidence_rows.append(
@@ -683,18 +783,18 @@ def _ingest_evidence(
         if len(evidence_rows) >= batch_size:
             _flush_batch(
                 connection,
-                "INSERT INTO evidence_identity VALUES (?,?,?,?,?)",
+                "evidence_identity",
                 evidence_rows,
             )
     finish_pair()
     _flush_batch(
         connection,
-        "INSERT INTO evidence_identity VALUES (?,?,?,?,?)",
+        "evidence_identity",
         evidence_rows,
     )
     _flush_batch(
         connection,
-        "INSERT INTO drafts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "drafts",
         draft_rows,
     )
     duplicate_evidence = _first_row(
@@ -773,8 +873,8 @@ def _ingest_candidates(
         tier_a_count += int(candidate.tier_a_eligible)
         tier_b_count += int(candidate.tier_b_rank is not None)
         if len(rows) >= batch_size:
-            _flush_batch(connection, "INSERT INTO candidates VALUES (?,?,?,?,?,?)", rows)
-    _flush_batch(connection, "INSERT INTO candidates VALUES (?,?,?,?,?,?)", rows)
+            _flush_batch(connection, "candidates", rows)
+    _flush_batch(connection, "candidates", rows)
     duplicate = _first_row(
         connection,
         """
@@ -832,8 +932,8 @@ def _ingest_null_ledger(
         rows.append(_null_insert_tuple(row))
         count += 1
         if len(rows) >= batch_size:
-            _flush_batch(connection, f"INSERT INTO {table} VALUES ({','.join('?' * 20)})", rows)
-    _flush_batch(connection, f"INSERT INTO {table} VALUES ({','.join('?' * 20)})", rows)
+            _flush_batch(connection, table, rows)
+    _flush_batch(connection, table, rows)
     return count
 
 
@@ -874,12 +974,12 @@ def _ingest_knownness(
         if len(rows) >= batch_size:
             _flush_batch(
                 connection,
-                "INSERT INTO known_relationships VALUES (?,?,?,?,?)",
+                "known_relationships",
                 rows,
             )
     _flush_batch(
         connection,
-        "INSERT INTO known_relationships VALUES (?,?,?,?,?)",
+        "known_relationships",
         rows,
     )
     duplicate = _first_row(
@@ -1311,7 +1411,7 @@ def _exclusion_reasons(
     return tuple(reasons)
 
 
-_EXPECTED_BASE_INSERT = "INSERT INTO expected_base VALUES (?,?,?,?,?,?)"
+_EXPECTED_BASE_INSERT = "expected_base"
 
 
 def _create_expected_base(
@@ -1464,17 +1564,23 @@ def _create_expected_candidates(
         WHERE tier_b_rank<={tier_b_size}
         """
     )
-    cursor = connection.cursor().execute(
-        """
+    batches = _bounded_payload_batches(
+        connection,
+        key_query="""
+        SELECT candidate_pair_id,length(payload_json),1
+        FROM expected_base ORDER BY candidate_pair_id
+        """,
+        payload_query="""
         SELECT base.candidate_pair_id,base.payload_json,tier.tier_b_rank
         FROM expected_base base
         LEFT JOIN expected_tier_b tier USING (candidate_pair_id)
+        WHERE base.candidate_pair_id BETWEEN ? AND ?
         ORDER BY base.candidate_pair_id
-        """
+        """,
+        batch_size=batch_size,
     )
     output_rows: list[tuple[object, ...]] = []
-    fetch_size = min(batch_size, _MAXIMUM_DECODED_FETCH_ROWS)
-    while batch := cursor.fetchmany(fetch_size):
+    for batch in batches:
         for pair_id, payload_json, tier_b_rank in batch:
             parsed = json.loads(str(payload_json))
             if not isinstance(parsed, dict):
@@ -1493,7 +1599,7 @@ def _create_expected_candidates(
             output_rows.append((str(pair_id), _model_json(expected)))
         _flush_batch(
             connection,
-            "INSERT INTO expected_candidates VALUES (?,?)",
+            "expected_candidates",
             output_rows,
         )
 
@@ -1558,15 +1664,39 @@ def _validate_candidates_against_expected(
         code="candidate-output-order",
         message="candidate ledger is not sorted by descending score and stable pair ID",
     )
-    cursor = connection.execute(
+    # Materialize lengths before joining: DuckDB otherwise keeps both wide
+    # raw_json columns in the global hash join and evaluates length above it.
+    connection.execute(
         """
-        SELECT c.raw_json,e.raw_json
-        FROM candidates c JOIN expected_candidates e USING (candidate_pair_id)
-        ORDER BY c.candidate_pair_id
+        CREATE TABLE candidate_payload_sizes AS
+        SELECT candidate_pair_id,length(raw_json) AS payload_size FROM candidates;
+        CREATE TABLE expected_candidate_payload_sizes AS
+        SELECT candidate_pair_id,length(raw_json) AS payload_size FROM expected_candidates;
         """
     )
-    fetch_size = min(batch_size, _MAXIMUM_DECODED_FETCH_ROWS)
-    while batch := cursor.fetchmany(fetch_size):
+    batches = _bounded_payload_batches(
+        connection,
+        key_query="""
+        SELECT c.candidate_pair_id,sum(c.payload_size+e.payload_size),count(*)
+        FROM candidate_payload_sizes c
+        JOIN expected_candidate_payload_sizes e USING (candidate_pair_id)
+        GROUP BY c.candidate_pair_id ORDER BY c.candidate_pair_id
+        """,
+        payload_query="""
+        WITH bounds AS (SELECT ?::VARCHAR AS low_id,?::VARCHAR AS high_id)
+        SELECT c.raw_json,e.raw_json
+        FROM (
+            SELECT candidate_pair_id,raw_json FROM candidates,bounds
+            WHERE candidate_pair_id BETWEEN low_id AND high_id
+        ) c JOIN (
+            SELECT candidate_pair_id,raw_json FROM expected_candidates,bounds
+            WHERE candidate_pair_id BETWEEN low_id AND high_id
+        ) e USING (candidate_pair_id)
+        ORDER BY c.candidate_pair_id
+        """,
+        batch_size=batch_size,
+    )
+    for batch in batches:
         for observed_json, expected_json in batch:
             observed = FinalCandidate.model_validate_json(str(observed_json))
             expected = FinalCandidate.model_validate_json(str(expected_json))
@@ -1663,9 +1793,10 @@ def _authenticate_stages(
         authenticated = len(completions)
     else:
         authenticated = 0
+        cache: dict[str, StageCompletionManifest] = {}
         for stage_id in FINAL_DISCOVERY_STAGE_IDS:
             try:
-                stage_store.authenticate_completion(stage_id)
+                stage_store.authenticate_completion(stage_id, _cache=cache)
             except StageStoreError:
                 break
             authenticated += 1
@@ -1742,6 +1873,32 @@ def _input_still_matches(path: Path, expected: DiskValidationInputReceipt) -> No
         )
 
 
+def validation_scratch_reserve_bytes(candidate_size_bytes: int) -> int:
+    """Conservatively plan one sequential strict-validation workspace.
+
+    Allow six uncompressed candidate-ledger sizes for candidate, expected,
+    draft, WAL and wide-join state, plus 8 GiB for narrow evidence/null/knownness
+    tables and working space. This is admission planning, not a proof of a
+    DuckDB allocation upper bound; phase boundaries also enforce the floor.
+    The post-package validation reuses this reserve after Stage 10 removes its
+    successful temporary database.
+    """
+
+    if candidate_size_bytes < 0:
+        raise ValueError("candidate ledger size must be nonnegative")
+    return max(20 * 1024**3, 6 * candidate_size_bytes + 8 * 1024**3)
+
+
+def _require_remaining_space(temp_directory: Path, minimum_remaining_free_bytes: int) -> None:
+    if minimum_remaining_free_bytes:
+        free = shutil.disk_usage(temp_directory).free
+        if free < minimum_remaining_free_bytes:
+            raise DiskFinalDiscoveryValidationError(
+                "strict validation temporary storage is below its remaining free-space floor: "
+                f"{free} bytes free; {minimum_remaining_free_bytes} bytes required"
+            )
+
+
 def _run_validation(
     database_path: Path,
     staging: Path,
@@ -1763,7 +1920,9 @@ def _run_validation(
     batch_size: int,
     finding_limit: int,
     minimum_temp_free_bytes: int,
+    minimum_remaining_free_bytes: int,
     initial_temp_free_bytes: int,
+    m7_null_provenance: M7NullProvenance | None = None,
 ) -> tuple[FinalDiscoveryValidationReport, DiskFinalDiscoveryValidationReceipt]:
     collector = _FindingCollector(limit=finding_limit, findings=[])
     try:
@@ -1783,28 +1942,34 @@ def _run_validation(
             passages=passages,
             config=config,
             expected_source_artifact_sha256=expected_source_artifact_sha256,
+            m7_null_provenance=m7_null_provenance,
             collector=collector,
             batch_size=batch_size,
         )
+        _require_remaining_space(temp_directory, minimum_remaining_free_bytes)
         candidate_count, tier_a_count, tier_b_count = _ingest_candidates(
             connection,
             candidates_path,
             collector=collector,
             batch_size=batch_size,
         )
+        _require_remaining_space(temp_directory, minimum_remaining_free_bytes)
         _ingest_null_ledger(
             connection,
             full_null_path,
             table="full_null",
             batch_size=batch_size,
         )
+        _require_remaining_space(temp_directory, minimum_remaining_free_bytes)
         _ingest_null_ledger(
             connection,
             remove_all_english_null_path,
             table="ablated_null",
             batch_size=batch_size,
         )
+        _require_remaining_space(temp_directory, minimum_remaining_free_bytes)
         _ingest_knownness(connection, knownness, batch_size=batch_size)
+        _require_remaining_space(temp_directory, minimum_remaining_free_bytes)
         known_relationship_count, knownness_sha256 = _knownness_identity(
             connection,
             batch_size=batch_size,
@@ -1826,16 +1991,19 @@ def _run_validation(
             collector=collector,
         )
         _create_knownness_and_q_state(connection)
+        _require_remaining_space(temp_directory, minimum_remaining_free_bytes)
         expected_count = _create_expected_base(
             connection,
             config=config,
             batch_size=batch_size,
         )
+        _require_remaining_space(temp_directory, minimum_remaining_free_bytes)
         _create_expected_candidates(
             connection,
             tier_b_size=config.tiers.tier_b_size,
             batch_size=batch_size,
         )
+        _require_remaining_space(temp_directory, minimum_remaining_free_bytes)
         if expected_count != evidence_pair_count:
             collector.add(
                 "candidate-population",
@@ -1849,12 +2017,14 @@ def _run_validation(
             collector=collector,
             batch_size=batch_size,
         )
+        _require_remaining_space(temp_directory, minimum_remaining_free_bytes)
         authenticated_stage_count = _authenticate_stages(
             stage_store,
             expected_authenticated_stage_count,
             collector,
         )
         connection.execute("CHECKPOINT")
+        _require_remaining_space(temp_directory, minimum_remaining_free_bytes)
     database_peak_bytes = _database_size(database_path)
     for path, input_receipt in zip(
         (
@@ -1884,6 +2054,7 @@ def _run_validation(
         maximum_decoded_rows_per_fetch=min(batch_size, _MAXIMUM_DECODED_FETCH_ROWS),
         finding_limit=finding_limit,
         minimum_temp_free_bytes=minimum_temp_free_bytes,
+        minimum_remaining_free_bytes=minimum_remaining_free_bytes,
         initial_temp_free_bytes=initial_temp_free_bytes,
         duckdb_database_peak_bytes=database_peak_bytes,
         maximum_evidence_rows_retained_per_pair=maximum_pair_rows,
@@ -1929,9 +2100,11 @@ def validate_final_discovery_disk_backed(
     stage_store: StageStore | None = None,
     expected_authenticated_stage_count: int | None = None,
     minimum_temp_free_bytes: int = 1024**3,
+    minimum_remaining_free_bytes: int = 0,
     threads: int = 1,
     batch_size: int = 65_536,
     finding_limit: int = 1_000,
+    m7_null_provenance: M7NullProvenance | None = None,
 ) -> DiskFinalDiscoveryValidationResult:
     """Strictly validate canonical final-discovery ledgers in bounded state.
 
@@ -1957,6 +2130,8 @@ def validate_final_discovery_disk_backed(
         raise DiskFinalDiscoveryValidationError(
             "minimum temporary free-space requirement must be at least 256 MiB"
         )
+    if minimum_remaining_free_bytes < 0:
+        raise DiskFinalDiscoveryValidationError("remaining free-space floor must be nonnegative")
     if expected_authenticated_stage_count is not None and not (
         0 <= expected_authenticated_stage_count <= 11
     ):
@@ -2007,6 +2182,7 @@ def validate_final_discovery_disk_backed(
         raise DiskFinalDiscoveryValidationError(
             "temporary directory lacks the declared minimum free space"
         )
+    _require_remaining_space(temp_directory, minimum_remaining_free_bytes)
     staging = output_directory.with_name(f".{output_directory.name}.{uuid.uuid4().hex}.tmp")
     staging.mkdir(exist_ok=False)
     database_path = temp_directory / f"disk-validation-{uuid.uuid4().hex}.duckdb"
@@ -2031,7 +2207,9 @@ def validate_final_discovery_disk_backed(
             batch_size=batch_size,
             finding_limit=finding_limit,
             minimum_temp_free_bytes=minimum_temp_free_bytes,
+            minimum_remaining_free_bytes=minimum_remaining_free_bytes,
             initial_temp_free_bytes=initial_temp_free_bytes,
+            m7_null_provenance=m7_null_provenance,
         )
         _remove_database(database_path, temp_directory)
         if output_directory.exists():

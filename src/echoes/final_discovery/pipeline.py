@@ -22,6 +22,7 @@ from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from itertools import groupby
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Literal, cast
 from uuid import uuid4
 
@@ -64,6 +65,7 @@ from echoes.final_discovery.disk_validation import (
     DiskFinalDiscoveryValidationReceipt,
     DiskFinalDiscoveryValidationResult,
     validate_final_discovery_disk_backed,
+    validation_scratch_reserve_bytes,
 )
 from echoes.final_discovery.ensemble import (
     build_final_candidates,
@@ -106,6 +108,10 @@ from echoes.final_discovery.m7_adapter import (
     build_m7_hydration_index,
     build_m7_lexical_projection,
     iter_m7_raw_evidence,
+)
+from echoes.final_discovery.m7_null_provenance import (
+    M7NullProvenance,
+    authenticate_m7_null_provenance,
 )
 from echoes.final_discovery.models import (
     EvidenceFamily,
@@ -638,6 +644,15 @@ def run_final_discovery_campaign(request: CampaignRequest) -> CampaignRunResult:
     durable_checkpoint_receipts.append(_upload_stage_checkpoint(request, stage_five))
     stage_five_root = _artifact_root(request.stage_store, stage_five.manifest)
 
+    m7_null_provenance = (
+        _authenticate_source_m7_nulls(
+            stage_one_root,
+            request.m7_expectation.table_hashes_sha256,
+            request.stage_store.root.parent,
+        )
+        if request.execution_mode == "production"
+        else None
+    )
     _assert_checkpoint_disk_floor(request)
     stage_six = request.stage_store.run_stage(
         "anomaly_evidence",
@@ -653,6 +668,7 @@ def run_final_discovery_campaign(request: CampaignRequest) -> CampaignRunResult:
             stage_three_root,
             stage_four_root,
             stage_five_root,
+            m7_null_provenance=m7_null_provenance,
         ),
     )
     stage_results.append(stage_six)
@@ -675,6 +691,7 @@ def run_final_discovery_campaign(request: CampaignRequest) -> CampaignRunResult:
             stage_four_root,
             stage_five_root,
             stage_six_root,
+            m7_null_provenance=m7_null_provenance,
         ),
     )
     stage_results.append(stage_seven)
@@ -739,6 +756,7 @@ def run_final_discovery_campaign(request: CampaignRequest) -> CampaignRunResult:
             stage_five_root,
             stage_seven_root,
             stage_eight_root,
+            m7_null_provenance=m7_null_provenance,
         ),
     )
     stage_results.append(stage_ten)
@@ -806,6 +824,7 @@ def run_final_discovery_campaign(request: CampaignRequest) -> CampaignRunResult:
         review_summary = _read_json_object(stage_nine_root / "review-summary.json")
         all_stage_result = _run_or_authenticate_all_stage_disk_validation(
             request,
+            m7_null_provenance=m7_null_provenance,
             output_directory=(
                 request.stage_store.root.parent
                 / "campaign-validations"
@@ -1626,12 +1645,27 @@ def _produce_stage_three(
 ) -> None:
     semantic_pairs = set(_read_pair_index(stage_two_root / "semantic-index.json"))
     if request.execution_mode == "production":
-        projection_path = build_m7_lexical_projection(
-            stage_one_root / "m7",
-            root / "m7-lexical-projection.parquet",
-            memory_limit_bytes=_M7_PROJECTION_MEMORY_LIMIT_BYTES,
-            temp_directory=root / "duckdb-temp",
-        )
+        cache_receipt = request.stage_store.root.parent / "recovery/m7-projection/receipt.json"
+        cache_receipt_sha256 = os.environ.get("ECHOES_M7_PROJECTION_RECEIPT_SHA256")
+        if cache_receipt.exists() or cache_receipt_sha256 is not None:
+            from echoes.final_discovery.projection_cache import reuse_tested_projection
+
+            if not cache_receipt_sha256:
+                raise FinalDiscoveryCampaignError("M7 cache receipt has no pinned SHA-256")
+            projection_path = reuse_tested_projection(
+                cache_receipt,
+                stage_one_root / "m7",
+                root / "m7-lexical-projection.parquet",
+                expected_manifest_sha256=request.m7_expectation.table_hashes_sha256,
+                expected_receipt_sha256=cache_receipt_sha256,
+            )
+        else:
+            projection_path = build_m7_lexical_projection(
+                stage_one_root / "m7",
+                root / "m7-lexical-projection.parquet",
+                memory_limit_bytes=_M7_PROJECTION_MEMORY_LIMIT_BYTES,
+                temp_directory=root / "duckdb-temp",
+            )
         selected_m7_pairs = _select_m7_evidence_pairs(
             iter_m7_raw_evidence(
                 projection_path,
@@ -1887,6 +1921,22 @@ def _produce_stage_five(
     )
 
 
+def _authenticate_source_m7_nulls(
+    stage_one_root: Path,
+    expected_manifest_sha256: str,
+    temporary_parent: Path,
+) -> M7NullProvenance:
+    """Audit retained source experiments once, without changing M7 or its projection."""
+
+    with TemporaryDirectory(prefix="m7-null-auth-", dir=temporary_parent) as scratch:
+        return authenticate_m7_null_provenance(
+            stage_one_root / "m7",
+            expected_manifest_sha256=expected_manifest_sha256,
+            memory_limit_bytes=1024**3,
+            temp_directory=Path(scratch),
+        )
+
+
 def _produce_stage_six(
     root: Path,
     request: CampaignRequest,
@@ -1895,6 +1945,8 @@ def _produce_stage_six(
     stage_three_root: Path,
     stage_four_root: Path,
     stage_five_root: Path,
+    *,
+    m7_null_provenance: M7NullProvenance | None = None,
 ) -> None:
     scale = _campaign_scale_for_request(request, len(passage_by_id))
     sources = (
@@ -1904,10 +1956,14 @@ def _produce_stage_six(
     )
     source_hash = _hash_sequence(sha256_file(path) for path in sources)
     if request.execution_mode == "production":
+        if m7_null_provenance is None:
+            raise FinalDiscoveryCampaignError("Stage 6 requires authenticated M7 source nulls")
+        _write_json_new(root / "m7-null-provenance.json", m7_null_provenance.receipt)
         projection = project_anomaly_pair_scores_disk_backed(
             sources,
             root / "anomaly-pair-projection",
             config=request.config,
+            m7_null_provenance=m7_null_provenance,
             memory_limit_bytes=_FINAL_DISCOVERY_DUCKDB_MEMORY_LIMIT_BYTES,
             temp_directory=root / "anomaly-pair-projection-duckdb-temp",
             threads=_FINAL_DISCOVERY_DUCKDB_THREADS,
@@ -2008,6 +2064,8 @@ def _produce_stage_seven(
     stage_four_root: Path,
     stage_five_root: Path,
     stage_six_root: Path,
+    *,
+    m7_null_provenance: M7NullProvenance | None = None,
 ) -> None:
     scale = _campaign_scale_for_request(request, len(passage_by_id))
     source_paths = tuple(
@@ -2044,11 +2102,14 @@ def _produce_stage_seven(
     )
     seed = request.config.calibration.seeds["stratified_permutation"]
     if request.execution_mode == "production":
+        if m7_null_provenance is None:
+            raise FinalDiscoveryCampaignError("Stage 7 requires authenticated M7 source nulls")
         calibration = calibrate_detector_evidence_disk_backed(
             source_paths,
             _iter_pair_strata(source_paths, passage_by_id),
             root / "detector-calibration-bundle",
             config=request.config,
+            m7_null_provenance=m7_null_provenance,
             iterations=iterations,
             memory_limit_bytes=_FINAL_DISCOVERY_DUCKDB_MEMORY_LIMIT_BYTES,
             temp_directory=root / "detector-calibration-duckdb-temp",
@@ -2432,6 +2493,15 @@ def _produce_stage_nine(
                     prepare_selected_evidence=prepare_selected_evidence,
                     threshold_report=threshold_report,
                     tier_a_dossier_limit=request.config.review.tier_a_dossier_limit,
+                    minimum_free_disk_bytes=request.minimum_free_disk_bytes or 0,
+                    compress_csv=True,
+                    # Reserve the three tier ledgers, metadata, and the sequential
+                    # validation workspace before allocating the measured gzip CSV.
+                    reserved_tail_bytes=(
+                        candidates_path.stat().st_size
+                        + 1024**3
+                        + validation_scratch_reserve_bytes(candidates_path.stat().st_size)
+                    ),
                 )
                 if hydrated_m7_lookup.lookup_count != hydration_receipt.row_count:
                     raise FinalDiscoveryCampaignError(
@@ -2579,19 +2649,30 @@ def _produce_stage_ten(
     stage_five_root: Path,
     stage_seven_root: Path,
     stage_eight_root: Path,
+    *,
+    m7_null_provenance: M7NullProvenance | None = None,
 ) -> None:
     if request.execution_mode == "production":
+        if m7_null_provenance is None:
+            raise FinalDiscoveryCampaignError("Stage 10 requires authenticated M7 source nulls")
+        candidates_path = stage_eight_root / "candidates.jsonl"
         result = validate_final_discovery_disk_backed(
             stage_seven_root / "evidence.jsonl",
-            stage_eight_root / "candidates.jsonl",
+            candidates_path,
             stage_seven_root / "ensemble-null-full.jsonl",
             stage_seven_root / "ensemble-null-remove-all-english.jsonl",
             root / "disk-validation",
             passages=passage_by_id,
             knownness=iter_jsonl(relationships_path, KnownRelationship),
             config=request.config,
+            m7_null_provenance=m7_null_provenance,
             memory_limit_bytes=_FINAL_DISCOVERY_DUCKDB_MEMORY_LIMIT_BYTES,
             temp_directory=root / "disk-validation-duckdb-temp",
+            minimum_temp_free_bytes=(
+                (request.minimum_free_disk_bytes or 0)
+                + validation_scratch_reserve_bytes(candidates_path.stat().st_size)
+            ),
+            minimum_remaining_free_bytes=request.minimum_free_disk_bytes or 0,
             expected_source_artifact_sha256=_expected_evidence_source_hashes(
                 request,
                 stage_one_root,
@@ -2704,7 +2785,10 @@ def _run_or_authenticate_all_stage_disk_validation(
     passage_by_id: Mapping[str, PassageRecord],
     relationships_path: Path,
     expected_source_artifact_sha256: Mapping[str, str],
+    m7_null_provenance: M7NullProvenance | None = None,
 ) -> DiskFinalDiscoveryValidationResult:
+    if m7_null_provenance is None:
+        raise FinalDiscoveryCampaignError("Final validation requires authenticated M7 source nulls")
     input_paths = (evidence_path, candidates_path, full_null_path, ablated_null_path)
     if not output_directory.exists():
         validate_final_discovery_disk_backed(
@@ -2716,10 +2800,16 @@ def _run_or_authenticate_all_stage_disk_validation(
             passages=passage_by_id,
             knownness=iter_jsonl(relationships_path, KnownRelationship),
             config=request.config,
+            m7_null_provenance=m7_null_provenance,
             memory_limit_bytes=_FINAL_DISCOVERY_DUCKDB_MEMORY_LIMIT_BYTES,
             temp_directory=(
                 output_directory.parent / "campaign-validation-work" / output_directory.name
             ),
+            minimum_temp_free_bytes=(
+                (request.minimum_free_disk_bytes or 0)
+                + validation_scratch_reserve_bytes(candidates_path.stat().st_size)
+            ),
+            minimum_remaining_free_bytes=request.minimum_free_disk_bytes or 0,
             expected_source_artifact_sha256=expected_source_artifact_sha256,
             stage_store=request.stage_store,
             expected_authenticated_stage_count=11,
@@ -2845,6 +2935,9 @@ def _produce_stage_eleven(
                 "formulaic-control-report.json",
                 "campaign-scale-contract.json",
                 "input-file-anchors.json",
+                "checkpoint-reuse/reuse-provenance.json",
+                "checkpoint-reuse/authenticate_materialize_inputs.source-completion.json",
+                "checkpoint-reuse/semantic_representations_indexes.source-completion.json",
             ),
         ),
         "representations": (stage_two_root, None),

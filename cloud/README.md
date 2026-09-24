@@ -1,5 +1,15 @@
 # Milestone 7 cloud execution
 
+This document records the historical M7 execution contract. Its prices,
+lifecycle limits, startup-only monitoring rules, and owner-only cloud
+operations do not govern the owner-authorized 2026-09-20 recovery of the
+existing `final-discovery-v1` campaign. For that recovery use the
+[final-discovery runbook](../docs/final-discovery-cloud-runbook.md) and
+[ADR 0022](../docs/decisions/0022-owner-authorized-operational-recovery.md):
+continued bounded monitoring is authorized, manual billing gates are removed,
+and one persistent overall 96-hour deadline cannot reset on retry. Historical
+M7 scientific acceptance and preserved artifacts remain unchanged.
+
 This directory prepares, launches, inspects, validates, and retrieves the first
 Milestone 7 cloud run. It does not provision, purchase, connect to, resize, or
 destroy any cloud resource. The first run adopts the transferred interrupted

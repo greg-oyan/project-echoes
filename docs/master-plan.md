@@ -37,6 +37,12 @@ Codex must treat this project as a staged research program.
 
 This document is the sole governing implementation specification for Project Echoes. Amend requirements within the existing milestone numbers rather than creating a competing plan or renumbering milestones. A requirement added to a future milestone changes that milestone's specification; it does not authorize early implementation before the current milestone and acceptance gate are complete.
 
+The owner-authorized 2026-09-20 recovery of the existing `final-discovery-v1`
+campaign has the scoped operational exception recorded below under
+**Current final-discovery recovery** and in ADR 0022. That exception supersedes
+historical startup-only monitoring, manual billing, and operational milestone
+stops for this recovery; it does not waive scientific acceptance criteria.
+
 ## 2.1 General execution rules
 
 Codex must:
@@ -3052,6 +3058,94 @@ The consolidated campaign has these binding additions:
   determinism requirement.
 * After the final run and top-100 review, engine development stops. An empty
   Tier A is a valid final result.
+
+### Current final-discovery recovery
+
+ADR 0026 remedies the measured Stage 9 CSV capacity refusal by storing the
+complete production CSV as deterministic lossless `review.csv.gz`. Its
+decompressed bytes and canonical logical digests remain unchanged. Measure the
+exact compressed allocation and reserve remaining tier outputs, validation
+scratch and the unchanged 80-GiB floor before materialization. Strict
+validation uses typed bounded bulk inserts and phase-boundary space checks;
+all scientific and integrity checks remain mandatory. The exact compressed
+eight-stage successor retains original provenance and resumes at Stage 9.
+Stage 11 retains authenticated object-tree upload and hardlink staging.
+Neither local validation nor successful startup establishes final completion.
+
+ADR 0025 repairs Stage 9's excessive temporary review-export duplication after
+Stages 1-8 completed. Compressed canonical partitions and bounded Parquet-first
+output preserve every review record and exact CSV/logical digest. A measured
+CSV allocation check includes the remaining tier ledgers and unchanged 80-GiB
+floor. The exact eight-stage successor may reuse authenticated immutable
+payloads with original provenance and fresh ordinary completion records.
+Its launch reserve covers known remaining allocations; full export capacity
+is measured during Stage 9, not inferred from a compression ratio. The existing
+fixed deadline and scientific acceptance gates remain binding.
+
+ADR 0024 repairs a locally reproduced Stage 7 evidence-export memory failure
+by separating narrow calibration joins from bounded evidence hydration. Frozen
+science, the 4-GiB DuckDB limit and validation remain unchanged. The exact
+six-stage successor may reuse authenticated completed payloads through the
+existing immutable hardlink contract, retaining original provenance and fresh
+ordinary completion records. Its reviewed remaining-artifact reserve plus the
+unchanged 80-GiB floor is 162,204,221,220 bytes after import. Original payload
+bytes remain unchanged; hardlink creation changes link count/change time only.
+The fixed deadline below remains binding. See ADR 0024 for identity, capacity
+and failure-preservation requirements.
+
+ADR 0023 corrects the Stage 6 source-null authentication mismatch: canonical
+M7's false/no-qualified-threshold sentinel remains unchanged, while retained
+null runs and candidate outcomes are authenticated independently. Production
+consumers and final validation require that source proof. Authenticated reuse
+of unchanged completed Stages 1–5 under the repaired code must retain original
+completion provenance and use a fresh work directory/output namespace. The
+original fixed recovery deadline below applies unchanged to the successor.
+Its narrowly authenticated disk gate reserves the full original modeled
+artifact budget as additional future free space plus the unchanged 80-GiB
+checkpoint floor (225,737,600,612 bytes total), as specified in ADR 0023.
+Except for ADR 0024's six-stage and ADR 0025/0026's eight-stage successors,
+other launches retain the 280-GiB
+initial-space gate. No new resources or
+destructive cleanup are authorized by this recovery exception.
+
+On 2026-09-20 the owner explicitly authorized finishing the existing campaign,
+including necessary repairs, authenticated reuse of completed stages and
+passing receipts under ADR 0021, and monitoring through verified delivery.
+This is recovery of the existing experiment, not a second scientific campaign.
+The engineer may inspect status repeatedly and carry out necessary recovery
+without stopping after startup, at historical implementation milestones, or
+for repeated approval of already authorized operations. Failed integrity or
+scientific validation still blocks acceptance; repair must preserve the
+governed inputs, frozen thresholds, detector/null policy, and honest Tier A
+versus exploratory Tier B distinction. Historical M7 results and scientific
+gates remain unchanged.
+
+For this recovery, the owner removed dollar ceilings, manual verified-rate
+and accrued-cost inputs, and any billing-API prerequisite. A billing denial
+does not authorize broader credentials or fabricated financial values. Actual
+provider permissions, least-privilege credentials, exact-instance checks,
+data protection, sole-worker enforcement, and CPU/memory/disk limits remain.
+No new paid resource or destructive cleanup is authorized by this exception.
+
+One overall 96-hour recovery window is anchored to the first recorded recovery
+boot, `2026-09-21T02:46:42Z`, with fixed deadline `2026-09-25T02:46:42Z`.
+The earlier diagnostic boot counts; the next power-on is not a fresh start.
+This deadline persists across all attempts, repairs, restarts, and powered-off
+time; it cannot be reset or extended by a retry. Prepare and validate the
+recovery and shutdown safeguards before requesting power-on. Each worker is
+limited to the remaining window. A persistent absolute-deadline guard powers
+off the exact existing instance at expiry, including when no worker is active;
+success and an unrecoverable terminal failure also require poweroff. Recoverable
+failures may be repaired and retried within the remaining window. Poweroff
+must preserve staging, checkpoints, failure records, and B2 artifacts.
+
+Completion requires authenticated all-stage validation, exact remote output
+verification and retained receipts, followed by delivery of the results with
+Tier A clearly distinguished from the exploratory Tier B top 100 and actual
+passage-evidence examples. Empty Tier A is valid. Do not label partial or
+failed output complete. ADR 0022 and the
+[final-discovery cloud runbook](final-discovery-cloud-runbook.md) specify the
+operational procedure; neither changes the registered scientific experiment.
 
 ## Milestone 8: First unknown-candidate review
 

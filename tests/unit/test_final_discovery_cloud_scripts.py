@@ -29,7 +29,7 @@ def test_launcher_has_exact_detached_resource_and_scientific_contract() -> None:
     assert 'readonly ENV_FILE="/etc/project-echoes/final-discovery.env"' in script
     assert "systemd-run" in script
     assert "--property=Restart=no" in script
-    assert "--property=RuntimeMaxSec=96h" in script
+    assert '--property="RuntimeMaxSec=${remaining_runtime_seconds}s"' in script
     assert "--property=MemoryMax=56G" in script
     assert "--property=MemorySwapMax=0" in script
     assert "--property=CPUQuota=1200%" in script
@@ -37,9 +37,10 @@ def test_launcher_has_exact_detached_resource_and_scientific_contract() -> None:
     assert "--setenv=NVIDIA_VISIBLE_DEVICES=void" in script
     assert 'chmod 0400 "$stdout_log" "$stderr_log"' in script
     assert "ECHOES_FINAL_DISCOVERY_DISK_FLOOR_GIB 80" in script
-    assert "available_bytes >= 280 * 1024 * 1024 * 1024" in script
-    assert "ECHOES_HARD_BUDGET_USD 75.00" in script
-    assert "projected_all_in > cap" in script
+    assert "required_launch_free_bytes=$((280 * 1024 * 1024 * 1024))" in script
+    assert "available_bytes >= required_launch_free_bytes" in script
+    assert '"billing_status": "unknown"' in script
+    assert '"dollar_cap_enforced": False' in script
     assert "require_exact ECHOES_AUTHORIZE_PRODUCTION final-discovery-v1" in script
     assert 'knownness_receipt_path="${ECHOES_KNOWNNESS_PATH%.jsonl}.receipt.json"' in script
     assert "service user cannot read the knownness projection receipt" in script
@@ -143,7 +144,6 @@ def test_environment_template_requires_exact_identity_resources_and_secrets() ->
         "ECHOES_FINAL_DISCOVERY_INITIAL_FREE_DISK_GIB": "280",
         "ECHOES_FINAL_DISCOVERY_DISK_FLOOR_GIB": "80",
         "ECHOES_FINAL_DISCOVERY_RUNTIME_HOURS": "96",
-        "ECHOES_HARD_BUDGET_USD": "75.00",
         "ECHOES_M7_MANIFEST_SHA256": M7_SHA256,
     }
     for name, value in required.items():
@@ -159,36 +159,24 @@ def test_environment_template_requires_exact_identity_resources_and_secrets() ->
         "ECHOES_OUTPUT_PREFIX",
         "B2_APPLICATION_KEY_ID",
         "B2_APPLICATION_KEY",
-        "ECHOES_RATE_VERIFIED_AT_UTC",
-        "ECHOES_SERVER_CREATED_AT_UTC",
-        "ECHOES_ACCRUED_INFRASTRUCTURE_USD",
-        "ECHOES_ACCRUED_COST_VERIFIED_AT_UTC",
-        "ECHOES_ACCRUED_INFRASTRUCTURE_USD",
-        "ECHOES_ACCRUED_COST_VERIFIED_AT_UTC",
-        "ECHOES_ACCRUED_INFRASTRUCTURE_USD",
-        "ECHOES_ACCRUED_COST_VERIFIED_AT_UTC",
-        "ECHOES_ACCRUED_INFRASTRUCTURE_USD",
-        "ECHOES_ACCRUED_COST_VERIFIED_AT_UTC",
-        "ECHOES_ACCRUED_INFRASTRUCTURE_USD",
-        "ECHOES_ACCRUED_COST_VERIFIED_AT_UTC",
-        "ECHOES_ACCRUED_INFRASTRUCTURE_USD",
-        "ECHOES_ACCRUED_COST_VERIFIED_AT_UTC",
     ):
         assert re.search(rf"^{name}=\S+$", example, flags=re.MULTILINE)
 
 
-def test_runbook_has_exact_owner_launch_status_validation_and_cleanup_gates() -> None:
+def test_runbook_has_recovery_launch_status_validation_and_preservation_gates() -> None:
     runbook = _text(RUNBOOK)
 
-    assert "sudo bash /srv/project-echoes/repo/cloud/launch_final_discovery.sh" in runbook
+    assert "sudo bash /srv/project-echoes/repo/cloud/launch_final_discovery_scaleway.sh" in runbook
     assert "sudo bash /srv/project-echoes/repo/cloud/final_discovery_status.sh" in runbook
     assert "sudo bash /srv/project-echoes/repo/cloud/verify_final_discovery_cleanup.sh" in runbook
     assert "echoes validate-final-discovery --all --work-dir" in runbook
-    assert "hcloud server describe project-echoes-final-discovery-v1 -o json" in runbook
-    assert "hcloud server delete project-echoes-final-discovery-v1" in runbook
+    assert "existing Scaleway instance `project-echoes-final-discovery`" in runbook
+    assert "final_discovery_recovery_window.sh" in runbook
+    assert "one persistent overall 96-hour window" in runbook
+    assert "This recovery does not authorize server deletion" in runbook
     assert "identical exact local and" in runbook
     assert "remote inventory SHA-256 values" in runbook
-    assert "Do not use `watch`" in runbook
+    assert "repeated bounded status" in runbook
     assert "A second full production" in runbook
 
 

@@ -8,9 +8,11 @@ from collections import defaultdict
 from collections.abc import Iterator
 from pathlib import Path
 
+import duckdb
 import pytest
 from pydantic import BaseModel
 
+from echoes.final_discovery import disk_calibration as disk
 from echoes.final_discovery.anomaly import PairFamilyScores, anomaly_evidence
 from echoes.final_discovery.config import load_final_discovery_config
 from echoes.final_discovery.disk_calibration import (
@@ -243,6 +245,94 @@ def test_disk_calibration_is_bit_exact_for_nulls_and_evidence_with_ties(
     assert provenance["reference_score_arrays_persisted"] is False
     assert "reference_scores_by_detector_and_stratum" not in provenance
     assert not tuple((tmp_path / "spill").iterdir())
+
+
+def test_wide_payload_export_and_digest_fit_minimum_memory(tmp_path: Path) -> None:
+    """A >512 MiB payload must not travel through a single wide external sort."""
+
+    row_count = 65_536
+    with duckdb.connect(str(tmp_path / "wide-payload.duckdb")) as connection:
+        connection.execute("SET memory_limit='256MiB'")
+        connection.execute("SET threads=1")
+        connection.execute("SET preserve_insertion_order=false")
+        disk._create_tables(connection)
+        disk._insert_registry(connection, TEST_CONFIG)
+        connection.execute(
+            """
+            INSERT INTO raw_evidence
+            SELECT
+                lpad(i::VARCHAR,8,'0'), 'A', 'B', 'semantic_domain_overlap',
+                'semantic', 0.5, NULL, false, md5(i::VARCHAR),
+                '{"synthetic":"' || repeat(md5(i::VARCHAR),256) || '"}'
+            FROM range(?) records(i)
+            """,
+            [row_count],
+        )
+        connection.execute(
+            "INSERT INTO pair_strata SELECT candidate_pair_id,'stratum' FROM raw_evidence"
+        )
+        connection.execute(
+            """
+            INSERT INTO detector_null_calibration
+            SELECT candidate_pair_id,detector_id,'stratum',raw_score,49,0.5,100,
+                   'stratified_permutation',42,'test-mechanism'
+            FROM raw_evidence
+            """
+        )
+        disk._create_normalization_values(connection)
+        disk._create_evidence_calibration_projection(connection)
+        rows = disk._iter_bounded_raw_payload_rows(connection, batch_size=65_536, calibrated=True)
+        seen = 0
+        for row in rows:
+            assert len(str(row[0])) == 8208
+            assert row[1:4] == (0.5, None, 0.5)
+            seen += 1
+        assert seen == row_count
+        bounded = disk._raw_evidence_table_receipt(connection, batch_size=65_536)
+        # The old global payload sort is retained only as the high-memory
+        # byte/order/digest oracle. The repaired export uses the minimum limit.
+        connection.execute("SET memory_limit='2GiB'")
+        reference = disk._logical_table_receipt(
+            connection,
+            query="""
+                SELECT detector_id,candidate_pair_id,raw_json
+                FROM raw_evidence ORDER BY detector_id,candidate_pair_id
+            """,
+            ordering="detector_id,candidate_pair_id",
+            batch_size=512,
+        )
+        assert bounded == reference
+
+
+def test_disk_calibration_reports_failed_phase_and_preserves_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    row = _raw("semantic_domain_overlap", "A", "B", 0.7)
+    path = tmp_path / "raw.jsonl"
+    _write_raw(path, [row])
+
+    def fail_normalization(_connection: duckdb.DuckDBPyConnection) -> None:
+        raise duckdb.OutOfMemoryException("synthetic exhausted memory")
+
+    monkeypatch.setattr(disk, "_create_normalization_values", fail_normalization)
+    output = tmp_path / "calibration"
+    scratch = tmp_path / "spill"
+    with pytest.raises(DiskCalibrationError, match="during normalize detector scores"):
+        calibrate_detector_evidence_disk_backed(
+            (path,),
+            {row.candidate_pair_id: "stratum"},
+            output,
+            config=TEST_CONFIG,
+            iterations=TEST_CONFIG.calibration.production_iterations,
+            memory_limit_bytes=256 * 1024**2,
+            temp_directory=scratch,
+        )
+    _assert_preserved_failure_state(
+        output,
+        scratch,
+        workspace_prefix="disk-calibration",
+        database_name="disk-calibration.duckdb",
+    )
 
 
 def test_disk_calibration_preserves_failure_state_for_duplicate_detector_pair(

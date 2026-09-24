@@ -1,0 +1,14 @@
+[Unit]
+Description=Check the immutable Project Echoes recovery deadline
+OnFailure=echoes-final-discovery-poweroff.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash /srv/project-echoes/repo/cloud/final_discovery_recovery_window.sh --enforce-expiry
+TimeoutStartSec=30s
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+RestrictAddressFamilies=AF_UNIX

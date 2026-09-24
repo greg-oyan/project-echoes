@@ -18,6 +18,10 @@ from echoes.final_discovery.config import (
     FinalDiscoveryConfig,
     final_discovery_config_sha256,
 )
+from echoes.final_discovery.m7_null_provenance import (
+    M7NullProvenance,
+    M7NullProvenanceError,
+)
 from echoes.final_discovery.models import RawEvidence
 
 
@@ -363,13 +367,32 @@ class DetectorCalibration:
         )
 
 
-def _validate_m7_source_nulls(raw: RawEvidence, config: FinalDiscoveryConfig) -> None:
+def _validate_m7_source_nulls(
+    raw: RawEvidence,
+    config: FinalDiscoveryConfig,
+    m7_null_provenance: M7NullProvenance | None = None,
+) -> None:
     if raw.detector_id != "m7_lexical_rrf" or not config.calibration.require_both_m7_null_families:
         return
     try:
         trace = json.loads(raw.trace_json)
     except json.JSONDecodeError as exc:
         raise NullControlError("M7 evidence has an invalid JSON trace") from exc
+    if m7_null_provenance is not None and isinstance(trace, dict):
+        try:
+            m7_null_provenance.validate_trace(trace, raw.source_artifact_sha256)
+        except M7NullProvenanceError as exc:
+            raise NullControlError(f"M7 source null provenance failed: {exc}") from exc
+        references = trace.get("m7_passage_references")
+        if (
+            not isinstance(references, dict)
+            or not all(isinstance(value, str) for value in references)
+            or set(references) != {raw.passage_a_id, raw.passage_b_id}
+        ):
+            raise NullControlError("M7 source trace references disagree with evidence passages")
+        if trace.get("rrf_score") != raw.raw_score:
+            raise NullControlError("M7 source trace score disagrees with evidence raw score")
+        return
     if not isinstance(trace, dict) or trace.get("m7_both_null_families_present") is not True:
         raise NullControlError(
             "production M7 evidence must authenticate both canonical M7 null families"
@@ -377,7 +400,9 @@ def _validate_m7_source_nulls(raw: RawEvidence, config: FinalDiscoveryConfig) ->
 
 
 def _registered_detector_rows(
-    raw_evidence: Sequence[RawEvidence], config: FinalDiscoveryConfig
+    raw_evidence: Sequence[RawEvidence],
+    config: FinalDiscoveryConfig,
+    m7_null_provenance: M7NullProvenance | None = None,
 ) -> dict[str, dict[str, RawEvidence]]:
     registrations = {item.detector_id: item for item in config.detectors}
     rows: dict[str, dict[str, RawEvidence]] = defaultdict(dict)
@@ -400,7 +425,7 @@ def _registered_detector_rows(
                 "production detector calibration requires one score per detector/pair: "
                 f"{raw.detector_id}/{raw.candidate_pair_id}"
             )
-        _validate_m7_source_nulls(raw, config)
+        _validate_m7_source_nulls(raw, config, m7_null_provenance)
         rows[raw.detector_id][raw.candidate_pair_id] = raw
     return dict(rows)
 
@@ -439,6 +464,7 @@ def production_detector_calibration(
     *,
     config: FinalDiscoveryConfig,
     iterations: int,
+    m7_null_provenance: M7NullProvenance | None = None,
 ) -> DetectorCalibration:
     """Build registered, seeded detector nulls for the production campaign.
 
@@ -447,8 +473,10 @@ def production_detector_calibration(
     score-bootstrap family draws observed-score donors from that same stratum
     with the registered family seed, making its empirical resampling mechanism
     explicit without claiming to generate synthetic feature sequences.
-    Canonical M7 evidence is accepted only when its trace authenticates the two
-    upstream M7 null families; those upstream nulls are never reconstructed.
+    Canonical M7 evidence can authenticate the two upstream null families against
+    the source tables independently of threshold qualification. Legacy fixture
+    traces still require the true sentinel when no source proof is supplied.
+    Those upstream nulls are never reconstructed.
     """
 
     if iterations != config.calibration.production_iterations:
@@ -466,7 +494,7 @@ def production_detector_calibration(
         raise NullControlError("production detector calibration contains an empty stratum")
 
     registrations = {item.detector_id: item for item in config.detectors}
-    rows_by_detector = _registered_detector_rows(raw_evidence, config)
+    rows_by_detector = _registered_detector_rows(raw_evidence, config, m7_null_provenance)
     references: dict[str, dict[str, tuple[float, ...]]] = {}
     calibration_rows: dict[str, dict[str, DetectorNullCalibrationRow]] = {}
     provenance: dict[str, dict[str, object]] = {}
@@ -513,7 +541,11 @@ def production_detector_calibration(
         source_null_validation = "not_applicable"
         if detector_id == "m7_lexical_rrf":
             source_null_families = _M7_REQUIRED_SOURCE_NULL_FAMILIES
-            source_null_validation = "authenticated_m7_both_null_families_present_trace"
+            source_null_validation = (
+                "authenticated_m7_source_null_provenance"
+                if m7_null_provenance is not None
+                else "authenticated_m7_both_null_families_present_trace"
+            )
         provenance[detector_id] = {
             "detector_id": detector_id,
             "registered_null_family": registration.null_family,
@@ -526,6 +558,10 @@ def production_detector_calibration(
             "source_null_families": source_null_families,
             "source_null_validation": source_null_validation,
         }
+        if detector_id == "m7_lexical_rrf" and m7_null_provenance is not None:
+            provenance[detector_id]["source_null_provenance_sha256"] = (
+                m7_null_provenance.provenance_sha256
+            )
         calibration_rows[detector_id] = {
             pair_id: DetectorNullCalibrationRow(
                 candidate_pair_id=pair_id,

@@ -32,6 +32,7 @@ from echoes.final_discovery.config import (
     final_discovery_config_sha256,
 )
 from echoes.final_discovery.features import candidate_pair_id, canonical_json, evidence_id
+from echoes.final_discovery.m7_null_provenance import M7NullProvenance
 from echoes.final_discovery.models import (
     EvidenceFamily,
     EvidenceRow,
@@ -40,6 +41,8 @@ from echoes.final_discovery.models import (
 )
 from echoes.final_discovery.nulls import (
     DetectorNullCalibrationRow,
+    NullControlError,
+    _validate_m7_source_nulls,
     _vectorized_detector_exceedances,
 )
 from echoes.final_discovery.storage import (
@@ -303,17 +306,15 @@ def _pair_strata_rows(
     yield from values
 
 
-def _validate_m7_trace(row: RawEvidence, config: FinalDiscoveryConfig) -> None:
-    if row.detector_id != "m7_lexical_rrf" or not config.calibration.require_both_m7_null_families:
-        return
+def _validate_m7_trace(
+    row: RawEvidence,
+    config: FinalDiscoveryConfig,
+    m7_null_provenance: M7NullProvenance | None = None,
+) -> None:
     try:
-        trace = json.loads(row.trace_json)
-    except json.JSONDecodeError as exc:
-        raise DiskCalibrationError("M7 evidence has an invalid JSON trace") from exc
-    if not isinstance(trace, dict) or trace.get("m7_both_null_families_present") is not True:
-        raise DiskCalibrationError(
-            "production M7 evidence must authenticate both canonical M7 null families"
-        )
+        _validate_m7_source_nulls(row, config, m7_null_provenance)
+    except NullControlError as exc:
+        raise DiskCalibrationError(str(exc)) from exc
 
 
 def _registration_for_raw(
@@ -528,6 +529,7 @@ def _ingest_raw_evidence(
     *,
     config: FinalDiscoveryConfig,
     batch_size: int,
+    m7_null_provenance: M7NullProvenance | None = None,
 ) -> tuple[tuple[CalibrationInputFileReceipt, ...], int]:
     if not raw_evidence_paths:
         raise DiskCalibrationError("disk calibration requires raw-evidence inputs")
@@ -557,7 +559,7 @@ def _ingest_raw_evidence(
         key=lambda item: (item.candidate_pair_id,),
     ):
         _registration_for_raw(row, registrations)
-        _validate_m7_trace(row, config)
+        _validate_m7_trace(row, config, m7_null_provenance)
         expected_pair_id = candidate_pair_id(row.passage_a_id, row.passage_b_id)
         if row.candidate_pair_id != expected_pair_id:
             raise DiskCalibrationError(
@@ -929,6 +931,7 @@ def _calibrate_detector_strata(
     config: FinalDiscoveryConfig,
     iterations: int,
     batch_size: int,
+    m7_null_provenance: M7NullProvenance | None = None,
 ) -> dict[str, dict[str, object]]:
     registrations = {item.detector_id: item for item in config.detectors}
     provenance: dict[str, dict[str, object]] = {}
@@ -993,7 +996,11 @@ def _calibrate_detector_strata(
         source_null_validation = "not_applicable"
         if detector_id == "m7_lexical_rrf":
             source_null_families = _M7_SOURCE_NULL_FAMILIES
-            source_null_validation = "authenticated_m7_both_null_families_present_trace"
+            source_null_validation = (
+                "authenticated_m7_source_null_provenance"
+                if m7_null_provenance is not None
+                else "authenticated_m7_both_null_families_present_trace"
+            )
         provenance[detector_id] = {
             "detector_id": detector_id,
             "registered_null_family": registration.null_family,
@@ -1006,6 +1013,10 @@ def _calibrate_detector_strata(
             "source_null_families": source_null_families,
             "source_null_validation": source_null_validation,
         }
+        if detector_id == "m7_lexical_rrf" and m7_null_provenance is not None:
+            provenance[detector_id]["source_null_provenance_sha256"] = (
+                m7_null_provenance.provenance_sha256
+            )
     missing_normalization = _first_row(
         connection,
         """
@@ -1024,15 +1035,17 @@ def _calibrate_detector_strata(
     return provenance
 
 
-def _iter_evidence(
-    connection: duckdb.DuckDBPyConnection, *, batch_size: int
-) -> Iterator[EvidenceRow]:
-    cursor = connection.execute(
+def _create_evidence_calibration_projection(connection: duckdb.DuckDBPyConnection) -> None:
+    """Finish numeric joins before fetching the potentially large JSON payloads."""
+
+    connection.execute(
         """
+        CREATE TABLE evidence_calibration_projection AS
         SELECT
-            r.raw_json,
+            r.candidate_pair_id,
+            r.detector_id,
             normalized.normalized_score,
-            ablated.normalized_score,
+            ablated.normalized_score AS ablated_score,
             nulls.empirical_p_value,
             registry.normalization,
             registry.null_family
@@ -1051,40 +1064,125 @@ def _iter_evidence(
         ORDER BY r.candidate_pair_id,r.detector_id
         """
     )
-    while rows := cursor.fetchmany(batch_size):
-        for raw_row in rows:
-            raw = RawEvidence.model_validate_json(str(raw_row[0]))
-            ablated_score = (
-                float(raw_row[2]) if raw.english_ablation_raw_score is not None else None
+
+
+def _iter_bounded_raw_payload_rows(
+    connection: duckdb.DuckDBPyConnection,
+    *,
+    batch_size: int,
+    calibrated: bool,
+) -> Iterator[tuple[object, ...]]:
+    """Sort narrow keys globally and fetch wide JSON only in bounded key ranges.
+
+    A DuckDB external sort can still exhaust its limit when its variable-width
+    payload spans the entire evidence population.  Each payload query below is
+    limited to 4,096 rows and targets at most 16 MiB of JSON, except for a single
+    indivisible larger record. Explicit key predicates also let the ordered
+    ingestion row groups be skipped.
+    """
+
+    first, second = (
+        ("candidate_pair_id", "detector_id") if calibrated else ("detector_id", "candidate_pair_id")
+    )
+    # Reserve headroom for joins, key sorting, and the connection buffer pool
+    # even at the minimum supported 256 MiB limit.
+    payload_limit = _MINIMUM_MEMORY_BYTES // 16
+    reader = connection.cursor()
+    try:
+        reader.execute(
+            f"SELECT {first},{second},length(raw_json) FROM raw_evidence ORDER BY {first},{second}"
+        )
+        pending: list[tuple[str, str]] = []
+        payload_bytes = 0
+
+        def read_payload() -> Iterator[tuple[object, ...]]:
+            lower, upper = pending[0], pending[-1]
+            predicate = (
+                f"r.{first} BETWEEN ? AND ? "
+                f"AND (r.{first}>? OR r.{second}>=?) "
+                f"AND (r.{first}<? OR r.{second}<=?)"
             )
-            yield EvidenceRow(
-                evidence_id=evidence_id(
-                    raw.candidate_pair_id,
-                    raw.detector_id,
-                    raw.source_artifact_sha256,
-                ),
-                candidate_pair_id=raw.candidate_pair_id,
-                passage_a_id=raw.passage_a_id,
-                passage_b_id=raw.passage_b_id,
-                detector_id=raw.detector_id,
-                family=raw.family,
-                independence_group=raw.independence_group,
-                raw_score=raw.raw_score,
-                normalized_score=float(raw_row[1]),
-                normalization_method=str(raw_row[4]),
-                empirical_p_value=float(raw_row[3]),
-                null_method=str(raw_row[5]),
-                contains_english_derived_evidence=raw.contains_english_derived_evidence,
-                english_ablation_normalized_score=ablated_score,
-                original_language_evidence_remains=raw.original_language_evidence_remains,
-                counts_for_independence=raw.counts_for_independence,
-                trace_json=raw.trace_json,
-                source_artifact_id=raw.source_artifact_id,
-                source_artifact_sha256=raw.source_artifact_sha256,
-                source_quality=raw.source_quality,
-                source_knownness_status=raw.source_knownness_status,
-                source_known_relationship_ids=raw.source_known_relationship_ids,
-            )
+            parameters = [lower[0], upper[0], *lower, *upper]
+            if lower[0] == upper[0]:
+                predicate = f"r.{first}=? AND r.{second} BETWEEN ? AND ?"
+                parameters = [lower[0], lower[1], upper[1]]
+            if calibrated:
+                selection = (
+                    "r.raw_json,c.normalized_score,c.ablated_score,"
+                    "c.empirical_p_value,c.normalization,c.null_family"
+                )
+                join = (
+                    "JOIN evidence_calibration_projection c USING (candidate_pair_id,detector_id)"
+                )
+            else:
+                selection = "r.detector_id,r.candidate_pair_id,r.raw_json"
+                join = ""
+            rows = connection.execute(
+                f"SELECT {selection} FROM raw_evidence r {join} "
+                f"WHERE {predicate} ORDER BY r.{first},r.{second}",
+                parameters,
+            ).fetchall()
+            if len(rows) != len(pending):
+                raise DiskCalibrationError("bounded raw-evidence projection lost or repeated rows")
+            yield from rows
+
+        while keys := reader.fetchmany(min(batch_size, 4096)):
+            for key_first, key_second, raw_size in keys:
+                if pending and (
+                    len(pending) >= min(batch_size, 4096)
+                    or payload_bytes + int(raw_size) > payload_limit
+                    or (not calibrated and str(key_first) != pending[-1][0])
+                ):
+                    yield from read_payload()
+                    pending.clear()
+                    payload_bytes = 0
+                pending.append((str(key_first), str(key_second)))
+                payload_bytes += int(raw_size)
+        if pending:
+            yield from read_payload()
+    finally:
+        reader.close()
+
+
+def _iter_evidence(
+    connection: duckdb.DuckDBPyConnection, *, batch_size: int
+) -> Iterator[EvidenceRow]:
+    _create_evidence_calibration_projection(connection)
+    for raw_row in _iter_bounded_raw_payload_rows(
+        connection, batch_size=batch_size, calibrated=True
+    ):
+        raw = RawEvidence.model_validate_json(str(raw_row[0]))
+        ablated_score = (
+            float(cast(float, raw_row[2])) if raw.english_ablation_raw_score is not None else None
+        )
+        yield EvidenceRow(
+            evidence_id=evidence_id(
+                raw.candidate_pair_id,
+                raw.detector_id,
+                raw.source_artifact_sha256,
+            ),
+            candidate_pair_id=raw.candidate_pair_id,
+            passage_a_id=raw.passage_a_id,
+            passage_b_id=raw.passage_b_id,
+            detector_id=raw.detector_id,
+            family=raw.family,
+            independence_group=raw.independence_group,
+            raw_score=raw.raw_score,
+            normalized_score=float(cast(float, raw_row[1])),
+            normalization_method=str(raw_row[4]),
+            empirical_p_value=float(cast(float, raw_row[3])),
+            null_method=str(raw_row[5]),
+            contains_english_derived_evidence=raw.contains_english_derived_evidence,
+            english_ablation_normalized_score=ablated_score,
+            original_language_evidence_remains=raw.original_language_evidence_remains,
+            counts_for_independence=raw.counts_for_independence,
+            trace_json=raw.trace_json,
+            source_artifact_id=raw.source_artifact_id,
+            source_artifact_sha256=raw.source_artifact_sha256,
+            source_quality=raw.source_quality,
+            source_knownness_status=raw.source_knownness_status,
+            source_known_relationship_ids=raw.source_known_relationship_ids,
+        )
 
 
 def _iter_detector_null_rows(
@@ -1179,6 +1277,27 @@ def _logical_table_receipt(
         row_count=count,
         logical_sha256=digest.hexdigest(),
         ordering=ordering,
+    )
+
+
+def _raw_evidence_table_receipt(
+    connection: duckdb.DuckDBPyConnection, *, batch_size: int
+) -> CalibrationTableReceipt:
+    """Hash the identical canonical raw rows without a global wide-payload sort."""
+
+    digest = hashlib.sha256()
+    count = 0
+    for row in _iter_bounded_raw_payload_rows(connection, batch_size=batch_size, calibrated=False):
+        payload = _canonical_json_bytes(list(row))
+        digest.update(struct.pack(">Q", len(payload)))
+        digest.update(payload)
+        count += 1
+    if count < 1:
+        raise DiskCalibrationError("logical table receipt is empty: detector_id,candidate_pair_id")
+    return CalibrationTableReceipt(
+        row_count=count,
+        logical_sha256=digest.hexdigest(),
+        ordering="detector_id,candidate_pair_id",
     )
 
 
@@ -1673,155 +1792,168 @@ def _run_in_staging(
     threads: int,
     batch_size: int,
     spill_directory: Path,
+    m7_null_provenance: M7NullProvenance | None = None,
 ) -> DiskDetectorCalibrationReceipt:
-    with duckdb.connect(str(database_path)) as connection:
-        connection.execute(f"SET memory_limit='{memory_limit_bytes}B'")
-        connection.execute(f"SET threads={threads}")
-        connection.execute("SET preserve_insertion_order=false")
-        connection.execute(f"SET temp_directory='{_quoted_path(spill_directory)}'")
-        _create_tables(connection)
-        connection.execute("BEGIN TRANSACTION")
-        try:
-            _insert_registry(connection, config)
-            input_receipts, raw_count = _ingest_raw_evidence(
+    phase = "open calibration database"
+    try:
+        with duckdb.connect(str(database_path)) as connection:
+            connection.execute(f"SET memory_limit='{memory_limit_bytes}B'")
+            connection.execute(f"SET threads={threads}")
+            connection.execute("SET preserve_insertion_order=false")
+            connection.execute(f"SET temp_directory='{_quoted_path(spill_directory)}'")
+            phase = "create tables"
+            _create_tables(connection)
+            phase = "ingest raw evidence and strata"
+            connection.execute("BEGIN TRANSACTION")
+            try:
+                _insert_registry(connection, config)
+                input_receipts, raw_count = _ingest_raw_evidence(
+                    connection,
+                    raw_evidence_paths,
+                    config=config,
+                    batch_size=batch_size,
+                    m7_null_provenance=m7_null_provenance,
+                )
+                strata_count = _ingest_pair_strata(
+                    connection,
+                    strata_by_pair,
+                    batch_size=batch_size,
+                )
+            except BaseException:
+                connection.execute("ROLLBACK")
+                raise
+            else:
+                connection.execute("COMMIT")
+            phase = "validate input tables"
+            pair_count, detector_count = _validate_ingested_tables(
                 connection,
-                raw_evidence_paths,
-                config=config,
-                batch_size=batch_size,
+                raw_count=raw_count,
+                strata_count=strata_count,
             )
-            strata_count = _ingest_pair_strata(
-                connection,
-                strata_by_pair,
-                batch_size=batch_size,
-            )
-        except BaseException:
-            connection.execute("ROLLBACK")
-            raise
-        else:
-            connection.execute("COMMIT")
-        pair_count, detector_count = _validate_ingested_tables(
-            connection,
-            raw_count=raw_count,
-            strata_count=strata_count,
-        )
-        _create_normalization_values(connection)
-        connection.execute("BEGIN TRANSACTION")
-        try:
-            provenance = _calibrate_detector_strata(
-                connection,
-                config=config,
-                iterations=iterations,
-                batch_size=batch_size,
-            )
-        except BaseException:
-            connection.execute("ROLLBACK")
-            raise
-        else:
-            connection.execute("COMMIT")
-        detector_stratum_row = connection.execute(
-            "SELECT count(*) FROM detector_stratum_state"
-        ).fetchone()
-        if detector_stratum_row is None:
-            raise DiskCalibrationError("could not count detector-stratum calibration state")
-        detector_stratum_count = int(detector_stratum_row[0])
+            phase = "normalize detector scores"
+            _create_normalization_values(connection)
+            connection.execute("BEGIN TRANSACTION")
+            try:
+                phase = "calibrate detector nulls"
+                provenance = _calibrate_detector_strata(
+                    connection,
+                    config=config,
+                    iterations=iterations,
+                    batch_size=batch_size,
+                    m7_null_provenance=m7_null_provenance,
+                )
+            except BaseException:
+                connection.execute("ROLLBACK")
+                raise
+            else:
+                connection.execute("COMMIT")
+            detector_stratum_row = connection.execute(
+                "SELECT count(*) FROM detector_stratum_state"
+            ).fetchone()
+            if detector_stratum_row is None:
+                raise DiskCalibrationError("could not count detector-stratum calibration state")
+            detector_stratum_count = int(detector_stratum_row[0])
 
-        evidence_receipt = write_jsonl_stream_atomic(
-            staging / EVIDENCE_FILE_NAME,
-            _iter_evidence(connection, batch_size=batch_size),
-            order_key=lambda row: (
-                cast(EvidenceRow, row).candidate_pair_id,
-                cast(EvidenceRow, row).detector_id,
-            ),
-        )
-        null_receipt = write_jsonl_stream_atomic(
-            staging / DETECTOR_NULL_FILE_NAME,
-            _iter_detector_null_rows(connection, batch_size=batch_size),
-            order_key=lambda row: (
-                cast(DetectorNullCalibrationRow, row).candidate_pair_id,
-                cast(DetectorNullCalibrationRow, row).detector_id,
-            ),
-        )
-        state_receipt = write_jsonl_stream_atomic(
-            staging / CALIBRATION_STATE_FILE_NAME,
-            _iter_calibration_state(connection, batch_size=batch_size),
-            order_key=lambda row: (
-                cast(DetectorStratumCalibrationState, row).detector_id,
-                cast(DetectorStratumCalibrationState, row).stratum,
-            ),
-        )
-        provenance_payload = {
-            "schema_version": 1,
-            "execution_mode": "production",
-            "iterations": iterations,
-            "config_sha256": final_discovery_config_sha256(config),
-            "reference_score_arrays_persisted": False,
-            "calibration_state_file": CALIBRATION_STATE_FILE_NAME,
-            "detector_null_file": DETECTOR_NULL_FILE_NAME,
-            "provenance_by_detector": provenance,
-        }
-        provenance_receipt = write_json_atomic_new(
-            staging / PROVENANCE_FILE_NAME,
-            provenance_payload,
-        )
-
-        table_receipts = {
-            "raw_evidence": _logical_table_receipt(
-                connection,
-                query="""
-                    SELECT detector_id,candidate_pair_id,raw_json
-                    FROM raw_evidence ORDER BY detector_id,candidate_pair_id
-                """,
-                ordering="detector_id,candidate_pair_id",
-                batch_size=batch_size,
-            ),
-            "pair_strata": _logical_table_receipt(
-                connection,
-                query="""
-                    SELECT candidate_pair_id,stratum
-                    FROM pair_strata ORDER BY candidate_pair_id
-                """,
-                ordering="candidate_pair_id",
-                batch_size=batch_size,
-            ),
-            "detector_null_calibration": CalibrationTableReceipt(
-                row_count=null_receipt.row_count,
-                logical_sha256=null_receipt.sha256,
-                ordering="candidate_pair_id,detector_id",
-            ),
-            "detector_stratum_state": CalibrationTableReceipt(
-                row_count=state_receipt.row_count,
-                logical_sha256=state_receipt.sha256,
-                ordering="detector_id,stratum",
-            ),
-            "calibrated_evidence": CalibrationTableReceipt(
-                row_count=evidence_receipt.row_count,
-                logical_sha256=evidence_receipt.sha256,
-                ordering="candidate_pair_id,detector_id",
-            ),
-        }
-        receipt = DiskDetectorCalibrationReceipt(
-            config_sha256=final_discovery_config_sha256(config),
-            iterations=iterations,
-            duckdb_memory_limit_bytes=memory_limit_bytes,
-            duckdb_threads=threads,
-            ingestion_batch_size=batch_size,
-            raw_input_files=input_receipts,
-            raw_evidence_row_count=raw_count,
-            candidate_pair_count=pair_count,
-            detector_count=detector_count,
-            detector_stratum_count=detector_stratum_count,
-            table_receipts=table_receipts,
-            output_files={
-                EVIDENCE_FILE_NAME: _output_receipt(EVIDENCE_FILE_NAME, evidence_receipt),
-                DETECTOR_NULL_FILE_NAME: _output_receipt(DETECTOR_NULL_FILE_NAME, null_receipt),
-                CALIBRATION_STATE_FILE_NAME: _output_receipt(
-                    CALIBRATION_STATE_FILE_NAME, state_receipt
+            phase = "export calibrated evidence"
+            evidence_receipt = write_jsonl_stream_atomic(
+                staging / EVIDENCE_FILE_NAME,
+                _iter_evidence(connection, batch_size=batch_size),
+                order_key=lambda row: (
+                    cast(EvidenceRow, row).candidate_pair_id,
+                    cast(EvidenceRow, row).detector_id,
                 ),
-                PROVENANCE_FILE_NAME: _output_receipt(PROVENANCE_FILE_NAME, provenance_receipt),
-            },
-        )
-        write_json_atomic_new(staging / RECEIPT_FILE_NAME, receipt)
-        return receipt
+            )
+            phase = "export detector nulls"
+            null_receipt = write_jsonl_stream_atomic(
+                staging / DETECTOR_NULL_FILE_NAME,
+                _iter_detector_null_rows(connection, batch_size=batch_size),
+                order_key=lambda row: (
+                    cast(DetectorNullCalibrationRow, row).candidate_pair_id,
+                    cast(DetectorNullCalibrationRow, row).detector_id,
+                ),
+            )
+            phase = "export calibration state"
+            state_receipt = write_jsonl_stream_atomic(
+                staging / CALIBRATION_STATE_FILE_NAME,
+                _iter_calibration_state(connection, batch_size=batch_size),
+                order_key=lambda row: (
+                    cast(DetectorStratumCalibrationState, row).detector_id,
+                    cast(DetectorStratumCalibrationState, row).stratum,
+                ),
+            )
+            provenance_payload = {
+                "schema_version": 1,
+                "execution_mode": "production",
+                "iterations": iterations,
+                "config_sha256": final_discovery_config_sha256(config),
+                "reference_score_arrays_persisted": False,
+                "calibration_state_file": CALIBRATION_STATE_FILE_NAME,
+                "detector_null_file": DETECTOR_NULL_FILE_NAME,
+                "provenance_by_detector": provenance,
+            }
+            provenance_receipt = write_json_atomic_new(
+                staging / PROVENANCE_FILE_NAME,
+                provenance_payload,
+            )
+
+            phase = "hash logical tables"
+            table_receipts = {
+                "raw_evidence": _raw_evidence_table_receipt(
+                    connection,
+                    batch_size=batch_size,
+                ),
+                "pair_strata": _logical_table_receipt(
+                    connection,
+                    query="""
+                        SELECT candidate_pair_id,stratum
+                        FROM pair_strata ORDER BY candidate_pair_id
+                    """,
+                    ordering="candidate_pair_id",
+                    batch_size=batch_size,
+                ),
+                "detector_null_calibration": CalibrationTableReceipt(
+                    row_count=null_receipt.row_count,
+                    logical_sha256=null_receipt.sha256,
+                    ordering="candidate_pair_id,detector_id",
+                ),
+                "detector_stratum_state": CalibrationTableReceipt(
+                    row_count=state_receipt.row_count,
+                    logical_sha256=state_receipt.sha256,
+                    ordering="detector_id,stratum",
+                ),
+                "calibrated_evidence": CalibrationTableReceipt(
+                    row_count=evidence_receipt.row_count,
+                    logical_sha256=evidence_receipt.sha256,
+                    ordering="candidate_pair_id,detector_id",
+                ),
+            }
+            receipt = DiskDetectorCalibrationReceipt(
+                config_sha256=final_discovery_config_sha256(config),
+                iterations=iterations,
+                duckdb_memory_limit_bytes=memory_limit_bytes,
+                duckdb_threads=threads,
+                ingestion_batch_size=batch_size,
+                raw_input_files=input_receipts,
+                raw_evidence_row_count=raw_count,
+                candidate_pair_count=pair_count,
+                detector_count=detector_count,
+                detector_stratum_count=detector_stratum_count,
+                table_receipts=table_receipts,
+                output_files={
+                    EVIDENCE_FILE_NAME: _output_receipt(EVIDENCE_FILE_NAME, evidence_receipt),
+                    DETECTOR_NULL_FILE_NAME: _output_receipt(DETECTOR_NULL_FILE_NAME, null_receipt),
+                    CALIBRATION_STATE_FILE_NAME: _output_receipt(
+                        CALIBRATION_STATE_FILE_NAME, state_receipt
+                    ),
+                    PROVENANCE_FILE_NAME: _output_receipt(PROVENANCE_FILE_NAME, provenance_receipt),
+                },
+            )
+            write_json_atomic_new(staging / RECEIPT_FILE_NAME, receipt)
+            return receipt
+    except duckdb.Error as exc:
+        raise DiskCalibrationError(
+            f"disk-backed detector calibration failed during {phase}: {exc}"
+        ) from exc
 
 
 def calibrate_detector_evidence_disk_backed(
@@ -1835,6 +1967,7 @@ def calibrate_detector_evidence_disk_backed(
     temp_directory: Path,
     threads: int = 1,
     batch_size: int = 65_536,
+    m7_null_provenance: M7NullProvenance | None = None,
 ) -> DiskDetectorCalibrationResult:
     """Calibrate canonical raw-evidence streams in one atomic output bundle.
 
@@ -1881,6 +2014,7 @@ def calibrate_detector_evidence_disk_backed(
             threads=threads,
             batch_size=batch_size,
             spill_directory=spill_directory,
+            m7_null_provenance=m7_null_provenance,
         )
         if output_directory.exists():
             raise DiskCalibrationError(
@@ -1914,6 +2048,7 @@ def project_anomaly_pair_scores_disk_backed(
     temp_directory: Path,
     threads: int = 1,
     batch_size: int = 65_536,
+    m7_null_provenance: M7NullProvenance | None = None,
 ) -> AnomalyPairProjectionResult:
     """Project exact Stage 3--5 detector percentiles and pair-family maxima.
 
@@ -1959,6 +2094,7 @@ def project_anomaly_pair_scores_disk_backed(
                     raw_evidence_paths,
                     config=config,
                     batch_size=batch_size,
+                    m7_null_provenance=m7_null_provenance,
                 )
             except BaseException:
                 connection.execute("ROLLBACK")
