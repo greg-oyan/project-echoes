@@ -6,6 +6,16 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 ### Changed
 
+- Authenticate the 2026-09-24 finalization receipt and selected private review
+  delivery. Record the matching terminal checkpoint transfer inventory
+  (689 objects, 92,540,069,172 bytes), proof hashes, and the 217-file private
+  handoff without publishing source-bearing artifacts. A bounded B2 inventory
+  and six-file critical-proof recheck passed without a new full content check.
+  The full package remains in B2, and the provider independently confirmed
+  the instance is stopped after retrieval. Human review remains incomplete.
+  No destructive cleanup gate or deletion is claimed, and scientific policy
+  remains unchanged.
+
 - Record the sanitized 2026-09-24 final-discovery handoff snapshot in readable
   and machine-readable run-status files, with aggregate counts and retained
   proof hashes. Update the README's stale milestone summary. All 11 stages
