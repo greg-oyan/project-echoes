@@ -11,8 +11,12 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
   deadline and original evidence unchanged, use a bounded rescue session, and
   require the unchanged cleanup verifier plus verified off-server preservation
   before retiring the exact dedicated resources. B2 and scientific policy are
-  retained. This decision does not claim a completed archive, cleanup gate or
-  resource deletion.
+  retained. The unchanged cleanup verifier subsequently passed with its receipt
+  hash retained in the ADR. The owner authorized early poweroff after verified
+  preservation, audit supplementation and closed-log closeout, keeping the
+  twelve-hour fallback unchanged. The completion hook was armed on September 30
+  without restarting the active worker. Completed preservation, actual provider
+  stopped state and resource deletion are not yet established by this record.
 
 - Authenticate the 2026-09-24 finalization receipt and selected private review
   delivery. Record the matching terminal checkpoint transfer inventory

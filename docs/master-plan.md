@@ -3158,9 +3158,16 @@ recovery deadline or authorize a scientific rerun. Preserve original ledgers,
 source, staging, checkpoints and failure records. Run the original cleanup
 verifier unchanged and authenticate all required off-server preservation before
 resource deletion. Long maintenance commands run detached with checkpoints,
-logs, PID records and one startup check; no continuous status polling. Actual
-execution, cleanup and retirement remain unverified until retained receipts
-establish them. Human-review requirements remain unchanged.
+logs, PID records and one startup check; no continuous status polling. The
+unchanged cleanup verifier passed on September 30; ADR 0027 records the retained
+receipt hash. The owner also authorized poweroff immediately after successful
+preservation, verified operational supplementation and verified closed-log
+closeout. The separate completion action was armed at `2026-09-30T05:21:41Z`
+without restarting the active worker. It must authenticate those receipts before
+requesting poweroff. The twelve-hour fallback remains unchanged and active;
+this action performs no deletion. Preservation completion,
+actual provider stopped state and resource retirement remain unverified until
+retained receipts establish them. Human-review requirements remain unchanged.
 
 ## Milestone 8: First unknown-candidate review
 

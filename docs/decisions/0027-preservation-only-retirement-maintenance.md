@@ -2,7 +2,8 @@
 
 Date: 2026-09-29
 
-Status: Accepted scope; execution and destructive cleanup verification pending.
+Status: Unchanged cleanup passed; completion poweroff armed; preservation,
+executed poweroff and resource retirement not yet established by retained receipts.
 
 ## Context
 
@@ -17,6 +18,13 @@ existing cleanup verification, and retirement of Scaleway while retaining B2.
 On September 29 the owner resumed this work and selected rescue mode. This is
 maintenance of a completed campaign, not authorization for another experiment.
 The original September 25 recovery deadline is expired and remains unchanged.
+
+The unchanged cleanup verifier exited successfully on September 30 at
+`2026-09-30T02:54:48Z`. Its retained finalization receipt SHA-256 is
+`e4fa585a842175063be93397fc71e85e01f2247ac5a12be9123a63e4621b394d`.
+This establishes the cleanup check, not completion of the broader preservation
+job. The owner subsequently requested poweroff as soon as that job finishes,
+without waiting until the maintenance deadline.
 
 ## Decision
 
@@ -50,6 +58,18 @@ checkpoints, a runtime limit within the maintenance window and a one-shot status
 command. Perform one startup check and return control; do not poll pipeline
 status continuously. Preserve partial archives and failed attempts.
 
+After successful controller completion, a separate completion action may
+request poweroff of the exact instance once it authenticates the cleanup
+receipt, complete evidence-preservation receipt, operational audit supplement
+and their verified B2 readbacks. First retain and verify a final closeout of the
+completion marker, closed controller logs and poweroff intent in a fresh private
+B2 namespace. Attach this action without restarting or changing the running
+worker. Missing or inconsistent completion evidence must refuse early poweroff.
+The unchanged twelve-hour fallback remains `2026-09-30T14:29:49Z` for this rescue
+boot; early completion does not extend it. This completion action deletes no
+instance, volume, IP reservation, local evidence or B2 object. An accepted
+poweroff request does not establish that the provider has stopped the instance.
+
 Retirement is authorized only after the unchanged cleanup gate passes and all
 required evidence and small verification receipts are verified off-server.
 Then retire only the dedicated instance, its identified SBS volume and its IP
@@ -64,3 +84,10 @@ final public record must distinguish completed computation, human review,
 preservation, cleanup verification and actual resource retirement. Human review
 is still incomplete. Final receipts, not this authorization, establish execution
 success.
+
+The completion poweroff action was armed at `2026-09-30T05:21:41Z` as a runtime
+`OnSuccess` hook. The retained arming record confirms the loaded hook, unchanged
+active controller process and active fallback timer. Eighteen offline checks,
+unit validation and a harmless live completion-event test passed. Preservation
+was still running; this record does not claim completed preservation, executed
+early poweroff, independently confirmed stopped state or resource deletion.
