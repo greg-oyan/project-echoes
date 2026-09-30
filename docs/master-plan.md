@@ -3147,6 +3147,21 @@ failed output complete. ADR 0022 and the
 [final-discovery cloud runbook](final-discovery-cloud-runbook.md) specify the
 operational procedure; neither changes the registered scientific experiment.
 
+### Preservation-only retirement maintenance
+
+ADR 0027 records the owner's separate instruction to preserve server-only
+evidence, pass the existing cleanup verification, and retire the dedicated
+Scaleway resources while retaining B2. The September 29 rescue-mode maintenance
+session is capped at twelve hours from its rescue boot, with a separate ledger
+and provider poweroff safeguard. It does not reset the expired scientific
+recovery deadline or authorize a scientific rerun. Preserve original ledgers,
+source, staging, checkpoints and failure records. Run the original cleanup
+verifier unchanged and authenticate all required off-server preservation before
+resource deletion. Long maintenance commands run detached with checkpoints,
+logs, PID records and one startup check; no continuous status polling. Actual
+execution, cleanup and retirement remain unverified until retained receipts
+establish them. Human-review requirements remain unchanged.
+
 ## Milestone 8: First unknown-candidate review
 
 Status: **Original form closed without execution; review component

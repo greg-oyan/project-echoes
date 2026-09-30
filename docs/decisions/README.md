@@ -57,3 +57,5 @@ Decision records preserve durable methodological, data, licensing, architecture,
 - [0023 — Authenticate M7 null execution separately from threshold selection](0023-authenticate-m7-null-execution-separately.md)
 - [0024 — Bound calibration evidence hydration](0024-bounded-calibration-evidence-hydration.md)
 - [0025 — Bound review export disk usage](0025-bound-review-export-disk.md)
+- [0026 — Compress review CSV and bound final validation](0026-compress-review-csv-and-bound-final-validation.md)
+- [0027 — Preserve evidence before retiring the completed campaign's server](0027-preservation-only-retirement-maintenance.md)

@@ -6,6 +6,14 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 ### Changed
 
+- ADR 0027 records the separately authorized preservation-only retirement
+  maintenance after the completed campaign's recovery deadline. Keep that
+  deadline and original evidence unchanged, use a bounded rescue session, and
+  require the unchanged cleanup verifier plus verified off-server preservation
+  before retiring the exact dedicated resources. B2 and scientific policy are
+  retained. This decision does not claim a completed archive, cleanup gate or
+  resource deletion.
+
 - Authenticate the 2026-09-24 finalization receipt and selected private review
   delivery. Record the matching terminal checkpoint transfer inventory
   (689 objects, 92,540,069,172 bytes), proof hashes, and the 217-file private
