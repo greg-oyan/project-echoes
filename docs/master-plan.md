@@ -3147,6 +3147,35 @@ failed output complete. ADR 0022 and the
 [final-discovery cloud runbook](final-discovery-cloud-runbook.md) specify the
 operational procedure; neither changes the registered scientific experiment.
 
+### Preservation-only retirement maintenance
+
+ADR 0027 records the owner's separate instruction to preserve server-only
+evidence, pass the existing cleanup verification, and retire the dedicated
+Scaleway resources while retaining B2. The September 29 rescue-mode maintenance
+session is capped at twelve hours from its rescue boot, with a separate ledger
+and provider poweroff safeguard. It does not reset the expired scientific
+recovery deadline or authorize a scientific rerun. Preserve original ledgers,
+source, staging, checkpoints and failure records. Run the original cleanup
+verifier unchanged and authenticate all required off-server preservation before
+resource deletion. Long maintenance commands run detached with checkpoints,
+logs, PID records and one startup check; no continuous status polling. The
+unchanged cleanup verifier passed on September 30; ADR 0027 records the retained
+receipt hash. The owner also authorized poweroff immediately after successful
+preservation, verified operational supplementation and verified closed-log
+closeout. The separate completion action was armed at `2026-09-30T05:21:41Z`
+without restarting the active worker. It must authenticate those receipts before
+requesting poweroff. The twelve-hour fallback was unchanged and active at
+arming; this action performs no deletion. The closeout recorded at
+`2026-09-30T05:43:19Z` was authenticated from B2 on October 1. Independent local
+verification passed the retained cleanup, complete preservation, operational
+supplement and final log-closeout receipt bindings, including the recorded full
+readbacks, satisfying the cleanup and preservation evidence gate. It did not
+repeat the whole archive download. The owner reports the
+instance stopped; current provider state and resource absence have not been
+independently verified, and no resource deletion has occurred. Exact-resource
+retirement remains subject to ADR 0027's scope, provider permissions and absence
+verification. Human-review requirements remain unchanged.
+
 ## Milestone 8: First unknown-candidate review
 
 Status: **Original form closed without execution; review component

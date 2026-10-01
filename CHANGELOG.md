@@ -6,6 +6,23 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
 
 ### Changed
 
+- ADR 0027 records the separately authorized preservation-only retirement
+  maintenance after the completed campaign's recovery deadline. Keep that
+  deadline and original evidence unchanged, use a bounded rescue session, and
+  require the unchanged cleanup verifier plus verified off-server preservation
+  before retiring the exact dedicated resources. B2 and scientific policy are
+  retained. The unchanged cleanup verifier subsequently passed with its receipt
+  hash retained in the ADR. The owner authorized early poweroff after verified
+  preservation, audit supplementation and closed-log closeout, keeping the
+  twelve-hour fallback unchanged. The completion hook was armed on September 30
+  without restarting the active worker. The final closeout was authenticated
+  from B2 on October 1: its verified receipts establish cleanup, preservation of
+  207,103 entries in 27 shards and 114 compressed parts, the operational audit
+  supplement, and final log closeout. Verification authenticates the retained
+  full-readback proofs without repeating the complete archive download. The
+  latest stopped state is owner-reported; no resource deletion has occurred.
+  Human review and scientific acceptance requirements remain unchanged.
+
 - Authenticate the 2026-09-24 finalization receipt and selected private review
   delivery. Record the matching terminal checkpoint transfer inventory
   (689 objects, 92,540,069,172 bytes), proof hashes, and the 217-file private

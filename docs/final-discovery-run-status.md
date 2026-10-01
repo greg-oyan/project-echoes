@@ -1,10 +1,17 @@
 # Final-discovery run status
 
-The verified handoff snapshot, **2026-09-24 at 16:25 UTC**, confirms all 11
+The latest maintenance closeout was authenticated from private B2 on
+**2026-10-01 at 04:35 UTC**. Its retained receipts establish successful cleanup,
+complete evidence preservation, operational audit supplementation and final
+log closeout. The owner reports the instance **Stopped** on September 30;
+current provider state has not been independently verified, and no resource
+deletion has occurred. Human review remains incomplete.
+
+The historical handoff snapshot, **2026-09-24 at 16:25 UTC**, confirms all 11
 computational stages, passing all-stage validation with zero errors, the final
 checkpoint receipts, and delivery of the selected review bundle into private
 research storage. The provider API independently confirmed the existing
-instance is **stopped** after retrieval. Human review remains incomplete, with
+instance was **stopped** after that retrieval. Human review remains incomplete, with
 zero candidate adjudications recorded.
 
 This is a sanitized status record for run
@@ -13,6 +20,46 @@ This is a sanitized status record for run
 [machine-readable snapshot](final-discovery-run-status.json) contains the same
 aggregate facts and proof hashes. Neither file is a live status feed or a
 replacement for the private authenticated receipts.
+
+## Verified maintenance closeout
+
+The closeout was recorded at `2026-09-30T05:43:19.032752Z` and authenticated from
+B2 at `2026-10-01T04:35:19.257195Z`. The independent local verifier passed the
+embedded file hashes and cleanup, successful worker completion, preservation,
+operational supplement and final log-closeout receipt bindings.
+
+| Measure | Verified value |
+| --- | ---: |
+| Preserved source entries | 207,103 |
+| Complete archive shards | 27 |
+| Compressed archive parts | 114 |
+| Compressed archive bytes | 106,531,871,127 |
+| Final closeout receipt bytes | 97,310 |
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Unchanged cleanup verification receipt | `e4fa585a842175063be93397fc71e85e01f2247ac5a12be9123a63e4621b394d` |
+| Authenticated final maintenance closeout | `e6d52a166d2611cd28285cbfd0466ae66ae7b524c657a0083dbe17cce4cccc79` |
+
+The closeout check authenticates the archive's retained full-download readback
+proofs. It does not repeat the complete archive download or source rehash. The
+original final package and the additional preservation archive remain private
+in B2. No restricted contents, operational payloads or credentials are included
+in this public record.
+
+The closeout preserves poweroff intent; it does not prove the provider action
+executed or establish current stopped state. The latest stopped observation is
+owner-reported. Resource retirement remains incomplete: no instance, volume or
+IP reservation deletion or independent absence check has occurred. The cleanup
+and preservation evidence gate has passed. Deletion remains conditionally
+authorized for only the dedicated instance, identified SBS volume and associated
+IP reservations, subject to exact target identity and provider permissions. The
+scope and absence-verification requirements are recorded in
+[ADR 0027](decisions/0027-preservation-only-retirement-maintenance.md).
+
+The following computational and delivery records retain the September 24
+snapshot. The maintenance closeout changes no scientific result or human-review
+acceptance.
 
 ## Verified computational results
 
@@ -67,8 +114,10 @@ receipts. At **16:24:13 UTC**, a separate bounded B2 recheck passed: the complet
 path/size inventories for the final package and terminal checkpoint matched
 the retained receipts, and all six critical remote proof files matched their
 expected bytes. This recheck did not rehash the full local artifact tree or
-repeat the full remote content comparison. The destructive cleanup gate has
-not been established, and no deletion is authorized.
+repeat the full remote content comparison. At that September 24 snapshot the
+destructive cleanup gate had not been established and deletion was not
+authorized. The later cleanup pass and conditional retirement authorization are
+recorded above and in ADR 0027.
 
 At **16:25:29 UTC**, an authenticated provider API query for the exact existing
 instance confirmed `stopped`. Retrieval and these checks did not start the
@@ -99,8 +148,9 @@ deletion of the existing archive requires a separate explicit decision.
 
 The remaining handoff work is:
 
-1. Preserve the delivered proof, review and operational records, all worker
-   staging, checkpoints, failure records, and remote artifacts.
+1. Retain the authenticated proof, review, preservation and operational archives
+   in private storage. Complete only the exact resource retirement authorized
+   by ADR 0027 after checking provider permissions, and verify resource absence.
 2. Complete the governed human review, including all 100 Tier B candidates.
    Record decisions and retain rejected candidates; do not treat computational
    eligibility as a scholarly finding.
