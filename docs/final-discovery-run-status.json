@@ -3,9 +3,50 @@
   "experiment_id": "final-discovery-v1",
   "run_id": "20260923-review-compressed-e426b189",
   "code_commit": "b0fe9ac8982f12f580a0ea6e37e3ee60c03164a0",
-  "last_verified_snapshot_at_utc": "2026-09-24T16:25:29.649743Z",
+  "last_verified_snapshot_at_utc": "2026-10-01T04:35:19.257195Z",
+  "historical_handoff_snapshot_at_utc": "2026-09-24T16:25:29.649743Z",
   "snapshot_scope": "sanitized_aggregate_status_and_proof_hashes",
   "live_status_feed": false,
+  "maintenance_closeout": {
+    "status": "authenticated_download_and_receipt_bindings_verified",
+    "recorded_at_utc": "2026-09-30T05:43:19.032752Z",
+    "authenticated_download_at_utc": "2026-10-01T04:35:19.257195Z",
+    "receipt_sha256": "e6d52a166d2611cd28285cbfd0466ae66ae7b524c657a0083dbe17cce4cccc79",
+    "receipt_size_bytes": 97310,
+    "receipt_consistency_verified": true,
+    "evidence_gate_passed": true,
+    "unchanged_cleanup_verifier_passed": true,
+    "cleanup_receipt_sha256": "e4fa585a842175063be93397fc71e85e01f2247ac5a12be9123a63e4621b394d",
+    "worker_exit_success_recorded": true,
+    "preservation_complete": true,
+    "preserved_source_entries": 207103,
+    "preserved_shards": 27,
+    "recorded_compressed_part_count": 114,
+    "recorded_compressed_bytes": 106531871127,
+    "recorded_full_readback_proofs_verified": true,
+    "operational_audit_supplement_verified": true,
+    "final_log_closeout_verified": true,
+    "fresh_archive_download_or_rehash_performed": false,
+    "poweroff_intent_preserved": true,
+    "provider_poweroff_action_execution_verified": false,
+    "latest_instance_power_state": "stopped",
+    "power_state_confirmation_basis": "owner_reported_console_observation",
+    "power_state_reported_on": "2026-09-30",
+    "provider_stopped_verified": false,
+    "resource_deletion_performed": false,
+    "resource_absence_verified": false,
+    "resource_retirement_complete": false,
+    "resource_deletion_conditionally_authorized": true,
+    "retirement_authorization": "conditional_exact_resource_scope_under_ADR_0027",
+    "authorized_resource_scope": [
+      "dedicated_instance",
+      "identified_SBS_volume",
+      "associated_IP_reservations"
+    ],
+    "b2_retained": true,
+    "scientific_rerun_performed": false,
+    "new_scientific_or_human_review_acceptance_claimed": false
+  },
   "computational_stages": {
     "registered_count": 11,
     "completed_count": 11
@@ -39,6 +80,8 @@
     "object_count": 682
   },
   "finalization": {
+    "status_scope": "historical_handoff_snapshot",
+    "historical_snapshot_at_utc": "2026-09-24T16:25:29.649743Z",
     "campaign_seal_sha256": "ea7c996eb71837d56f504c2d48db6c65257faed0c1fa56410622e649597fc7c8",
     "stage_11_completion_manifest_sha256": "7235259cf4c27539556c7b55ec1d8088579c898dbd17853818d335714b43b76d",
     "receipt_state_at_snapshot": "authenticated",
@@ -116,7 +159,8 @@
     }
   },
   "remaining_handoff": [
-    "preserve_delivered_records_and_all_existing_worker_and_remote_evidence",
+    "retain_verified_private_proof_review_preservation_and_operational_archives",
+    "complete_only_ADR_0027_authorized_resource_retirement_and_verify_absence",
     "complete_governed_human_review_including_all_tier_b_candidates",
     "keep_current_sync_scoped_to_github_and_b2",
     "plan_any_archive_migration_separately"

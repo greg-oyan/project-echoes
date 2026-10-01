@@ -2,8 +2,8 @@
 
 Date: 2026-09-29
 
-Status: Unchanged cleanup passed; completion poweroff armed; preservation,
-executed poweroff and resource retirement not yet established by retained receipts.
+Status: Cleanup, preservation and final closeout authenticated; stopped state
+owner-reported; resource deletion not performed.
 
 ## Context
 
@@ -65,7 +65,7 @@ and their verified B2 readbacks. First retain and verify a final closeout of the
 completion marker, closed controller logs and poweroff intent in a fresh private
 B2 namespace. Attach this action without restarting or changing the running
 worker. Missing or inconsistent completion evidence must refuse early poweroff.
-The unchanged twelve-hour fallback remains `2026-09-30T14:29:49Z` for this rescue
+The unchanged twelve-hour fallback was `2026-09-30T14:29:49Z` for this rescue
 boot; early completion does not extend it. This completion action deletes no
 instance, volume, IP reservation, local evidence or B2 object. An accepted
 poweroff request does not establish that the provider has stopped the instance.
@@ -89,5 +89,25 @@ The completion poweroff action was armed at `2026-09-30T05:21:41Z` as a runtime
 `OnSuccess` hook. The retained arming record confirms the loaded hook, unchanged
 active controller process and active fallback timer. Eighteen offline checks,
 unit validation and a harmless live completion-event test passed. Preservation
-was still running; this record does not claim completed preservation, executed
-early poweroff, independently confirmed stopped state or resource deletion.
+was still running at that arming snapshot.
+
+The final closeout recorded at `2026-09-30T05:43:19.032752Z` was downloaded from
+the authenticated B2 object at `2026-10-01T04:35:19.257195Z`. The 97,310-byte
+receipt has SHA-256
+`e6d52a166d2611cd28285cbfd0466ae66ae7b524c657a0083dbe17cce4cccc79`.
+Independent local verification passed its embedded hashes, unchanged cleanup
+receipt, successful worker completion, complete preservation receipts,
+operational audit supplement and final log-closeout bindings. The retained
+proofs cover 207,103 source entries in 27 shards and 114 compressed parts,
+totaling 106,531,871,127 compressed bytes. Their original full-download readback
+proofs are authenticated; this local closeout check did not download or rehash
+the complete archives again. This satisfies the cleanup and preservation
+evidence gate for the conditionally authorized exact-resource retirement.
+
+The owner reports the instance stopped on September 30. The closeout preserves
+poweroff intent and does not prove execution of the provider action or the
+latest provider state. No instance, volume or IP reservation has been deleted,
+and no resource absence is claimed. B2 remains retained. Exact-resource
+retirement still requires the applicable provider permissions and independent
+absence verification under this decision. No new scientific or human-review
+acceptance is established.

@@ -3164,10 +3164,17 @@ receipt hash. The owner also authorized poweroff immediately after successful
 preservation, verified operational supplementation and verified closed-log
 closeout. The separate completion action was armed at `2026-09-30T05:21:41Z`
 without restarting the active worker. It must authenticate those receipts before
-requesting poweroff. The twelve-hour fallback remains unchanged and active;
-this action performs no deletion. Preservation completion,
-actual provider stopped state and resource retirement remain unverified until
-retained receipts establish them. Human-review requirements remain unchanged.
+requesting poweroff. The twelve-hour fallback was unchanged and active at
+arming; this action performs no deletion. The closeout recorded at
+`2026-09-30T05:43:19Z` was authenticated from B2 on October 1. Independent local
+verification passed the retained cleanup, complete preservation, operational
+supplement and final log-closeout receipt bindings, including the recorded full
+readbacks, satisfying the cleanup and preservation evidence gate. It did not
+repeat the whole archive download. The owner reports the
+instance stopped; current provider state and resource absence have not been
+independently verified, and no resource deletion has occurred. Exact-resource
+retirement remains subject to ADR 0027's scope, provider permissions and absence
+verification. Human-review requirements remain unchanged.
 
 ## Milestone 8: First unknown-candidate review
 

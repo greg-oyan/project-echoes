@@ -15,8 +15,13 @@ All notable changes to Project Echoes are recorded here. The format follows [Kee
   hash retained in the ADR. The owner authorized early poweroff after verified
   preservation, audit supplementation and closed-log closeout, keeping the
   twelve-hour fallback unchanged. The completion hook was armed on September 30
-  without restarting the active worker. Completed preservation, actual provider
-  stopped state and resource deletion are not yet established by this record.
+  without restarting the active worker. The final closeout was authenticated
+  from B2 on October 1: its verified receipts establish cleanup, preservation of
+  207,103 entries in 27 shards and 114 compressed parts, the operational audit
+  supplement, and final log closeout. Verification authenticates the retained
+  full-readback proofs without repeating the complete archive download. The
+  latest stopped state is owner-reported; no resource deletion has occurred.
+  Human review and scientific acceptance requirements remain unchanged.
 
 - Authenticate the 2026-09-24 finalization receipt and selected private review
   delivery. Record the matching terminal checkpoint transfer inventory
